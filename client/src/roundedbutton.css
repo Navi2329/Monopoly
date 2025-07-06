@@ -1,0 +1,22 @@
+.rounded-button {
+    background: linear-gradient(to right, #7c3aed, #4c1d95);
+    color: white;
+    border: none;
+    border-radius: 0.25rem; /* subtle curvature */
+    cursor: pointer;
+    font-size: 1.25rem;
+    transition: background 0.3s;
+    box-shadow: 0 10px 25px 0 rgba(76, 29, 149, 0.5); 
+    letter-spacing: 0.05em;
+    margin-bottom: 0.5rem;
+    /* Remove fixed padding to allow inline styles to work */
+    padding: 0.5rem 1rem;
+    /* Add these to make inline styles work */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.rounded-button:hover {
+    background: linear-gradient(to right, #6d28d9, #2e1065);
+}
