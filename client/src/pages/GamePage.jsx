@@ -27,6 +27,83 @@ const GamePage = () => {
 
   // Bots state
   const [bots, setBots] = useState([]);
+  const [isAddingBots, setIsAddingBots] = useState(false);
+  const [gameSettings, setGameSettings] = useState({
+    maxPlayers: 4,
+    allowBots: false,
+    startingCash: 1500
+  });
+
+  // Bot names for dynamic joining
+  const botNames = [
+    'CyberTrader', 'PropertyBot', 'RichBot', 'MonopolyAI', 
+    'AutoInvestor', 'SmartPlayer', 'GameBot', 'TradeMaster'
+  ];
+
+  // Function to add bots with delays
+  const addBotsWithDelay = async (botsNeeded, startingCash) => {
+    if (botsNeeded <= 0) return;
+    
+    setIsAddingBots(true);
+    
+    // Get names of existing bots to avoid duplicates
+    const existingBotNames = bots.map(bot => bot.name);
+    const availableBotNames = botNames.filter(name => !existingBotNames.includes(name));
+    
+    for (let i = 0; i < botsNeeded && i < availableBotNames.length; i++) {
+      const botName = availableBotNames[i];
+      const bot = {
+        id: `bot-${Date.now()}-${i}`,
+        name: botName,
+        isBot: true,
+        isOnline: true,
+        color: ['#ef4444', '#f97316', '#06b6d4', '#8b5cf6', '#10b981', '#f59e0b', '#ec4899', '#6366f1'][i % 8],
+        money: startingCash,
+        icon: botName[0],
+        isJoining: true
+      };
+      
+      setBots(prev => [...prev, bot]);
+      
+      // Add to game log
+      console.log(`Bot ${bot.name} is joining...`);
+      
+      // Wait 1 second before adding next bot
+      if (i < botsNeeded - 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+    
+    // Remove joining animation after all bots are added
+    setTimeout(() => {
+      setBots(prev => prev.map(bot => ({ ...bot, isJoining: false })));
+      setIsAddingBots(false);
+    }, 500);
+  };
+
+  // Effect to manage bots when settings change
+  React.useEffect(() => {
+    const manageBotsAsync = async () => {
+      if (gameSettings.allowBots && !gameStarted && !isAddingBots && playerJoined) {
+        // Calculate how many bots we need
+        const humanPlayers = players.filter(p => !p.isBot);
+        const totalSlotsNeeded = gameSettings.maxPlayers - humanPlayers.length;
+        const botsNeeded = totalSlotsNeeded - bots.length;
+        
+        if (botsNeeded > 0) {
+          await addBotsWithDelay(botsNeeded, gameSettings.startingCash);
+        } else if (botsNeeded < 0) {
+          // Remove excess bots only when maxPlayers is reduced
+          const botsToKeep = bots.slice(0, totalSlotsNeeded);
+          setBots(botsToKeep);
+        }
+      }
+      // Note: Removed automatic bot removal when allowBots is disabled
+      // Players can manually kick bots using the X icon instead
+    };
+
+    manageBotsAsync();
+  }, [gameSettings.allowBots, gameSettings.maxPlayers, players.length, gameSettings.startingCash, gameStarted, playerJoined, isAddingBots, bots.length]);
 
   const gameUrl = `http://localhost:5173/game/${roomId}`;
 
@@ -82,7 +159,7 @@ const GamePage = () => {
 
   const handleSettingsChange = (newSettings) => {
     console.log('Settings changed:', newSettings);
-    // Here you would typically send the settings to the server
+    setGameSettings(newSettings);
   };
 
   const handleBotsChange = (newBots) => {
@@ -108,8 +185,17 @@ const GamePage = () => {
 
   const handleKickPlayer = (playerId) => {
     console.log('Kicking player:', playerId);
-    // Remove player from the game
-    setPlayers(players.filter(p => p.id !== playerId));
+    
+    // Check if it's a bot or human player
+    const isBot = playerId.startsWith('bot-');
+    
+    if (isBot) {
+      // Remove bot
+      setBots(prev => prev.filter(bot => bot.id !== playerId));
+    } else {
+      // Remove human player
+      setPlayers(prev => prev.filter(p => p.id !== playerId));
+    }
   };
 
   // Combine human players and bots for display
@@ -192,6 +278,7 @@ const GamePage = () => {
               gameStarted={gameStarted}
               isHost={true}
               onKickPlayer={handleKickPlayer}
+              playerJoined={playerJoined}
             />
           </div>
 
@@ -288,11 +375,11 @@ const GamePage = () => {
             /* Game Settings Section - Only before game starts */
             <div className="flex-1 overflow-y-auto">
               <GameSettings 
+                settings={gameSettings}
                 onSettingsChange={handleSettingsChange}
-                onBotsChange={handleBotsChange}
                 isHost={true}
                 players={players}
-                maxPlayers={4}
+                maxPlayers={gameSettings.maxPlayers}
                 gameStarted={gameStarted}
                 playerJoined={playerJoined}
               />
@@ -302,6 +389,5 @@ const GamePage = () => {
       </div>
     </div>
   );
-};
-
+}
 export default GamePage;

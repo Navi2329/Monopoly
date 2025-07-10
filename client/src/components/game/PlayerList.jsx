@@ -1,6 +1,6 @@
 import React from 'react';
 
-const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = false, onKickPlayer }) => {
+const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = false, onKickPlayer, playerJoined = true }) => {
   const hasPlayers = players.length > 0;
   
   return (
@@ -21,9 +21,16 @@ const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = fa
       </div>
       
       {/* Players List or Waiting State */}
-      {!hasPlayers ? (
+      {!playerJoined ? (
         <div className="text-center py-8">
           <div className="text-white/50 text-sm mb-2">Waiting for players...</div>
+          <div className="animate-pulse flex justify-center">
+            <div className="w-8 h-8 bg-white/10 rounded-full"></div>
+          </div>
+        </div>
+      ) : !hasPlayers ? (
+        <div className="text-center py-8">
+          <div className="text-white/50 text-sm mb-2">No other players yet</div>
           <div className="animate-pulse flex justify-center">
             <div className="w-8 h-8 bg-white/10 rounded-full"></div>
           </div>
@@ -31,16 +38,16 @@ const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = fa
       ) : (
         <div className="space-y-2">
           {players.map((player) => (
-            <div key={player.id} className="group">
+            <div key={player.id} className={`group transition-all duration-500 ${player.isJoining ? 'animate-pulse' : ''}`}>
               <div className="flex items-center justify-between bg-black/20 backdrop-blur-sm p-2.5 rounded-md border border-white/5 hover:border-white/10 transition-all duration-200 hover:bg-black/30">
                 <div className="flex items-center gap-2.5">
                   <div className="relative">
                     {/* Color circle */}
                     <div
-                      className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-sm"
+                      className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-sm transition-all duration-300 ${player.isJoining ? 'scale-110' : ''}`}
                       style={{ 
                         backgroundColor: player.color,
-                        boxShadow: `0 0 10px ${player.color}30`
+                        boxShadow: `0 0 10px ${player.color}30${player.isJoining ? ', 0 0 20px ' + player.color + '50' : ''}`
                       }}
                     >
                       {player.avatar ? (
@@ -60,15 +67,25 @@ const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = fa
                         👑
                       </div>
                     )}
+                    
+                    {/* Joining indicator */}
+                    {player.isJoining && (
+                      <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full flex items-center justify-center text-[8px] shadow-sm animate-bounce">
+                        ✨
+                      </div>
+                    )}
                   </div>
                   
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-xs text-white/90 truncate flex items-center gap-1">
                       {player.name}
-                      {player.isOnline && (
+                      {player.isJoining && (
+                        <span className="text-[10px] text-green-400 animate-pulse">joining...</span>
+                      )}
+                      {!player.isJoining && player.isOnline && (
                         <div className="w-1.5 h-1.5 bg-green-500 rounded-full shadow-sm flex-shrink-0"></div>
                       )}
-                      {player.isBot && (
+                      {player.isBot && !player.isJoining && (
                         <span className="text-[10px] text-purple-400 bg-purple-500/20 px-1 rounded">BOT</span>
                       )}
                     </div>
@@ -81,7 +98,7 @@ const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = fa
                     <button 
                       onClick={() => onKickPlayer && onKickPlayer(player.id)}
                       className="bg-red-600/80 hover:bg-red-600 text-white w-6 h-6 rounded text-xs font-medium transition-all duration-200 opacity-0 group-hover:opacity-100 flex items-center justify-center"
-                      title="Kick player"
+                      title={`Kick ${player.isBot ? 'bot' : 'player'}`}
                     >
                       ✕
                     </button>

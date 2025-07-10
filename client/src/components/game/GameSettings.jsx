@@ -3,7 +3,6 @@ import React, { useState, useEffect } from 'react';
 const GameSettings = ({ 
   settings = {}, 
   onSettingsChange = () => {},
-  onBotsChange = () => {},
   isHost = true,
   players = [],
   maxPlayers = 4,
@@ -27,42 +26,6 @@ const GameSettings = ({
     ...settings
   });
 
-  const [bots, setBots] = useState([]);
-
-  // Bot names for dynamic joining
-  const botNames = [
-    'CyberTrader', 'PropertyBot', 'RichBot', 'MonopolyAI', 
-    'AutoInvestor', 'SmartPlayer', 'GameBot', 'TradeMaster'
-  ];
-
-  useEffect(() => {
-    if (localSettings.allowBots && players.length < localSettings.maxPlayers) {
-      // Add bots to fill remaining slots
-      const humanPlayers = players.filter(p => !p.isBot);
-      const botsNeeded = localSettings.maxPlayers - humanPlayers.length;
-      const newBots = [];
-      
-      for (let i = 0; i < botsNeeded; i++) {
-        if (i < botNames.length) {
-          newBots.push({
-            id: `bot-${i + 1}`,
-            name: botNames[i],
-            isBot: true,
-            isOnline: true,
-            color: ['#ef4444', '#f97316', '#06b6d4', '#8b5cf6'][i % 4],
-            money: localSettings.startingCash,
-            icon: botNames[i][0]
-          });
-        }
-      }
-      setBots(newBots);
-      onBotsChange(newBots);
-    } else {
-      setBots([]);
-      onBotsChange([]);
-    }
-  }, [localSettings.allowBots, localSettings.maxPlayers, players.length, localSettings.startingCash]);
-
   const handleChange = (key, value) => {
     const newSettings = { ...localSettings, [key]: value };
     setLocalSettings(newSettings);
@@ -75,7 +38,7 @@ const GameSettings = ({
         type="checkbox"
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
-        disabled={disabled || !isHost}
+        disabled={disabled || !isHost || !playerJoined || gameStarted}
         className="sr-only"
       />
       <div
@@ -83,7 +46,7 @@ const GameSettings = ({
           checked 
             ? 'bg-gradient-to-r from-blue-500 to-blue-600 shadow-lg shadow-blue-500/30' 
             : 'bg-white/20 shadow-inner'
-        } ${disabled || !isHost ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:shadow-lg'}`}
+        } ${disabled || !isHost || !playerJoined || gameStarted ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:shadow-lg'}`}
       >
         <div
           className={`w-4 h-4 bg-white rounded-full shadow-md transition-all duration-300 ease-in-out absolute top-1 ${
@@ -94,51 +57,10 @@ const GameSettings = ({
     </label>
   );
 
-  const totalPlayers = players.length + (localSettings.allowBots ? bots.length : 0);
-  const humanPlayers = players.filter(p => !p.isBot);
+  const totalPlayers = players.length;
 
   return (
     <div className="flex flex-col h-full">
-      {/* Waiting for players section - Only show before player joins */}
-      {!playerJoined && (
-        <div className="px-4 py-4 bg-gradient-to-r from-blue-600/20 to-purple-600/20 backdrop-blur-sm rounded-lg mx-4 mb-4 border border-white/10">
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-sm font-medium text-white/90">Waiting for players...</div>
-            <div className="text-xs text-white/60">{totalPlayers}/{localSettings.maxPlayers}</div>
-          </div>
-          <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
-            <div 
-              className="h-full bg-gradient-to-r from-blue-400 to-purple-400 rounded-full transition-all duration-500 ease-out"
-              style={{ width: `${(totalPlayers / localSettings.maxPlayers) * 100}%` }}
-            />
-          </div>
-          
-          {/* Player slots visualization */}
-          <div className="flex gap-2 mt-3">
-            {Array.from({ length: localSettings.maxPlayers }, (_, i) => {
-              const player = [...players, ...bots][i];
-              return (
-                <div key={i} className="flex-1 flex items-center justify-center">
-                  {player ? (
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white ${
-                      player.isBot ? 'bg-gradient-to-r from-slate-500 to-slate-600 animate-pulse' : 'bg-gradient-to-r from-blue-500 to-purple-500'
-                    }`}>
-                      {player.icon}
-                    </div>
-                  ) : (
-                    <div className="w-8 h-8 rounded-full border-2 border-dashed border-white/30 flex items-center justify-center">
-                      <svg className="w-4 h-4 text-white/40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                      </svg>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
       {/* Settings content */}
       <div className="flex-1 overflow-y-auto custom-scrollbar">
         {/* Game Settings Header */}
@@ -169,7 +91,7 @@ const GameSettings = ({
               <select 
                 value={localSettings.maxPlayers}
                 onChange={(e) => handleChange('maxPlayers', parseInt(e.target.value))}
-                disabled={!isHost}
+                disabled={!isHost || !playerJoined || gameStarted}
                 className="bg-white/5 text-white/90 px-3 py-1.5 rounded-lg text-sm border border-white/10 hover:border-white/20 focus:border-blue-400 focus:outline-none transition-all disabled:opacity-50 min-w-[70px]"
               >
                 <option value={4} className="bg-slate-800">4</option>
@@ -256,7 +178,7 @@ const GameSettings = ({
                   <span className="text-sm text-white/90">{localSettings.boardMap}</span>
                   <button 
                     className="text-blue-400 hover:text-blue-300 disabled:opacity-50 transition-colors p-1 rounded-md hover:bg-white/5"
-                    disabled={!isHost}
+                    disabled={!isHost || !playerJoined || gameStarted}
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/>
@@ -411,7 +333,7 @@ const GameSettings = ({
                 <select 
                   value={localSettings.startingCash}
                   onChange={(e) => handleChange('startingCash', parseInt(e.target.value))}
-                  disabled={!isHost}
+                  disabled={!isHost || !playerJoined || gameStarted}
                   className="w-full bg-white/5 text-white/90 px-3 py-2 rounded-lg text-sm border border-white/10 hover:border-white/20 focus:border-blue-400 focus:outline-none transition-all disabled:opacity-50"
                 >
                   <option value={1000} className="bg-slate-800">$1,000</option>
@@ -442,7 +364,21 @@ const GameSettings = ({
             </div>
           </div>
 
-          {!isHost && (
+          {!playerJoined ? (
+            <div className="mx-4 mb-4 text-xs text-white/60 bg-black/20 backdrop-blur-sm rounded-lg p-3 border border-white/10 flex items-center gap-2">
+              <svg className="w-4 h-4 text-yellow-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+              </svg>
+              Join the game to access settings
+            </div>
+          ) : gameStarted ? (
+            <div className="mx-4 mb-4 text-xs text-white/60 bg-black/20 backdrop-blur-sm rounded-lg p-3 border border-white/10 flex items-center gap-2">
+              <svg className="w-4 h-4 text-blue-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+              </svg>
+              Settings are locked once the game starts
+            </div>
+          ) : !isHost && (
             <div className="mx-4 mb-4 text-xs text-white/60 bg-black/20 backdrop-blur-sm rounded-lg p-3 border border-white/10 flex items-center gap-2">
               <svg className="w-4 h-4 text-blue-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
