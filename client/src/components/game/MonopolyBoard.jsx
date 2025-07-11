@@ -180,6 +180,13 @@ const MonopolyBoard = ({
   const [canRollAgain, setCanRollAgain] = useState(false);
   const [hasRolledBefore, setHasRolledBefore] = useState(false); // Track if any dice have been rolled
 
+  // Helper function to check if a player can roll dice
+  const canPlayerRoll = (playerId) => {
+    const status = playerStatuses[playerId];
+    // Player can't roll if in jail or on vacation
+    return status !== 'jail' && (!status || typeof status !== 'object' || status.status !== 'vacation');
+  };
+
   // Initialize player positions on START as soon as they join
   React.useEffect(() => {
     if (players.length > 0) {
@@ -451,6 +458,12 @@ const MonopolyBoard = ({
               onPlayerStatusChange(currentPlayer.id, 'jail', true);
             }
             specialAction = 'jail';
+          } else if (newPos === 20) { // Vacation
+            console.log(`${currentPlayer.name} landed on Vacation`);
+            if (onPlayerStatusChange) {
+              onPlayerStatusChange(currentPlayer.id, 'vacation', true);
+            }
+            specialAction = 'vacation';
           }
           
           // Notify parent component after movement is complete
@@ -1113,7 +1126,7 @@ const MonopolyBoard = ({
               )}
 
               {/* Normal Rolling Actions */}
-              {gamePhase === 'rolling' && (!getCurrentPlayer() || playerStatuses[getCurrentPlayer().id] !== 'jail') && canRollAgain && (
+              {gamePhase === 'rolling' && getCurrentPlayer() && canPlayerRoll(getCurrentPlayer().id) && canRollAgain && (
                 <UniformButton 
                   variant="blue"
                   disabled={isRolling}
@@ -1123,7 +1136,7 @@ const MonopolyBoard = ({
                 </UniformButton>
               )}
 
-              {gamePhase === 'rolling' && (!getCurrentPlayer() || playerStatuses[getCurrentPlayer().id] !== 'jail') && !canRollAgain && (
+              {gamePhase === 'rolling' && getCurrentPlayer() && canPlayerRoll(getCurrentPlayer().id) && !canRollAgain && (
                 <UniformButton 
                   disabled={isRolling}
                   onClick={isRolling ? undefined : rollDice}

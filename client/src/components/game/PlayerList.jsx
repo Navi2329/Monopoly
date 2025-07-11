@@ -90,7 +90,7 @@ const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = fa
                         {player.name.charAt(0).toUpperCase()}
                         
                         {/* Jail bars overlay for players in jail */}
-                        {playerStatuses[player.id]?.inJail && (
+                        {playerStatuses[player.id] === 'jail' && (
                           <Box
                             sx={{
                               position: 'absolute',
@@ -109,7 +109,7 @@ const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = fa
                     </Badge>
                     
                     {/* Vacation indicator */}
-                    {playerStatuses[player.id]?.inVacation && (
+                    {playerStatuses[player.id] && typeof playerStatuses[player.id] === 'object' && playerStatuses[player.id].status === 'vacation' && (
                       <Box
                         sx={{
                           position: 'absolute',

@@ -127,7 +127,7 @@ const GamePage = () => {
   const [lastDiceRoll, setLastDiceRoll] = useState(null);
 
   // Player status tracking
-  const [playerStatuses, setPlayerStatuses] = useState({}); // { playerId: status } where status can be 'normal', 'jail'
+  const [playerStatuses, setPlayerStatuses] = useState({}); // { playerId: status } where status can be 'normal', 'jail', or 'vacation' with turn count
 
   // Track jail cards for each player
   const [playerJailCards, setPlayerJailCards] = useState({}); // { playerId: number of jail cards }
@@ -148,6 +148,9 @@ const GamePage = () => {
   // Bots state
   const [bots, setBots] = useState([]);
   const [isAddingBots, setIsAddingBots] = useState(false);
+
+  // Combine human players and bots for display
+  const allPlayers = [...players, ...bots];
 
   // Dev options change handler
   const handleDevDiceChange = (type, value) => {
@@ -267,6 +270,23 @@ const GamePage = () => {
 
     manageBotsAsync();
   }, [gameSettings.allowBots, gameSettings.maxPlayers, players.length, gameSettings.startingCash, gameStarted, playerJoined, isAddingBots, bots.length]);
+
+  // Auto-handle vacation turns for all players
+  React.useEffect(() => {
+    if (gamePhase === 'rolling' && allPlayers.length > 0) {
+      const currentPlayerData = allPlayers[currentPlayerIndex];
+      if (currentPlayerData) {
+        const playerStatus = playerStatuses[currentPlayerData.id];
+        
+        // If any player is on vacation, automatically end their turn
+        if (playerStatus && typeof playerStatus === 'object' && playerStatus.status === 'vacation') {
+          setTimeout(() => {
+            handleEndTurn();
+          }, 1000); // Short delay to show vacation message
+        }
+      }
+    }
+  }, [gamePhase, currentPlayerIndex, allPlayers, playerStatuses]);
 
   // Define all properties on the board
   const allBoardProperties = [
@@ -412,10 +432,11 @@ const GamePage = () => {
     }
     
     // Remove from jail
-    setPlayerStatuses(prev => ({
-      ...prev,
-      [currentPlayer.id]: 'normal'
-    }));
+    setPlayerStatuses(prev => {
+      const newStatuses = { ...prev };
+      delete newStatuses[currentPlayer.id];
+      return newStatuses;
+    });
     
     // Log the action
     setGameLog(prev => [...prev, { 
@@ -442,10 +463,11 @@ const GamePage = () => {
     }));
     
     // Remove from jail
-    setPlayerStatuses(prev => ({
-      ...prev,
-      [currentPlayer.id]: 'normal'
-    }));
+    setPlayerStatuses(prev => {
+      const newStatuses = { ...prev };
+      delete newStatuses[currentPlayer.id];
+      return newStatuses;
+    });
     
     // Log the action
     setGameLog(prev => [...prev, { 
@@ -545,6 +567,20 @@ const GamePage = () => {
         [currentPlayer.id]: 'jail'
       }));
       
+    } else if (specialAction === 'vacation') {
+      setGameLog(prev => [...prev, { 
+        id: Date.now(), 
+        type: 'special', 
+        player: currentPlayer?.name,
+        message: `landed on vacation! 🏖️ Taking a break for a turn.` 
+      }]);
+      
+      // Set player status to vacation with turn counter
+      setPlayerStatuses(prev => ({
+        ...prev,
+        [currentPlayer.id]: { status: 'vacation', turnsRemaining: 1 }
+      }));
+      
     } else if (specialAction === 'jail-escape') {
       setGameLog(prev => [...prev, { 
         id: Date.now(), 
@@ -586,7 +622,13 @@ const GamePage = () => {
         handlePropertyLanding(currentPlayerIndex, landedSpaceIndex);
       }
       
-      if (isDoubles && !specialAction) {
+      // If player landed on vacation, always end turn immediately
+      if (specialAction === 'vacation') {
+        // Automatically end turn after a short delay
+        setTimeout(() => {
+          handleEndTurn();
+        }, 1500); // Give time to see the landing message
+      } else if (isDoubles && !specialAction) {
         // Player gets another turn for rolling doubles
         setGamePhase('rolling');
         setGameLog(prev => [...prev, { 
@@ -603,9 +645,45 @@ const GamePage = () => {
   };
 
   const handleEndTurn = () => {
-    let nextPlayerIndex = (currentPlayerIndex + 1) % allPlayers.length;
-    let nextPlayer = allPlayers[nextPlayerIndex];
+    // Handle current player's vacation status if they are on vacation
+    const currentPlayerStatus = playerStatuses[allPlayers[currentPlayerIndex]?.id];
     
+    if (currentPlayerStatus && typeof currentPlayerStatus === 'object' && currentPlayerStatus.status === 'vacation') {
+      if (currentPlayerStatus.turnsRemaining > 1) {
+        // Current player is still on vacation, decrease their remaining turns
+        setPlayerStatuses(prev => ({
+          ...prev,
+          [allPlayers[currentPlayerIndex].id]: { 
+            status: 'vacation', 
+            turnsRemaining: currentPlayerStatus.turnsRemaining - 1 
+          }
+        }));
+        
+        setGameLog(prev => [...prev, { 
+          id: Date.now(), 
+          type: 'info', 
+          player: allPlayers[currentPlayerIndex].name,
+          message: `is on vacation - turn skipped! ${currentPlayerStatus.turnsRemaining - 1} turns remaining.` 
+        }]);
+      } else {
+        // Vacation is over for current player
+        setPlayerStatuses(prev => {
+          const newStatuses = { ...prev };
+          delete newStatuses[allPlayers[currentPlayerIndex].id];
+          return newStatuses;
+        });
+        
+        setGameLog(prev => [...prev, { 
+          id: Date.now(), 
+          type: 'info', 
+          player: allPlayers[currentPlayerIndex].name,
+          message: `vacation is over! Back to the game.` 
+        }]);
+      }
+    }
+    
+    // Move to next player
+    let nextPlayerIndex = (currentPlayerIndex + 1) % allPlayers.length;
     setCurrentPlayerIndex(nextPlayerIndex);
     setGamePhase('rolling');
     
@@ -729,9 +807,6 @@ const GamePage = () => {
   const getUsedColors = () => {
     return allPlayers.filter(p => p.id !== currentPlayer?.id).map(p => p.color);
   };
-
-  // Combine human players and bots for display
-  const allPlayers = [...players, ...bots];
 
   // Handler for property purchase events
   const handlePropertyPurchase = (playerName, propertyName, price) => {
