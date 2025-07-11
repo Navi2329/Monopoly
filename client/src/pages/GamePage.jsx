@@ -317,8 +317,11 @@ const GamePage = () => {
       // Left row
       31: 'Liverpool', 32: 'Manchester', 34: 'London', 35: 'JFK Airport', 37: 'California', 39: 'New York'
     };
-    
-    const propertyName = propertyMap[spaceIndex];
+
+    const cornerMap = {
+      0: 'START', 10: 'PRISON', 20: 'VACATION', 30: 'GO TO JAIL'
+    }
+    const propertyName = cornerMap[spaceIndex] || propertyMap[spaceIndex];
     return allBoardProperties.find(prop => prop.name === propertyName);
   };
 
@@ -776,9 +779,24 @@ const GamePage = () => {
       // Log the purchase
       handlePropertyPurchase(player.name, property.name, property.price);
       
-      // Clear property landing state and end turn
+      // Clear property landing state
       setPropertyLandingState(null);
-      setGamePhase('turn-end');
+      
+      // Check if last roll was doubles before ending turn
+      const wasDoubles = lastDiceRoll && lastDiceRoll.dice1 === lastDiceRoll.dice2;
+      if (wasDoubles) {
+        // Player gets another turn for rolling doubles
+        setGamePhase('rolling');
+        setGameLog(prev => [...prev, { 
+          id: Date.now(), 
+          type: 'special', 
+          player: player.name,
+          message: `gets another turn for rolling doubles!` 
+        }]);
+      } else {
+        // Normal turn end
+        setGamePhase('turn-end');
+      }
     }
   };
 
@@ -794,9 +812,24 @@ const GamePage = () => {
       message: `started auction for ${property.name}` 
     }]);
     
-    // Clear property landing state and end turn
+    // Clear property landing state
     setPropertyLandingState(null);
-    setGamePhase('turn-end');
+    
+    // Check if last roll was doubles before ending turn
+    const wasDoubles = lastDiceRoll && lastDiceRoll.dice1 === lastDiceRoll.dice2;
+    if (wasDoubles) {
+      // Player gets another turn for rolling doubles
+      setGamePhase('rolling');
+      setGameLog(prev => [...prev, { 
+        id: Date.now(), 
+        type: 'special', 
+        player: player.name,
+        message: `gets another turn for rolling doubles!` 
+      }]);
+    } else {
+      // Normal turn end
+      setGamePhase('turn-end');
+    }
   };
 
   // Handle skipping to buy property
@@ -810,9 +843,24 @@ const GamePage = () => {
       message: `declined to buy ${property.name}` 
     }]);
     
-    // Clear property landing state and end turn
+    // Clear property landing state
     setPropertyLandingState(null);
-    setGamePhase('turn-end');
+    
+    // Check if last roll was doubles before ending turn
+    const wasDoubles = lastDiceRoll && lastDiceRoll.dice1 === lastDiceRoll.dice2;
+    if (wasDoubles) {
+      // Player gets another turn for rolling doubles
+      setGamePhase('rolling');
+      setGameLog(prev => [...prev, { 
+        id: Date.now(), 
+        type: 'special', 
+        player: player.name,
+        message: `gets another turn for rolling doubles!` 
+      }]);
+    } else {
+      // Normal turn end
+      setGamePhase('turn-end');
+    }
   };
 
   // Handler for property rent events

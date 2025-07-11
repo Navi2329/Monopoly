@@ -483,7 +483,7 @@ const MonopolyBoard = ({
     // Board has 40 positions total
     // 0-10: top row (START to PRISON)
     // 11-20: right row 
-    // 21-30: bottom row (FREE PARKING going left)
+    // 21-30: bottom row (Vacation going left)
     // 31-39: left row (going up to START)
     return position;
   };
@@ -706,7 +706,7 @@ const MonopolyBoard = ({
 
   // Corner spaces
   const corners = [
-    { name: 'Free Parking', type: 'corner', color: 'green', className: 'free-parking' },
+    { name: 'Vacation', type: 'corner', color: 'green', className: 'free-parking' },
     { name: 'Go to prison', type: 'corner', color: 'red', className: 'jail' }
   ];
 
@@ -722,7 +722,7 @@ const MonopolyBoard = ({
     } else if (position === 'right') {
       globalSpaceIndex = 11 + index; // 11-19
     } else if (position === 'bottom') {
-      if (space.name === 'Free Parking') {
+      if (space.name === 'Vacation') {
         globalSpaceIndex = 20;
       } else if (space.name === 'Go to prison') {
         globalSpaceIndex = 30;
@@ -850,7 +850,7 @@ const MonopolyBoard = ({
         {rightRow.map((space, index) => renderSpace(space, index, 'right'))}
       </div>
 
-      {/* Bottom Row - 11 spaces (free parking corner + 9 spaces + jail corner) */}
+      {/* Bottom Row - 11 spaces (Vacation corner + 9 spaces + jail corner) */}
       <div className="board-row bottom-row">
         {renderSpace(corners[0], 0, 'bottom')}
         {bottomRow.map((space, index) => renderSpace(space, index, 'bottom'))}
