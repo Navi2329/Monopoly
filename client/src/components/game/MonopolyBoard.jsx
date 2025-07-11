@@ -100,6 +100,38 @@ const StyledActionButton = styled(Button)(({ theme }) => ({
   }
 }));
 
+// Shared button style for all action buttons
+const UniformButton = styled(Button)(({ theme, variant, disabled: isDisabled }) => ({
+  borderRadius: '8px',
+  textTransform: 'none',
+  fontWeight: 600,
+  padding: '8px 16px', // Reduced padding for smaller height
+  fontSize: '0.875rem', // Slightly smaller font
+  border: 'none',
+  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+  boxShadow: '0 2px 8px rgba(139, 92, 246, 0.2)', // Reduced shadow
+  background: variant === 'red' ? 'linear-gradient(145deg, #ef4444, #dc2626)' :
+             variant === 'green' ? 'linear-gradient(145deg, #10b981, #059669)' :
+             variant === 'blue' ? 'linear-gradient(145deg, #3b82f6, #2563eb)' :
+             variant === 'purple' ? 'linear-gradient(145deg, #a855f7, #9333ea)' :
+             'linear-gradient(145deg, #8b5cf6, #7c3aed)',
+  color: isDisabled ? 'rgba(255, 255, 255, 0.5)' : 'white',
+  cursor: isDisabled ? 'not-allowed' : 'pointer',
+  opacity: isDisabled ? 0.6 : 1,
+  '&:hover:not(:disabled)': {
+    background: variant === 'red' ? 'linear-gradient(145deg, #dc2626, #b91c1c)' :
+               variant === 'green' ? 'linear-gradient(145deg, #059669, #047857)' :
+               variant === 'blue' ? 'linear-gradient(145deg, #2563eb, #1d4ed8)' :
+               variant === 'purple' ? 'linear-gradient(145deg, #9333ea, #7c3aed)' :
+               'linear-gradient(145deg, #7c3aed, #6d28d9)',
+    transform: 'translateY(-1px)', // Reduced transform
+    boxShadow: '0 4px 12px rgba(139, 92, 246, 0.3)', // Reduced shadow
+  },
+  '&:disabled': {
+    pointerEvents: 'none'
+  }
+}));
+
 const StyledCurrentPlayer = styled(Card)(({ theme }) => ({
   background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(34, 197, 94, 0.2))',
   border: '1px solid rgba(34, 197, 94, 0.3)',
@@ -121,16 +153,32 @@ const MonopolyBoard = ({
   onRollDice,
   onEndTurn,
   gamePhase = 'waiting', // 'waiting', 'rolling', 'moving', 'turn-end'
-  onPlayerStatusChange // New callback for vacation/jail status
+  onPlayerStatusChange, // New callback for vacation/jail status
+  propertyOwnership = {}, // Property ownership data
+  gameSettings = {}, // Game settings including auction setting
+  playerJailCards = {}, // Player jail cards
+  onPayJailFine, // Handler for paying jail fine
+  onUseJailCard, // Handler for using jail card
+  playerStatuses = {}, // Player status (jail, vacation)
+  // Property landing state and handlers
+  propertyLandingState = null, // { property, player, isActive } - null when no property landing
+  onBuyProperty, // Handler for buying property
+  onAuctionProperty, // Handler for auctioning property
+  onSkipProperty, // Handler for skipping property purchase
+  // Dev options for dice debugging
+  devDiceEnabled = false,
+  devDice1 = 1,
+  devDice2 = 1
 }) => {
-  const [dice, setDice] = useState({ dice1: 1, dice2: 1 });
+  const [dice, setDice] = useState(null);
   const [isRolling, setIsRolling] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [modalContent, setModalContent] = useState('');
   const [playerPositions, setPlayerPositions] = useState({});
   const [spaceArrivalOrder, setSpaceArrivalOrder] = useState({}); // Track arrival order for each space
-  const [playersInVacation, setPlayersInVacation] = useState(new Set()); // Track players in vacation
   const [playersInJail, setPlayersInJail] = useState(new Set()); // Track players in jail
+  const [canRollAgain, setCanRollAgain] = useState(false);
+  const [hasRolledBefore, setHasRolledBefore] = useState(false); // Track if any dice have been rolled
 
   // Initialize player positions on START as soon as they join
   React.useEffect(() => {
@@ -153,174 +201,113 @@ const MonopolyBoard = ({
     }
   }, [players.length, JSON.stringify(players.map(p => ({ id: p.id, name: p.name })))]);
 
+  // Listen for dice roll results to set canRollAgain
+  React.useEffect(() => {
+    if (gamePhase === 'rolling' && dice && dice.dice1 === dice.dice2 && !isRolling && hasRolledBefore) {
+      setCanRollAgain(true);
+    } else {
+      setCanRollAgain(false);
+    }
+  }, [gamePhase, dice, isRolling, hasRolledBefore]);
+
+  // Reset dice roll tracking when game starts
+  React.useEffect(() => {
+    if (gameStarted) {
+      setHasRolledBefore(false);
+      setDice(null);
+    }
+  }, [gameStarted]);
+
   const rollDice = () => {
     if (isRolling || gamePhase !== 'rolling') return;
     
     setIsRolling(true);
     
-    // More engaging dice animation with sound effect simulation
-    const rollAnimation = setInterval(() => {
-      setDice({
-        dice1: Math.floor(Math.random() * 6) + 1,
-        dice2: Math.floor(Math.random() * 6) + 1
-      });
-    }, 80); // Faster animation for more excitement
+    // If dev dice is enabled, use the predefined values
+    if (devDiceEnabled) {
+      // Still show rolling animation for visual effect
+      const rollAnimation = setInterval(() => {
+        setDice({
+          dice1: Math.floor(Math.random() * 6) + 1,
+          dice2: Math.floor(Math.random() * 6) + 1
+        });
+      }, 80);
 
-    // Stop animation and show result
-    setTimeout(() => {
-      clearInterval(rollAnimation);
-      const finalDice1 = Math.floor(Math.random() * 6) + 1;
-      const finalDice2 = Math.floor(Math.random() * 6) + 1;
-      const total = finalDice1 + finalDice2;
-      
-      setDice({ dice1: finalDice1, dice2: finalDice2 });
-      setIsRolling(false);
+      // Stop animation and show dev dice result
+      setTimeout(() => {
+        clearInterval(rollAnimation);
+        const finalDice1 = devDice1;
+        const finalDice2 = devDice2;
+        const total = finalDice1 + finalDice2;
+        
+        setDice({ dice1: finalDice1, dice2: finalDice2 });
+        setHasRolledBefore(true);
+        setIsRolling(false);
 
-      // Move current player with smooth step-by-step animation
-      const currentPlayer = players[currentPlayerIndex];
-      if (currentPlayer) {
-        // Check if player is in vacation - they skip their turn
-        if (playersInVacation.has(currentPlayer.id)) {
-          console.log(`${currentPlayer.name} is in vacation, skipping turn`);
-          setPlayersInVacation(prev => {
-            const newSet = new Set(prev);
-            newSet.delete(currentPlayer.id);
-            return newSet;
-          });
+        // Continue with movement logic using dev dice values
+        handleMovementLogic(finalDice1, finalDice2, total);
+      }, 1000); // Shorter animation for dev mode
+    } else {
+      // Normal random dice rolling
+      const rollAnimation = setInterval(() => {
+        setDice({
+          dice1: Math.floor(Math.random() * 6) + 1,
+          dice2: Math.floor(Math.random() * 6) + 1
+        });
+      }, 80); // Faster animation for more excitement
+
+      // Stop animation and show result
+      setTimeout(() => {
+        clearInterval(rollAnimation);
+        const finalDice1 = Math.floor(Math.random() * 6) + 1;
+        const finalDice2 = Math.floor(Math.random() * 6) + 1;
+        const total = finalDice1 + finalDice2;
+        
+        setDice({ dice1: finalDice1, dice2: finalDice2 });
+        setHasRolledBefore(true); // Mark that a dice roll has occurred
+        setIsRolling(false);
+
+        // Continue with movement logic
+        handleMovementLogic(finalDice1, finalDice2, total);
+      }, 1800); // Slightly longer dice roll for anticipation
+    }
+  };
+
+  // Extract movement logic into separate function for reuse
+  const handleMovementLogic = (finalDice1, finalDice2, total) => {
+    // Move current player with smooth step-by-step animation
+    const currentPlayer = players[currentPlayerIndex];
+    if (currentPlayer) {
+      // Check if player is in jail using playerStatuses prop
+      if (playerStatuses[currentPlayer.id] === 'jail') {
+        console.log(`${currentPlayer.name} is in jail`);
+        
+        // Check if doubles were rolled to get out of jail
+        const isDoubles = finalDice1 === finalDice2;
+        
+        if (isDoubles) {
+          console.log(`${currentPlayer.name} rolled doubles and got out of jail!`);
           
           if (onPlayerStatusChange) {
-            onPlayerStatusChange(currentPlayer.id, 'vacation', false);
+            onPlayerStatusChange(currentPlayer.id, 'jail', false);
           }
           
-          // Check if doubles were rolled
-          const isDoubles = finalDice1 === finalDice2;
+          // Player moves from jail with the roll
+          const currentPos = 10; // Jail position
+          const newPos = (currentPos + total) % 40;
           
-          // Notify parent component - no movement, just end turn
-          if (onRollDice) {
-            onRollDice(finalDice1, finalDice2, 0, isDoubles, 'vacation-skip');
-          }
-          return;
-        }
-        
-        // Check if player is in jail
-        if (playersInJail.has(currentPlayer.id)) {
-          console.log(`${currentPlayer.name} is in jail`);
-          
-          // Check if doubles were rolled to get out of jail
-          const isDoubles = finalDice1 === finalDice2;
-          
-          if (isDoubles) {
-            console.log(`${currentPlayer.name} rolled doubles and got out of jail!`);
-            setPlayersInJail(prev => {
-              const newSet = new Set(prev);
-              newSet.delete(currentPlayer.id);
-              return newSet;
-            });
+          // Move player normally from jail
+          let step = 0;
+          const moveInterval = setInterval(() => {
+            step++;
+            const intermediatePos = (currentPos + step) % 40;
             
-            if (onPlayerStatusChange) {
-              onPlayerStatusChange(currentPlayer.id, 'jail', false);
-            }
-            
-            // Player moves from jail with the roll
-            const currentPos = 10; // Jail position
-            const newPos = (currentPos + total) % 40;
-            
-            // Move player normally from jail
-            let step = 0;
-            const moveInterval = setInterval(() => {
-              step++;
-              const intermediatePos = (currentPos + step) % 40;
-              
-              setPlayerPositions(prev => ({
-                ...prev,
-                [currentPlayer.id]: intermediatePos
-              }));
-              
-              // Update arrival order for intermediate positions during movement
-              setSpaceArrivalOrder(prev => {
-                const newOrder = { ...prev };
-                
-                // Remove player from all positions
-                Object.keys(newOrder).forEach(spaceIndex => {
-                  newOrder[spaceIndex] = newOrder[spaceIndex].filter(id => id !== currentPlayer.id);
-                  if (newOrder[spaceIndex].length === 0) {
-                    delete newOrder[spaceIndex];
-                  }
-                });
-                
-                // Add player to new position
-                if (!newOrder[intermediatePos]) {
-                  newOrder[intermediatePos] = [];
-                }
-                newOrder[intermediatePos].push(currentPlayer.id);
-                
-                return newOrder;
-              });
-              
-              if (step >= total) {
-                clearInterval(moveInterval);
-                // Notify parent component after movement is complete
-                if (onRollDice) {
-                  onRollDice(finalDice1, finalDice2, total, isDoubles, 'jail-escape');
-                }
-              }
-            }, 150);
-            
-            return;
-          } else {
-            // Player stays in jail
-            console.log(`${currentPlayer.name} stays in jail (didn't roll doubles)`);
-            if (onRollDice) {
-              onRollDice(finalDice1, finalDice2, 0, false, 'jail-stay');
-            }
-            return;
-          }
-        }
-        
-        const currentPos = playerPositions[currentPlayer.id] || 0;
-        const newPos = (currentPos + total) % 40; // 40 spaces on the board
-        
-        // Animate movement step by step with smooth transitions
-        let step = 0;
-        const moveInterval = setInterval(() => {
-          step++;
-          const intermediatePos = (currentPos + step) % 40;
-          
-          setPlayerPositions(prev => ({
-            ...prev,
-            [currentPlayer.id]: intermediatePos
-          }));
-          
-          // Update arrival order for intermediate positions during movement
-          setSpaceArrivalOrder(prev => {
-            const newOrder = { ...prev };
-            
-            // Remove player from all positions
-            Object.keys(newOrder).forEach(spaceIndex => {
-              newOrder[spaceIndex] = newOrder[spaceIndex].filter(id => id !== currentPlayer.id);
-              if (newOrder[spaceIndex].length === 0) {
-                delete newOrder[spaceIndex];
-              }
-            });
-            
-            // Add player to new position
-            if (!newOrder[intermediatePos]) {
-              newOrder[intermediatePos] = [];
-            }
-            newOrder[intermediatePos].push(currentPlayer.id);
-            
-            return newOrder;
-          });
-          
-          if (step >= total) {
-            clearInterval(moveInterval);
-            // Final position update - ensure player stays at the final position
             setPlayerPositions(prev => ({
               ...prev,
-              [currentPlayer.id]: newPos
+              [currentPlayer.id]: intermediatePos
             }));
             
-            // Final arrival order update
+            // Update arrival order for intermediate positions during movement
             setSpaceArrivalOrder(prev => {
               const newOrder = { ...prev };
               
@@ -332,77 +319,153 @@ const MonopolyBoard = ({
                 }
               });
               
-              // Add player to final position
-              if (!newOrder[newPos]) {
-                newOrder[newPos] = [];
+              // Add player to new position
+              if (!newOrder[intermediatePos]) {
+                newOrder[intermediatePos] = [];
               }
-              newOrder[newPos].push(currentPlayer.id);
+              newOrder[intermediatePos].push(currentPlayer.id);
               
               return newOrder;
             });
             
-            // Check if doubles were rolled
-            const isDoubles = finalDice1 === finalDice2;
-            
-            // Handle special spaces
-            let specialAction = null;
-            if (newPos === 20) { // Vacation
-              console.log(`${currentPlayer.name} landed on Vacation - will skip next turn`);
-              setPlayersInVacation(prev => new Set(prev).add(currentPlayer.id));
-              if (onPlayerStatusChange) {
-                onPlayerStatusChange(currentPlayer.id, 'vacation', true);
+            if (step >= total) {
+              clearInterval(moveInterval);
+              // Notify parent component after movement is complete
+              if (onRollDice) {
+                onRollDice(finalDice1, finalDice2, total, isDoubles, 'jail-escape', newPos);
               }
-              specialAction = 'vacation';
-            } else if (newPos === 30) { // Go to prison
-              console.log(`${currentPlayer.name} landed on Go to prison - sent to jail`);
-              // Move player to jail position (10)
-              setPlayerPositions(prev => ({
-                ...prev,
-                [currentPlayer.id]: 10
-              }));
-              
-              // Update arrival order for jail
-              setSpaceArrivalOrder(prev => {
-                const newOrder = { ...prev };
-                
-                // Remove player from go to prison position
-                if (newOrder[30]) {
-                  newOrder[30] = newOrder[30].filter(id => id !== currentPlayer.id);
-                  if (newOrder[30].length === 0) {
-                    delete newOrder[30];
-                  }
-                }
-                
-                // Add player to jail position
-                if (!newOrder[10]) {
-                  newOrder[10] = [];
-                }
-                newOrder[10].push(currentPlayer.id);
-                
-                return newOrder;
-              });
-              
-              setPlayersInJail(prev => new Set(prev).add(currentPlayer.id));
-              if (onPlayerStatusChange) {
-                onPlayerStatusChange(currentPlayer.id, 'jail', true);
-              }
-              specialAction = 'jail';
             }
-            
-            // Notify parent component after movement is complete
-            if (onRollDice) {
-              onRollDice(finalDice1, finalDice2, total, isDoubles, specialAction);
-            }
+          }, 150);
+          
+          return;
+        } else {
+          // Player stays in jail
+          console.log(`${currentPlayer.name} stays in jail (didn't roll doubles)`);
+          if (onRollDice) {
+            onRollDice(finalDice1, finalDice2, 0, false, 'jail-stay');
           }
-        }, 150); // Slightly faster movement for better pacing
-      } else {
-        // No current player, just notify parent
-        const isDoubles = finalDice1 === finalDice2;
-        if (onRollDice) {
-          onRollDice(finalDice1, finalDice2, total, isDoubles);
+          return;
         }
       }
-    }, 1800); // Slightly longer dice roll for anticipation
+      
+      const currentPos = playerPositions[currentPlayer.id] || 0;
+      const newPos = (currentPos + total) % 40; // 40 spaces on the board
+      
+      // Animate movement step by step with smooth transitions
+      let step = 0;
+      const moveInterval = setInterval(() => {
+        step++;
+        const intermediatePos = (currentPos + step) % 40;
+        
+        setPlayerPositions(prev => ({
+          ...prev,
+          [currentPlayer.id]: intermediatePos
+        }));
+        
+        // Update arrival order for intermediate positions during movement
+        setSpaceArrivalOrder(prev => {
+          const newOrder = { ...prev };
+          
+          // Remove player from all positions
+          Object.keys(newOrder).forEach(spaceIndex => {
+            newOrder[spaceIndex] = newOrder[spaceIndex].filter(id => id !== currentPlayer.id);
+            if (newOrder[spaceIndex].length === 0) {
+              delete newOrder[spaceIndex];
+            }
+          });
+          
+          // Add player to new position
+          if (!newOrder[intermediatePos]) {
+            newOrder[intermediatePos] = [];
+          }
+          newOrder[intermediatePos].push(currentPlayer.id);
+          
+          return newOrder;
+        });
+        
+        if (step >= total) {
+          clearInterval(moveInterval);
+          // Final position update - ensure player stays at the final position
+          setPlayerPositions(prev => ({
+            ...prev,
+            [currentPlayer.id]: newPos
+          }));
+          
+          // Final arrival order update
+          setSpaceArrivalOrder(prev => {
+            const newOrder = { ...prev };
+            
+            // Remove player from all positions
+            Object.keys(newOrder).forEach(spaceIndex => {
+              newOrder[spaceIndex] = newOrder[spaceIndex].filter(id => id !== currentPlayer.id);
+              if (newOrder[spaceIndex].length === 0) {
+                delete newOrder[spaceIndex];
+              }
+            });
+            
+            // Add player to final position
+            if (!newOrder[newPos]) {
+              newOrder[newPos] = [];
+            }
+            newOrder[newPos].push(currentPlayer.id);
+            
+            return newOrder;
+          });
+          
+          // Check if doubles were rolled
+          const isDoubles = finalDice1 === finalDice2;
+          
+          // Handle special spaces
+          let specialAction = null;
+          if (newPos === 30) { // Go to prison
+            console.log(`${currentPlayer.name} landed on Go to prison - sent to jail`);
+            // Move player to jail position (10)
+            setPlayerPositions(prev => ({
+              ...prev,
+              [currentPlayer.id]: 10
+            }));
+            
+            // Update arrival order for jail
+            setSpaceArrivalOrder(prev => {
+              const newOrder = { ...prev };
+              
+              // Remove player from go to prison position
+              if (newOrder[30]) {
+                newOrder[30] = newOrder[30].filter(id => id !== currentPlayer.id);
+                if (newOrder[30].length === 0) {
+                  delete newOrder[30];
+                }
+              }
+              
+              // Add player to jail position
+              if (!newOrder[10]) {
+                newOrder[10] = [];
+              }
+              newOrder[10].push(currentPlayer.id);
+              
+              return newOrder;
+            });
+            
+            setPlayersInJail(prev => new Set(prev).add(currentPlayer.id));
+            if (onPlayerStatusChange) {
+              onPlayerStatusChange(currentPlayer.id, 'jail', true);
+            }
+            specialAction = 'jail';
+          }
+          
+          // Notify parent component after movement is complete
+          if (onRollDice) {
+            onRollDice(finalDice1, finalDice2, total, isDoubles, specialAction, newPos);
+          }
+        }
+      }, 150); // Slightly faster movement for better pacing
+    } else {
+      // No current player, just notify parent
+      const isDoubles = finalDice1 === finalDice2;
+      if (onRollDice) {
+        onRollDice(finalDice1, finalDice2, total, isDoubles);
+      }
+    }
   };
 
   const handleEndTurn = () => {
@@ -420,7 +483,7 @@ const MonopolyBoard = ({
     // Board has 40 positions total
     // 0-10: top row (START to PRISON)
     // 11-20: right row 
-    // 21-30: bottom row (VACATION going left)
+    // 21-30: bottom row (FREE PARKING going left)
     // 31-39: left row (going up to START)
     return position;
   };
@@ -477,10 +540,8 @@ const MonopolyBoard = ({
         {playersOnSpace.map((player, index) => {
           const isCurrentPlayer = currentPlayer && player.id === currentPlayer.id;
           const isMovingPlayer = isMoving && isCurrentPlayer;
-          const isInJail = playersInJail.has(player.id);
-          const isInVacation = playersInVacation.has(player.id);
+          const isInJail = playerStatuses[player.id] === 'jail';
           const isJailSpace = spaceIndex === 10;
-          const isVacationSpace = spaceIndex === 20;
           
           // For jail space, differentiate between visiting and in jail
           const isJustVisiting = isJailSpace && !isInJail;
@@ -537,30 +598,6 @@ const MonopolyBoard = ({
               }}
             >
               {player.name.charAt(0).toUpperCase()}
-              
-              {/* Vacation indicator */}
-              {isInVacation && (
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    top: '-8px',
-                    right: '-8px',
-                    width: '20px',
-                    height: '20px',
-                    backgroundColor: '#22c55e',
-                    borderRadius: '50%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '10px',
-                    border: '2px solid white',
-                    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.4)',
-                    zIndex: 150
-                  }}
-                >
-                  🏖️
-                </Box>
-              )}
               
               {/* Jail bars overlay for players in jail */}
               {isBehindBars && (
@@ -669,7 +706,7 @@ const MonopolyBoard = ({
 
   // Corner spaces
   const corners = [
-    { name: 'Vacation', type: 'corner', color: 'green', className: 'vacation' },
+    { name: 'Free Parking', type: 'corner', color: 'green', className: 'free-parking' },
     { name: 'Go to prison', type: 'corner', color: 'red', className: 'jail' }
   ];
 
@@ -685,7 +722,7 @@ const MonopolyBoard = ({
     } else if (position === 'right') {
       globalSpaceIndex = 11 + index; // 11-19
     } else if (position === 'bottom') {
-      if (space.name === 'Vacation') {
+      if (space.name === 'Free Parking') {
         globalSpaceIndex = 20;
       } else if (space.name === 'Go to prison') {
         globalSpaceIndex = 30;
@@ -704,11 +741,50 @@ const MonopolyBoard = ({
           {space.type === 'property' && (
             <>
               <div className="property-flag">{space.flag}</div>
-              {space.price && <div className="space-price">{space.price}</div>}
+              {space.price && (
+                <div 
+                  className="space-price" 
+                  style={{
+                    backgroundColor: propertyOwnership[space.name] 
+                      ? propertyOwnership[space.name].ownerColor 
+                      : 'rgba(255, 255, 255, 0.9)',
+                    color: propertyOwnership[space.name] ? 'white' : 'black',
+                    fontWeight: propertyOwnership[space.name] ? 'bold' : 'normal'
+                  }}
+                >
+                  {space.price}
+                </div>
+              )}
             </>
           )}
-          {space.type === 'airport' && space.price && <div className="space-price">{space.price}</div>}
-          {space.type === 'utility' && space.price && <div className="space-price">{space.price}</div>}
+          {space.type === 'airport' && space.price && (
+            <div 
+              className="space-price"
+              style={{
+                backgroundColor: propertyOwnership[space.name] 
+                  ? propertyOwnership[space.name].ownerColor 
+                  : 'rgba(255, 255, 255, 0.9)',
+                color: propertyOwnership[space.name] ? 'white' : 'black',
+                fontWeight: propertyOwnership[space.name] ? 'bold' : 'normal'
+              }}
+            >
+              {space.price}
+            </div>
+          )}
+          {space.type === 'utility' && space.price && (
+            <div 
+              className="space-price"
+              style={{
+                backgroundColor: propertyOwnership[space.name] 
+                  ? propertyOwnership[space.name].ownerColor 
+                  : 'rgba(255, 255, 255, 0.9)',
+                color: propertyOwnership[space.name] ? 'white' : 'black',
+                fontWeight: propertyOwnership[space.name] ? 'bold' : 'normal'
+              }}
+            >
+              {space.price}
+            </div>
+          )}
           <div className="space-name">
             {space.name.split('\n').map((line, i) => (
               <span key={i}>
@@ -774,7 +850,7 @@ const MonopolyBoard = ({
         {rightRow.map((space, index) => renderSpace(space, index, 'right'))}
       </div>
 
-      {/* Bottom Row - 11 spaces (vacation corner + 9 spaces + jail corner) */}
+      {/* Bottom Row - 11 spaces (free parking corner + 9 spaces + jail corner) */}
       <div className="board-row bottom-row">
         {renderSpace(corners[0], 0, 'bottom')}
         {bottomRow.map((space, index) => renderSpace(space, index, 'bottom'))}
@@ -960,30 +1036,111 @@ const MonopolyBoard = ({
             {/* Dice */}
             <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
               <StyledDice elevation={4} isRolling={isRolling}>
-                {dice.dice1}
+                {dice?.dice1 || '?'}
               </StyledDice>
               <StyledDice elevation={4} isRolling={isRolling}>
-                {dice.dice2}
+                {dice?.dice2 || '?'}
               </StyledDice>
             </Box>
 
-            {/* Action Button */}
-            {gamePhase === 'rolling' && (
-              <StyledActionButton 
-                onClick={isRolling ? undefined : rollDice}
-                disabled={isRolling}
-              >
-                {isRolling ? 'Rolling...' : 'Roll Dice'}
-              </StyledActionButton>
-            )}
-            
-            {gamePhase === 'turn-end' && (
-              <StyledActionButton 
-                onClick={handleEndTurn}
-              >
-                End Turn
-              </StyledActionButton>
-            )}
+            {/* All Action Buttons - Horizontal Layout */}
+            <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap', justifyContent: 'center', width: '100%' }}>
+              {/* Property Landing Actions */}
+              {propertyLandingState && propertyLandingState.isActive && (
+                <>
+                  {/* Buy Property Button */}
+                  <UniformButton 
+                    variant="green"
+                    disabled={!propertyLandingState.player || propertyLandingState.player.money < propertyLandingState.property.price}
+                    onClick={() => onBuyProperty && onBuyProperty()}
+                  >
+                    Buy for ${propertyLandingState.property.price}
+                  </UniformButton>
+                  
+                  {/* Auction Button (only if auction is enabled in settings) */}
+                  {gameSettings.allowAuction && (
+                    <UniformButton 
+                      variant="purple"
+                      onClick={() => onAuctionProperty && onAuctionProperty()}
+                    >
+                      Auction
+                    </UniformButton>
+                  )}
+                  
+                  {/* Skip Button (if auction is disabled) */}
+                  {!gameSettings.allowAuction && (
+                    <UniformButton 
+                      variant="default"
+                      onClick={() => onSkipProperty && onSkipProperty()}
+                    >
+                      Skip
+                    </UniformButton>
+                  )}
+                </>
+              )}
+
+              {/* Jail Escape Actions */}
+              {gamePhase === 'rolling' && getCurrentPlayer() && playerStatuses[getCurrentPlayer().id] === 'jail' && (
+                <>
+                  {/* Pay $50 Fine Button */}
+                  <UniformButton 
+                    variant="red"
+                    disabled={!getCurrentPlayer() || getCurrentPlayer().money < 50}
+                    onClick={onPayJailFine}
+                  >
+                    Pay $50 Fine
+                  </UniformButton>
+
+                  {/* Use Jail Card Button - Only show if player has cards */}
+                  {getCurrentPlayer() && playerJailCards[getCurrentPlayer().id] > 0 && (
+                    <UniformButton 
+                      variant="green"
+                      onClick={onUseJailCard}
+                    >
+                      Use Jail Card ({playerJailCards[getCurrentPlayer().id]})
+                    </UniformButton>
+                  )}
+
+                  {/* Roll Dice to Try Doubles */}
+                  <UniformButton 
+                    variant="purple"
+                    disabled={isRolling}
+                    onClick={isRolling ? undefined : rollDice}
+                  >
+                    {isRolling ? 'Rolling...' : 'Roll for Doubles'}
+                  </UniformButton>
+                </>
+              )}
+
+              {/* Normal Rolling Actions */}
+              {gamePhase === 'rolling' && (!getCurrentPlayer() || playerStatuses[getCurrentPlayer().id] !== 'jail') && canRollAgain && (
+                <UniformButton 
+                  variant="blue"
+                  disabled={isRolling}
+                  onClick={isRolling ? undefined : rollDice}
+                >
+                  {isRolling ? 'Rolling...' : 'Roll Again'}
+                </UniformButton>
+              )}
+
+              {gamePhase === 'rolling' && (!getCurrentPlayer() || playerStatuses[getCurrentPlayer().id] !== 'jail') && !canRollAgain && (
+                <UniformButton 
+                  disabled={isRolling}
+                  onClick={isRolling ? undefined : rollDice}
+                >
+                  {isRolling ? 'Rolling...' : 'Roll Dice'}
+                </UniformButton>
+              )}
+              
+              {/* End Turn Button */}
+              {gamePhase === 'turn-end' && (
+                <UniformButton 
+                  onClick={handleEndTurn}
+                >
+                  End Turn
+                </UniformButton>
+              )}
+            </Box>
 
             {gamePhase === 'moving' && (
               <Typography 
@@ -1130,5 +1287,6 @@ const MonopolyBoard = ({
       </div>
     </div>
   );
-};
+}
+
 export default MonopolyBoard;

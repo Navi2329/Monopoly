@@ -1,7 +1,47 @@
 import React, { useState } from 'react';
+import {
+  Box,
+  Typography,
+  Button,
+  Modal,
+  Card,
+  CardContent,
+  IconButton,
+  FormControl,
+  Select,
+  MenuItem,
+  Divider,
+  TextField,
+  InputAdornment
+} from '@mui/material';
+import {
+  Close,
+  Settings,
+  ContentCopy,
+  PersonAdd,
+  Check
+} from '@mui/icons-material';
+import { styled } from '@mui/material/styles';
 
-const ShareGame = ({ gameUrl }) => {
+const StyledModal = styled(Modal)(({ theme }) => ({
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: theme.spacing(2)
+}));
+
+const StyledCard = styled(Card)(({ theme }) => ({
+  background: 'linear-gradient(145deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.95))',
+  backdropFilter: 'blur(20px)',
+  border: '1px solid rgba(255, 255, 255, 0.08)',
+  borderRadius: '16px',
+  minWidth: 400,
+  maxWidth: 500
+}));
+
+const ShareGame = ({ gameUrl, devDiceEnabled, devDice1, devDice2, onDevDiceChange }) => {
   const [copied, setCopied] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const copyToClipboard = async () => {
     try {
@@ -15,73 +55,283 @@ const ShareGame = ({ gameUrl }) => {
 
   const shareUrl = gameUrl || 'http://localhost:5173/game/example';
 
+  const handleDevDiceToggle = () => {
+    if (onDevDiceChange) {
+      onDevDiceChange('enabled', !devDiceEnabled);
+    }
+  };
+
+  const handleDice1Change = (value) => {
+    if (onDevDiceChange) {
+      onDevDiceChange('dice1', value);
+    }
+  };
+
+  const handleDice2Change = (value) => {
+    if (onDevDiceChange) {
+      onDevDiceChange('dice2', value);
+    }
+  };
+
   return (
-    <div className="share-game-section">
+    <Box sx={{ p: 0 }}>
       {/* Header */}
-      <div className="flex items-center gap-2 mb-3">
-        <h3 className="text-sm font-medium text-white/90">Share this game</h3>
-        <button className="text-white/60 hover:text-white/80 text-xs transition-colors duration-200 w-4 h-4 flex items-center justify-center">
-          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-          </svg>
-        </button>
-      </div>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+        <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 500 }}>
+          Share this game
+        </Typography>
+        <IconButton size="small" sx={{ color: 'rgba(255, 255, 255, 0.6)' }}>
+          <Box sx={{ fontSize: '12px' }}>ℹ️</Box>
+        </IconButton>
+      </Box>
       
       {/* URL Input and Copy Button */}
-      <div className="flex gap-2 mb-3">
-        <div className="flex-1 relative">
-          <input
-            type="text"
-            value={shareUrl}
-            readOnly
-            className="w-full bg-black/30 backdrop-blur-sm text-white/90 px-3 py-2 rounded-md text-xs border border-white/10 hover:border-white/20 focus:border-white/30 focus:outline-none transition-all duration-200 font-mono"
-            style={{ fontSize: '11px' }}
-          />
-        </div>
-        <button
+      <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+        <TextField
+          value={shareUrl}
+          size="small"
+          fullWidth
+          InputProps={{
+            readOnly: true,
+            sx: {
+              fontSize: '11px',
+              fontFamily: 'monospace',
+              backgroundColor: 'rgba(0, 0, 0, 0.3)',
+              '& .MuiOutlinedInput-notchedOutline': {
+                borderColor: 'rgba(255, 255, 255, 0.1)'
+              },
+              '&:hover .MuiOutlinedInput-notchedOutline': {
+                borderColor: 'rgba(255, 255, 255, 0.2)'
+              },
+              '& .MuiInputBase-input': {
+                color: 'rgba(255, 255, 255, 0.9)',
+                fontSize: '11px'
+              }
+            }
+          }}
+        />
+        <Button
           onClick={copyToClipboard}
-          className={`px-3 py-2 rounded-md text-xs font-medium transition-all duration-200 flex items-center gap-1.5 min-w-[70px] justify-center ${
-            copied 
-              ? 'bg-green-600/80 hover:bg-green-600 text-white shadow-sm' 
-              : 'bg-white/10 hover:bg-white/20 text-white/90 border border-white/10 hover:border-white/20'
-          }`}
-          style={{ fontSize: '11px' }}
+          variant={copied ? "contained" : "outlined"}
+          size="small"
+          sx={{
+            minWidth: 70,
+            fontSize: '11px',
+            backgroundColor: copied ? '#059669' : 'rgba(255, 255, 255, 0.1)',
+            borderColor: copied ? '#059669' : 'rgba(255, 255, 255, 0.1)',
+            color: 'white',
+            '&:hover': {
+              backgroundColor: copied ? '#047857' : 'rgba(255, 255, 255, 0.2)',
+              borderColor: copied ? '#047857' : 'rgba(255, 255, 255, 0.2)'
+            }
+          }}
+          startIcon={copied ? <Check sx={{ fontSize: '12px' }} /> : <ContentCopy sx={{ fontSize: '12px' }} />}
         >
-          {copied ? (
-            <>
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-              Copied!
-            </>
-          ) : (
-            <>
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-              </svg>
-              Copy
-            </>
-          )}
-        </button>
-      </div>
+          {copied ? 'Copied!' : 'Copy'}
+        </Button>
+      </Box>
       
       {/* Action Buttons */}
-      <div className="flex gap-2">
-        <button className="flex-1 bg-emerald-600/80 hover:bg-emerald-600 text-white px-3 py-2 rounded-md text-xs font-medium flex items-center justify-center gap-1.5 transition-all duration-200 shadow-sm hover:shadow-md">
-          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-          </svg>
+      <Box sx={{ display: 'flex', gap: 1 }}>
+        <Button
+          variant="contained"
+          size="small"
+          fullWidth
+          sx={{
+            fontSize: '11px',
+            backgroundColor: '#059669',
+            '&:hover': { backgroundColor: '#047857' },
+            textTransform: 'none'
+          }}
+          startIcon={<PersonAdd sx={{ fontSize: '12px' }} />}
+        >
           Invite friends
-        </button>
-        <button className="flex-1 bg-blue-600/80 hover:bg-blue-600 text-white px-3 py-2 rounded-md text-xs font-medium flex items-center justify-center gap-1.5 transition-all duration-200 shadow-sm hover:shadow-md">
-          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
+        </Button>
+        <Button
+          variant="contained"
+          size="small"
+          fullWidth
+          onClick={() => setSettingsOpen(true)}
+          sx={{
+            fontSize: '11px',
+            backgroundColor: '#2563eb',
+            '&:hover': { backgroundColor: '#1d4ed8' },
+            textTransform: 'none'
+          }}
+          startIcon={<Settings sx={{ fontSize: '12px' }} />}
+        >
           Settings
-        </button>
-      </div>
-    </div>
+        </Button>
+      </Box>
+
+      {/* Settings Modal */}
+      <StyledModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        aria-labelledby="settings-modal-title"
+      >
+        <StyledCard>
+          <Box sx={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'space-between', 
+            p: 3,
+            pb: 1
+          }}>
+            <Typography 
+              id="settings-modal-title" 
+              variant="h6" 
+              sx={{ color: 'white', fontWeight: 600 }}
+            >
+              Developer Options
+            </Typography>
+            <IconButton
+              onClick={() => setSettingsOpen(false)}
+              sx={{ color: 'rgba(255, 255, 255, 0.7)' }}
+            >
+              <Close />
+            </IconButton>
+          </Box>
+          
+          <Divider sx={{ borderColor: 'rgba(255, 255, 255, 0.1)' }} />
+          
+          <CardContent sx={{ p: 3, pt: 2 }}>
+            <Typography variant="body2" sx={{ color: 'white', fontWeight: 500, mb: 2 }}>
+              Debug Dice Roll
+            </Typography>
+            
+            {/* Enable Custom Dice Toggle */}
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+              <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '13px' }}>
+                Custom Dice
+              </Typography>
+              <Button
+                size="small"
+                variant={devDiceEnabled ? "contained" : "outlined"}
+                onClick={handleDevDiceToggle}
+                sx={{
+                  minWidth: 60,
+                  height: 24,
+                  fontSize: '11px',
+                  borderColor: 'rgba(139, 92, 246, 0.5)',
+                  color: devDiceEnabled ? 'white' : '#8b5cf6',
+                  backgroundColor: devDiceEnabled ? '#8b5cf6' : 'transparent',
+                  '&:hover': {
+                    backgroundColor: devDiceEnabled ? '#7c3aed' : 'rgba(139, 92, 246, 0.1)'
+                  }
+                }}
+              >
+                {devDiceEnabled ? 'ON' : 'OFF'}
+              </Button>
+            </Box>
+
+            {/* Dice Selectors */}
+            {devDiceEnabled && (
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                <Box sx={{ flex: 1 }}>
+                  <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.6)', display: 'block', mb: 0.5 }}>
+                    Dice 1
+                  </Typography>
+                  <FormControl size="small" fullWidth>
+                    <Select
+                      value={devDice1}
+                      onChange={(e) => handleDice1Change(e.target.value)}
+                      sx={{
+                        '& .MuiOutlinedInput-notchedOutline': {
+                          borderColor: 'rgba(139, 92, 246, 0.3)'
+                        },
+                        '& .MuiSelect-select': {
+                          color: 'white',
+                          fontSize: '13px',
+                          padding: '6px 8px'
+                        },
+                        '& .MuiSvgIcon-root': {
+                          color: 'rgba(255, 255, 255, 0.7)'
+                        }
+                      }}
+                      MenuProps={{
+                        PaperProps: {
+                          sx: {
+                            backgroundColor: 'rgba(30, 41, 59, 0.95)',
+                            backdropFilter: 'blur(10px)',
+                            border: '1px solid rgba(255, 255, 255, 0.1)'
+                          }
+                        }
+                      }}
+                    >
+                      {[1, 2, 3, 4, 5, 6].map(num => (
+                        <MenuItem 
+                          key={num} 
+                          value={num} 
+                          sx={{ 
+                            fontSize: '13px',
+                            color: 'white',
+                            '&:hover': {
+                              backgroundColor: 'rgba(139, 92, 246, 0.2)'
+                            }
+                          }}
+                        >
+                          {num}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Box>
+                <Box sx={{ flex: 1 }}>
+                  <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.6)', display: 'block', mb: 0.5 }}>
+                    Dice 2
+                  </Typography>
+                  <FormControl size="small" fullWidth>
+                    <Select
+                      value={devDice2}
+                      onChange={(e) => handleDice2Change(e.target.value)}
+                      sx={{
+                        '& .MuiOutlinedInput-notchedOutline': {
+                          borderColor: 'rgba(139, 92, 246, 0.3)'
+                        },
+                        '& .MuiSelect-select': {
+                          color: 'white',
+                          fontSize: '13px',
+                          padding: '6px 8px'
+                        },
+                        '& .MuiSvgIcon-root': {
+                          color: 'rgba(255, 255, 255, 0.7)'
+                        }
+                      }}
+                      MenuProps={{
+                        PaperProps: {
+                          sx: {
+                            backgroundColor: 'rgba(30, 41, 59, 0.95)',
+                            backdropFilter: 'blur(10px)',
+                            border: '1px solid rgba(255, 255, 255, 0.1)'
+                          }
+                        }
+                      }}
+                    >
+                      {[1, 2, 3, 4, 5, 6].map(num => (
+                        <MenuItem 
+                          key={num} 
+                          value={num} 
+                          sx={{ 
+                            fontSize: '13px',
+                            color: 'white',
+                            '&:hover': {
+                              backgroundColor: 'rgba(139, 92, 246, 0.2)'
+                            }
+                          }}
+                        >
+                          {num}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Box>
+              </Box>
+            )}
+          </CardContent>
+        </StyledCard>
+      </StyledModal>
+    </Box>
   );
 };
 

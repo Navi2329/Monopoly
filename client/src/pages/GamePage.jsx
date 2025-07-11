@@ -15,14 +15,19 @@ import {
   ListItemText,
   IconButton,
   Tooltip,
-  Grid
+  Grid,
+  Modal,
+  FormControl,
+  Select,
+  MenuItem
 } from '@mui/material';
 import { 
   Home,
   PersonRemove,
   MoneyOff,
   SwapHoriz,
-  Add
+  Add,
+  Settings
 } from '@mui/icons-material';
 import { styled } from '@mui/material/styles';
 import MonopolyBoard from '../components/game/MonopolyBoard';
@@ -119,10 +124,23 @@ const GamePage = () => {
   // Game turn management
   const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0);
   const [gamePhase, setGamePhase] = useState('waiting'); // 'waiting', 'rolling', 'moving', 'turn-end'
-  const [lastDiceRoll, setLastDiceRoll] = useState({ dice1: 1, dice2: 1, total: 2 });
+  const [lastDiceRoll, setLastDiceRoll] = useState(null);
 
   // Player status tracking
-  const [playerStatuses, setPlayerStatuses] = useState({}); // { playerId: { inVacation: bool, inJail: bool } }
+  const [playerStatuses, setPlayerStatuses] = useState({}); // { playerId: status } where status can be 'normal', 'jail'
+
+  // Track jail cards for each player
+  const [playerJailCards, setPlayerJailCards] = useState({}); // { playerId: number of jail cards }
+
+  // Property ownership and landing
+  const [propertyOwnership, setPropertyOwnership] = useState({}); // { propertyName: { owner: playerId, ownerName: string, ownerColor: string } }
+  const [propertyLandingState, setPropertyLandingState] = useState(null); // { property, player, isActive } - null when no property landing
+
+  // Dev options state
+  // Dev options state
+  const [devDiceEnabled, setDevDiceEnabled] = useState(false);
+  const [devDice1, setDevDice1] = useState(1);
+  const [devDice2, setDevDice2] = useState(1);
 
   // Players data - Initially empty, will be populated when player joins
   const [players, setPlayers] = useState([]);
@@ -130,10 +148,30 @@ const GamePage = () => {
   // Bots state
   const [bots, setBots] = useState([]);
   const [isAddingBots, setIsAddingBots] = useState(false);
+
+  // Dev options change handler
+  const handleDevDiceChange = (type, value) => {
+    switch (type) {
+      case 'enabled':
+        setDevDiceEnabled(value);
+        break;
+      case 'dice1':
+        setDevDice1(value);
+        break;
+      case 'dice2':
+        setDevDice2(value);
+        break;
+      default:
+        break;
+    }
+  };
+
+  // Game settings
   const [gameSettings, setGameSettings] = useState({
     maxPlayers: 4,
     allowBots: false,
-    startingCash: 1500
+    startingCash: 1500,
+    allowAuction: true // Enable auction by default
   });
 
   // Bot names for dynamic joining
@@ -230,6 +268,195 @@ const GamePage = () => {
     manageBotsAsync();
   }, [gameSettings.allowBots, gameSettings.maxPlayers, players.length, gameSettings.startingCash, gameStarted, playerJoined, isAddingBots, bots.length]);
 
+  // Define all properties on the board
+  const allBoardProperties = [
+    // Top row
+    { name: 'Salvador', type: 'property', price: 60 },
+    { name: 'Rio', type: 'property', price: 60 },
+    { name: 'TLV Airport', type: 'airport', price: 200 },
+    { name: 'Tel Aviv', type: 'property', price: 100 },
+    { name: 'Haifa', type: 'property', price: 100 },
+    { name: 'Jerusalem', type: 'property', price: 120 },
+    // Right row
+    { name: 'Venice', type: 'property', price: 140 },
+    { name: 'Electric Company', type: 'utility', price: 150 },
+    { name: 'Milan', type: 'property', price: 140 },
+    { name: 'Rome', type: 'property', price: 160 },
+    { name: 'MUC Airport', type: 'airport', price: 200 },
+    { name: 'Frankfurt', type: 'property', price: 180 },
+    { name: 'Munich', type: 'property', price: 180 },
+    { name: 'Berlin', type: 'property', price: 200 },
+    // Bottom row
+    { name: 'Shenzhen', type: 'property', price: 220 },
+    { name: 'Beijing', type: 'property', price: 220 },
+    { name: 'Shanghai', type: 'property', price: 240 },
+    { name: 'CDG Airport', type: 'airport', price: 200 },
+    { name: 'Lyon', type: 'property', price: 260 },
+    { name: 'Toulouse', type: 'property', price: 260 },
+    { name: 'Water Company', type: 'utility', price: 150 },
+    { name: 'Paris', type: 'property', price: 280 },
+    // Left row
+    { name: 'Liverpool', type: 'property', price: 300 },
+    { name: 'Manchester', type: 'property', price: 300 },
+    { name: 'London', type: 'property', price: 320 },
+    { name: 'JFK Airport', type: 'airport', price: 200 },
+    { name: 'California', type: 'property', price: 350 },
+    { name: 'New York', type: 'property', price: 400 }
+  ];
+
+  // Get property by space index
+  const getPropertyBySpaceIndex = (spaceIndex) => {
+    // Board layout clockwise: 0-10 (top), 11-19 (right), 20-30 (bottom), 31-39 (left)
+    const propertyMap = {
+      // Top row (excluding START and corners)
+      1: 'Salvador', 3: 'Rio', 5: 'TLV Airport', 6: 'Tel Aviv', 8: 'Haifa', 9: 'Jerusalem',
+      // Right row
+      11: 'Venice', 12: 'Electric Company', 13: 'Milan', 14: 'Rome', 15: 'MUC Airport', 16: 'Frankfurt', 18: 'Munich', 19: 'Berlin',
+      // Bottom row
+      21: 'Shenzhen', 23: 'Beijing', 24: 'Shanghai', 25: 'CDG Airport', 26: 'Lyon', 27: 'Toulouse', 28: 'Water Company', 29: 'Paris',
+      // Left row
+      31: 'Liverpool', 32: 'Manchester', 34: 'London', 35: 'JFK Airport', 37: 'California', 39: 'New York'
+    };
+    
+    const propertyName = propertyMap[spaceIndex];
+    return allBoardProperties.find(prop => prop.name === propertyName);
+  };
+
+  // Handle property landing
+  const handlePropertyLanding = (playerIndex, spaceIndex) => {
+    const property = getPropertyBySpaceIndex(spaceIndex);
+    const currentPlayer = allPlayers[playerIndex];
+    
+    if (!property || !currentPlayer) return;
+    
+    // Check if property is already owned
+    const ownership = propertyOwnership[property.name];
+    
+    if (ownership && ownership.owner !== currentPlayer.id) {
+      // Property is owned by someone else - pay rent
+      const rentAmount = Math.floor(property.price * 0.1); // 10% of property price as rent
+      handlePropertyRent(currentPlayer.name, ownership.ownerName, property.name, rentAmount);
+    } else if (!ownership) {
+      // Property is unowned
+      if (currentPlayer.isBot) {
+        // Bot automatically tries to buy if it has enough money
+        if (currentPlayer.money >= property.price) {
+          handleBotPropertyPurchase(currentPlayer, property);
+        } else {
+          setGameLog(prev => [...prev, { 
+            id: Date.now(), 
+            type: 'info', 
+            player: currentPlayer.name,
+            message: `cannot afford ${property.name} ($${property.price})` 
+          }]);
+        }
+      } else {
+        // Human player - show purchase options as horizontal buttons
+        setPropertyLandingState({
+          property: property,
+          player: currentPlayer,
+          isActive: true
+        });
+      }
+    }
+    // If property is owned by current player, nothing happens
+  };
+
+  // Handle bot property purchase
+  const handleBotPropertyPurchase = (bot, property) => {
+    // Update property ownership
+    setPropertyOwnership(prev => ({
+      ...prev,
+      [property.name]: {
+        owner: bot.id,
+        ownerName: bot.name,
+        ownerColor: bot.color
+      }
+    }));
+    
+    // Deduct money from bot
+    setBots(prev => prev.map(b => 
+      b.id === bot.id 
+        ? { ...b, money: b.money - property.price }
+        : b
+    ));
+    
+    // Log the purchase
+    handlePropertyPurchase(bot.name, property.name, property.price);
+  };
+
+  // Handle jail escape with fine payment
+  const handlePayJailFine = () => {
+    const currentPlayer = allPlayers[currentPlayerIndex];
+    if (!currentPlayer || currentPlayer.money < 50) return;
+    
+    // Deduct $50 from player
+    if (currentPlayer.isBot) {
+      setBots(prev => prev.map(bot => 
+        bot.id === currentPlayer.id 
+          ? { ...bot, money: bot.money - 50 }
+          : bot
+      ));
+    } else {
+      setPlayers(prev => prev.map(p => 
+        p.id === currentPlayer.id 
+          ? { ...p, money: p.money - 50 }
+          : p
+      ));
+      if (currentPlayer.id === currentPlayer?.id) {
+        setCurrentPlayer(prev => ({ ...prev, money: prev.money - 50 }));
+      }
+    }
+    
+    // Remove from jail
+    setPlayerStatuses(prev => ({
+      ...prev,
+      [currentPlayer.id]: 'normal'
+    }));
+    
+    // Log the action
+    setGameLog(prev => [...prev, { 
+      id: Date.now(), 
+      type: 'special', 
+      player: currentPlayer.name,
+      message: `paid $50 to get out of jail` 
+    }]);
+    
+    // Clear property landing state and end turn
+    setPropertyLandingState(null);
+    setGamePhase('turn-end');
+  };
+
+  // Handle jail escape with card
+  const handleUseJailCard = () => {
+    const currentPlayer = allPlayers[currentPlayerIndex];
+    if (!currentPlayer || !playerJailCards[currentPlayer.id] || playerJailCards[currentPlayer.id] <= 0) return;
+    
+    // Use jail card
+    setPlayerJailCards(prev => ({
+      ...prev,
+      [currentPlayer.id]: prev[currentPlayer.id] - 1
+    }));
+    
+    // Remove from jail
+    setPlayerStatuses(prev => ({
+      ...prev,
+      [currentPlayer.id]: 'normal'
+    }));
+    
+    // Log the action
+    setGameLog(prev => [...prev, { 
+      id: Date.now(), 
+      type: 'special', 
+      player: currentPlayer.name,
+      message: `used "Get out of jail free" card` 
+    }]);
+    
+    // Clear property landing state and end turn
+    setPropertyLandingState(null);
+    setGamePhase('turn-end');
+  };
+
   const gameUrl = `http://localhost:5173/game/${roomId}`;
 
   const handlePlayerJoin = (selectedColor) => {
@@ -247,6 +474,12 @@ const GamePage = () => {
     setCurrentPlayer(newPlayer);
     setPlayers([newPlayer]);
     setPlayerJoined(true);
+    
+    // Initialize jail cards for new player
+    setPlayerJailCards(prev => ({
+      ...prev,
+      [newPlayer.id]: 1 // Give 1 jail card for testing - in real game this would be 0
+    }));
     
     // Add join message to game log
     setGameLog([
@@ -288,34 +521,27 @@ const GamePage = () => {
     }]);
   };
 
-  const handleRollDice = (dice1, dice2, total, isDoubles, specialAction) => {
+  const handleRollDice = (dice1, dice2, total, isDoubles, specialAction, landedSpaceIndex) => {
     setLastDiceRoll({ dice1, dice2, total });
     setGamePhase('moving');
     
     const currentPlayer = allPlayers[currentPlayerIndex];
     
     // Handle special actions
-    if (specialAction === 'vacation') {
-      setGameLog(prev => [...prev, { 
-        id: Date.now(), 
-        type: 'special', 
-        player: currentPlayer?.name,
-        message: `landed on Vacation! Will skip next turn 🏖️` 
-      }]);
-    } else if (specialAction === 'jail') {
+    if (specialAction === 'jail') {
       setGameLog(prev => [...prev, { 
         id: Date.now(), 
         type: 'special', 
         player: currentPlayer?.name,
         message: `was sent to jail! 🚔` 
       }]);
-    } else if (specialAction === 'vacation-skip') {
-      setGameLog(prev => [...prev, { 
-        id: Date.now(), 
-        type: 'info', 
-        player: currentPlayer?.name,
-        message: `skipped turn due to vacation 🏖️` 
-      }]);
+      
+      // Set player status to jail
+      setPlayerStatuses(prev => ({
+        ...prev,
+        [currentPlayer.id]: 'jail'
+      }));
+      
     } else if (specialAction === 'jail-escape') {
       setGameLog(prev => [...prev, { 
         id: Date.now(), 
@@ -333,14 +559,14 @@ const GamePage = () => {
     }
     
     // Only add important dice roll events (like doubles, high rolls, or special outcomes)
-    if (dice1 === dice2) {
+    if (dice1 === dice2 && !specialAction) {
       setGameLog(prev => [...prev, { 
         id: Date.now(), 
         type: 'special', 
         player: currentPlayer?.name,
         message: `rolled doubles! ${dice1} + ${dice2} = ${total}` 
       }]);
-    } else if (total >= 10) {
+    } else if (total >= 10 && !specialAction) {
       setGameLog(prev => [...prev, { 
         id: Date.now(), 
         type: 'info', 
@@ -350,9 +576,14 @@ const GamePage = () => {
     }
     // Normal rolls are not logged to keep the log clean
 
-    // Simulate movement time, then handle turn end or doubles
+    // Simulate movement time, then handle property landing and turn end
     setTimeout(() => {
-      if (isDoubles) {
+      // Check if player landed on a purchasable property
+      if (landedSpaceIndex !== undefined && !specialAction) {
+        handlePropertyLanding(currentPlayerIndex, landedSpaceIndex);
+      }
+      
+      if (isDoubles && !specialAction) {
         // Player gets another turn for rolling doubles
         setGamePhase('rolling');
         setGameLog(prev => [...prev, { 
@@ -369,11 +600,12 @@ const GamePage = () => {
   };
 
   const handleEndTurn = () => {
-    const nextPlayerIndex = (currentPlayerIndex + 1) % allPlayers.length;
+    let nextPlayerIndex = (currentPlayerIndex + 1) % allPlayers.length;
+    let nextPlayer = allPlayers[nextPlayerIndex];
+    
     setCurrentPlayerIndex(nextPlayerIndex);
     setGamePhase('rolling');
     
-    const nextPlayer = allPlayers[nextPlayerIndex];
     // Only log turn changes at the start of a new round (when returning to first player)
     if (nextPlayerIndex === 0) {
       setGameLog(prev => [...prev, { 
@@ -508,8 +740,124 @@ const GamePage = () => {
     }]);
   };
 
+  // Handle property purchase from horizontal buttons
+  const handleBuyProperty = () => {
+    const { property, player } = propertyLandingState;
+    
+    if (player.money >= property.price) {
+      // Update property ownership
+      setPropertyOwnership(prev => ({
+        ...prev,
+        [property.name]: {
+          owner: player.id,
+          ownerName: player.name,
+          ownerColor: player.color
+        }
+      }));
+      
+      // Deduct money from player
+      if (player.isBot) {
+        setBots(prev => prev.map(bot => 
+          bot.id === player.id 
+            ? { ...bot, money: bot.money - property.price }
+            : bot
+        ));
+      } else {
+        setPlayers(prev => prev.map(p => 
+          p.id === player.id 
+            ? { ...p, money: p.money - property.price }
+            : p
+        ));
+        if (player.id === currentPlayer?.id) {
+          setCurrentPlayer(prev => ({ ...prev, money: prev.money - property.price }));
+        }
+      }
+      
+      // Log the purchase
+      handlePropertyPurchase(player.name, property.name, property.price);
+      
+      // Clear property landing state and end turn
+      setPropertyLandingState(null);
+      setGamePhase('turn-end');
+    }
+  };
+
+  // Handle auction from horizontal buttons
+  const handleAuctionProperty = () => {
+    const { property, player } = propertyLandingState;
+    
+    // For now, just log that auction started - implement auction logic later
+    setGameLog(prev => [...prev, { 
+      id: Date.now(), 
+      type: 'info', 
+      player: player.name,
+      message: `started auction for ${property.name}` 
+    }]);
+    
+    // Clear property landing state and end turn
+    setPropertyLandingState(null);
+    setGamePhase('turn-end');
+  };
+
+  // Handle skipping to buy property
+  const handleSkipProperty = () => {
+    const { property, player } = propertyLandingState;
+    
+    setGameLog(prev => [...prev, { 
+      id: Date.now(), 
+      type: 'info', 
+      player: player.name,
+      message: `declined to buy ${property.name}` 
+    }]);
+    
+    // Clear property landing state and end turn
+    setPropertyLandingState(null);
+    setGamePhase('turn-end');
+  };
+
   // Handler for property rent events
   const handlePropertyRent = (playerName, ownerName, propertyName, rent) => {
+    const payingPlayer = allPlayers.find(p => p.name === playerName);
+    const receivingPlayer = allPlayers.find(p => p.name === ownerName);
+    
+    if (payingPlayer && receivingPlayer) {
+      // Deduct money from paying player
+      if (payingPlayer.isBot) {
+        setBots(prev => prev.map(bot => 
+          bot.id === payingPlayer.id 
+            ? { ...bot, money: Math.max(0, bot.money - rent) }
+            : bot
+        ));
+      } else {
+        setPlayers(prev => prev.map(p => 
+          p.id === payingPlayer.id 
+            ? { ...p, money: Math.max(0, p.money - rent) }
+            : p
+        ));
+        if (payingPlayer.id === currentPlayer?.id) {
+          setCurrentPlayer(prev => ({ ...prev, money: Math.max(0, prev.money - rent) }));
+        }
+      }
+      
+      // Add money to receiving player
+      if (receivingPlayer.isBot) {
+        setBots(prev => prev.map(bot => 
+          bot.id === receivingPlayer.id 
+            ? { ...bot, money: bot.money + rent }
+            : bot
+        ));
+      } else {
+        setPlayers(prev => prev.map(p => 
+          p.id === receivingPlayer.id 
+            ? { ...p, money: p.money + rent }
+            : p
+        ));
+        if (receivingPlayer.id === currentPlayer?.id) {
+          setCurrentPlayer(prev => ({ ...prev, money: prev.money + rent }));
+        }
+      }
+    }
+    
     setGameLog(prev => [...prev, { 
       id: Date.now(), 
       type: 'rent', 
@@ -558,13 +906,12 @@ const GamePage = () => {
   };
 
   const handlePlayerStatusChange = (playerId, statusType, isActive) => {
-    setPlayerStatuses(prev => ({
-      ...prev,
-      [playerId]: {
-        ...prev[playerId],
-        [statusType === 'vacation' ? 'inVacation' : 'inJail']: isActive
-      }
-    }));
+    if (statusType === 'jail') {
+      setPlayerStatuses(prev => ({
+        ...prev,
+        [playerId]: isActive ? 'jail' : 'normal'
+      }));
+    }
   };
 
   return (
@@ -609,7 +956,13 @@ const GamePage = () => {
 
         {/* Share Game Section */}
         <Box sx={{ p: 2, borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
-          <ShareGame gameUrl={gameUrl} />
+          <ShareGame 
+            gameUrl={gameUrl}
+            devDiceEnabled={devDiceEnabled}
+            devDice1={devDice1}
+            devDice2={devDice2}
+            onDevDiceChange={handleDevDiceChange}
+          />
         </Box>
 
         {/* Chat Section - Fixed container with scrollable content */}
@@ -654,6 +1007,25 @@ const GamePage = () => {
             onEndTurn={handleEndTurn}
             gamePhase={gamePhase}
             onPlayerStatusChange={handlePlayerStatusChange}
+            onPropertyPurchase={handlePropertyPurchase}
+            onPropertyRent={handlePropertyRent}
+            onSpecialSpace={handleSpecialSpace}
+            onPlayerBankruptcy={handlePlayerBankruptcy}
+            onTradeCompletion={handleTradeCompletion}
+            onBotAction={handleBotAction}
+            propertyOwnership={propertyOwnership}
+            gameSettings={gameSettings}
+            playerJailCards={playerJailCards}
+            onPayJailFine={handlePayJailFine}
+            onUseJailCard={handleUseJailCard}
+            playerStatuses={playerStatuses}
+            propertyLandingState={propertyLandingState}
+            onBuyProperty={handleBuyProperty}
+            onAuctionProperty={handleAuctionProperty}
+            onSkipProperty={handleSkipProperty}
+            devDiceEnabled={devDiceEnabled}
+            devDice1={devDice1}
+            devDice2={devDice2}
           />
         </Box>
 
