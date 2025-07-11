@@ -1,15 +1,20 @@
 .monopoly-board {
-  width: 1000px;
-  height: 860px;
+  width: calc(100% - 20px); /* Small margin on all sides */
+  height: calc(100% - 20px);
+  min-width: 600px;
+  min-height: 530px;
+  max-width: calc(100vw - 460px); /* Account for sidebars + margins */
+  max-height: calc(100vh - 20px);
+  aspect-ratio: 17/15; /* Maintain board proportions (850:750) */
   background: linear-gradient(135deg, #1e1b2e 0%, #2a1f3d 100%);
   border: 3px solid #4c1d95;
   display: grid;
-  grid-template-columns: 90px repeat(9, 1fr) 90px;
-  grid-template-rows: 90px repeat(9, 1fr) 90px;
-  margin: 10px auto;
+  grid-template-columns: 75px repeat(9, 1fr) 75px;
+  grid-template-rows: 75px repeat(9, 1fr) 75px;
   font-family: Arial, sans-serif;
   position: relative;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  margin: 10px; /* Small margin on all sides */
 }
 
 /* Board Rows and Columns (Unchanged) */
@@ -32,9 +37,9 @@
 
 .game-info { text-align: center; padding: 20px; color: #e5e7eb; }
 .dice-area { display: flex; gap: 10px; justify-content: center; margin-bottom: 20px; }
-.dice { font-size: 30px; background: linear-gradient(145deg, #f8fafc, #e2e8f0); width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; border-radius: 8px; border: 2px solid #4c1d95; box-shadow: 0 4px 12px rgba(0,0,0,0.3); color: #1e293b; }
-.game-title { font-size: 24px; font-weight: bold; color: #f8fafc; margin-bottom: 20px; text-shadow: 1px 1px 2px rgba(0,0,0,0.5); }
-.start-game-btn { background: linear-gradient(145deg, #8b5cf6, #7c3aed); color: white; border: none; padding: 12px 24px; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4); transition: all 0.3s ease; }
+.dice { font-size: 24px; background: linear-gradient(145deg, #f8fafc, #e2e8f0); width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; border-radius: 8px; border: 2px solid #4c1d95; box-shadow: 0 4px 12px rgba(0,0,0,0.3); color: #1e293b; }
+.game-title { font-size: 20px; font-weight: bold; color: #f8fafc; margin-bottom: 20px; text-shadow: 1px 1px 2px rgba(0,0,0,0.5); }
+.start-game-btn { background: linear-gradient(145deg, #8b5cf6, #7c3aed); color: white; border: none; padding: 10px 20px; border-radius: 6px; font-size: 14px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4); transition: all 0.3s ease; }
 .start-game-btn:hover { background: linear-gradient(145deg, #7c3aed, #6d28d9); transform: translateY(-2px); box-shadow: 0 6px 16px rgba(139, 92, 246, 0.6); }
 
 /* --- General Space Styling --- */
@@ -44,8 +49,8 @@
   display: flex;
   position: relative;
   box-sizing: border-box;
-  /* KEY FIX: Prevents rotated content from spilling out of its cell */
-  overflow: hidden;
+  /* Allow avatars to overflow slightly without being hidden */
+  overflow: visible;
   /* Ensure all spaces maintain consistent size */
   min-width: 0;
   min-height: 0;
@@ -65,14 +70,14 @@
   box-sizing: border-box;
   /* KEY FIX: Ensure text is light for dark background */
   color: #f8fafc;
-  /* Ensure content doesn't overflow */
-  overflow: hidden;
+  /* Allow content to overflow if needed, especially for avatars */
+  overflow: visible;
   min-width: 0;
   min-height: 0;
 }
 
 /* Corner Spaces (Unchanged) */
-.space.corner { background: linear-gradient(135deg, #8b5cf6, #7c3aed); color: white; font-weight: bold; font-size: 10px; justify-content: center; border: 2px solid #4c1d95; }
+.space.corner { background: linear-gradient(135deg, #8b5cf6, #7c3aed); color: white; font-weight: bold; font-size: 9px; justify-content: center; border: 2px solid #4c1d95; }
 
 /* Grid Placement (Unchanged) */
 .space.corner.start { grid-column: 1; grid-row: 1; }
@@ -124,7 +129,7 @@
 }
 /* KEY FIX: Harmonize icon sizes */
 .treasure-icon, .surprise-icon, .airport-icon, .utility-icon, .tax-icon {
-  font-size: 28px; /* Reduced from 30px to better match text */
+  font-size: 22px; /* Reduced from 28px to give more space for text */
   line-height: 1;
   color: #fbbf24;
   text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
@@ -132,7 +137,7 @@
 
 /* Electric Company icon - smaller than other utility icons */
 .electric-icon {
-  font-size: 22px; /* Smaller than other icons */
+  font-size: 18px; /* Reduced from 22px */
   line-height: 1;
   color: #fbbf24;
   text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
@@ -237,6 +242,9 @@
   text-align: center; 
   flex-grow: 1; 
   transform: rotate(0deg);
+  font-size: 10px;
+  line-height: 1.1;
+  padding: 2px 1px;
   /* margin-left: 20px; */
 }
 
@@ -249,22 +257,32 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  line-height: 1.2;
+  line-height: 1.1;
+  font-size: 9px;
+  padding: 1px;
 }
 
 .left-column .space.utility .space-name span {
   display: block;
 }
 
+.left-column .space.airport .space-name {
+  font-size: 9px;
+  line-height: 1.1;
+  padding: 1px;
+}
+
 
 .left-column .treasure-icon, .left-column .surprise-icon, .left-column .utility-icon, .left-column .electric-icon, .left-column .tax-icon { 
   transform: rotate(90deg); 
   order: 2;
+  font-size: 20px;
 }
 
 .left-column .airport-icon { 
   transform: rotate(0deg); 
   order: 2; 
+  font-size: 20px;
 }
 
 /* RIGHT COLUMN ORDER: [price | name | color] */
@@ -300,6 +318,9 @@
   text-align: center; 
   flex-grow: 1; 
   transform: rotate(180deg);
+  font-size: 10px;
+  line-height: 1.1;
+  padding: 2px 1px;
 }
 
 /* Special handling for utility companies on right column to ensure proper text wrapping */
@@ -312,17 +333,29 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  line-height: 1.2;
+  line-height: 1.1;
+  font-size: 9px;
+  padding: 1px;
 }
 
 .right-column .space.utility .space-name span {
   display: block;
 }
 
-.right-column .treasure-icon, .right-column .surprise-icon, .right-column .utility-icon, .right-column .electric-icon, .right-column .tax-icon { transform: rotate(-90deg); }
+.right-column .space.airport .space-name {
+  font-size: 9px;
+  line-height: 1.1;
+  padding: 1px;
+}
+
+.right-column .treasure-icon, .right-column .surprise-icon, .right-column .utility-icon, .right-column .electric-icon, .right-column .tax-icon { 
+  transform: rotate(-90deg);
+  font-size: 20px;
+}
 .right-column .airport-icon { 
   transform: rotate(180deg); 
-  order: 1; 
+  order: 1;
+  font-size: 20px;
 }
 
 /* 4. Remove old, problematic wrapper styles */
@@ -821,4 +854,67 @@
 /* Send button animations */
 .send-button-active {
   animation: pulseGlow 2s infinite;
+}
+
+/* Player Avatar Styles */
+.space {
+  position: relative;
+}
+
+.player-avatars {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 100; /* High z-index to ensure avatars are always visible */
+}
+
+.player-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 3px solid white;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: bold;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.9);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.2);
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+}
+
+.player-avatar:hover {
+  transform: scale(1.15);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.8), 0 0 0 2px rgba(255, 255, 255, 0.4);
+  z-index: 25 !important;
+}
+
+/* Special positioning for corner spaces - slightly larger avatars */
+.space.corner .player-avatar {
+  width: 36px;
+  height: 36px;
+  font-size: 13px;
+  border-width: 3px;
+}
+
+/* Responsive avatar sizing for different screen sizes */
+@media (max-width: 768px) {
+  .player-avatar {
+    width: 28px;
+    height: 28px;
+    font-size: 11px;
+    border-width: 2px;
+  }
+  
+  .space.corner .player-avatar {
+    width: 32px;
+    height: 32px;
+    font-size: 12px;
+  }
 }

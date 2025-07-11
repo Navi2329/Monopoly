@@ -1,46 +1,591 @@
 import React, { useState } from 'react';
+import {
+  Box,
+  Paper,
+  Typography,
+  Button,
+  List,
+  ListItem,
+  ListItemIcon,
+  ListItemText,
+  Modal,
+  IconButton,
+  Chip,
+  Card,
+  CardContent,
+  alpha
+} from '@mui/material';
+import {
+  Close,
+  Person,
+  Info,
+  FiberManualRecord
+} from '@mui/icons-material';
+import { styled } from '@mui/material/styles';
 import './MonopolyBoard.css';
 
-const MonopolyBoard = ({ gameStarted, gameLog = [], onStartGame }) => {
+const StyledDice = styled(Paper)(({ theme, isRolling }) => ({
+  width: 70,
+  height: 70,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  background: isRolling 
+    ? 'linear-gradient(145deg, #fbbf24, #f59e0b)' 
+    : 'linear-gradient(145deg, #f8fafc, #e2e8f0)',
+  border: `3px solid ${isRolling ? '#d97706' : '#4c1d95'}`,
+  borderRadius: '16px',
+  fontSize: '28px',
+  fontWeight: 'bold',
+  color: isRolling ? '#ffffff' : '#1e293b',
+  boxShadow: isRolling 
+    ? '0 6px 20px rgba(251, 191, 36, 0.6), 0 0 0 2px rgba(255, 255, 255, 0.3)' 
+    : '0 4px 12px rgba(0, 0, 0, 0.3)',
+  transition: 'all 0.15s ease',
+  animation: isRolling ? 'diceRoll 0.12s infinite' : 'none',
+  transform: isRolling ? 'scale(1.15)' : 'scale(1)',
+  textShadow: isRolling ? '0 0 8px rgba(0, 0, 0, 0.8)' : '0 2px 4px rgba(0, 0, 0, 0.2)',
+  '@keyframes diceRoll': {
+    '0%': { transform: 'scale(1.15) rotate(0deg)' },
+    '25%': { transform: 'scale(1.15) rotate(90deg)' },
+    '50%': { transform: 'scale(1.15) rotate(180deg)' },
+    '75%': { transform: 'scale(1.15) rotate(270deg)' },
+    '100%': { transform: 'scale(1.15) rotate(360deg)' }
+  }
+}));
+
+const StyledGameLog = styled(Paper)(({ theme }) => ({
+  width: '100%',
+  maxWidth: 400,
+  maxHeight: 200,
+  overflow: 'auto',
+  background: 'rgba(30, 27, 46, 0.8)',
+  border: '1px solid #4c1d95',
+  borderRadius: '12px',
+  padding: theme.spacing(2),
+  marginBottom: theme.spacing(2),
+  backdropFilter: 'blur(10px)',
+  '&::-webkit-scrollbar': {
+    width: '4px',
+  },
+  '&::-webkit-scrollbar-track': {
+    background: 'transparent',
+  },
+  '&::-webkit-scrollbar-thumb': {
+    background: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: '2px',
+  }
+}));
+
+const StyledActionButton = styled(Button)(({ theme }) => ({
+  borderRadius: '12px',
+  textTransform: 'none',
+  fontWeight: 600,
+  padding: '12px 24px',
+  background: 'linear-gradient(145deg, #8b5cf6, #7c3aed)',
+  color: 'white',
+  border: 'none',
+  marginBottom: theme.spacing(2.5),
+  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+  boxShadow: '0 4px 12px rgba(139, 92, 246, 0.3)',
+  '&:hover:not(:disabled)': {
+    background: 'linear-gradient(145deg, #7c3aed, #6d28d9)',
+    transform: 'translateY(-2px)',
+    boxShadow: '0 6px 16px rgba(139, 92, 246, 0.4)',
+  },
+  '&:disabled': {
+    opacity: 0.6,
+    cursor: 'not-allowed',
+    transform: 'none'
+  }
+}));
+
+const StyledCurrentPlayer = styled(Card)(({ theme }) => ({
+  background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(34, 197, 94, 0.2))',
+  border: '1px solid rgba(34, 197, 94, 0.3)',
+  borderRadius: '8px',
+  padding: theme.spacing(1, 2),
+  display: 'flex',
+  alignItems: 'center',
+  gap: theme.spacing(1)
+}));
+
+const MonopolyBoard = ({ 
+  gameStarted, 
+  gameLog = [], 
+  onStartGame,
+  isPreviewMode = false,
+  previewContent = null,
+  players = [],
+  currentPlayerIndex = 0,
+  onRollDice,
+  onEndTurn,
+  gamePhase = 'waiting', // 'waiting', 'rolling', 'moving', 'turn-end'
+  onPlayerStatusChange // New callback for vacation/jail status
+}) => {
   const [dice, setDice] = useState({ dice1: 1, dice2: 1 });
   const [isRolling, setIsRolling] = useState(false);
-  const [currentPlayer, setCurrentPlayer] = useState('GODWILDBEAST');
   const [showModal, setShowModal] = useState(false);
   const [modalContent, setModalContent] = useState('');
+  const [playerPositions, setPlayerPositions] = useState({});
+  const [spaceArrivalOrder, setSpaceArrivalOrder] = useState({}); // Track arrival order for each space
+  const [playersInVacation, setPlayersInVacation] = useState(new Set()); // Track players in vacation
+  const [playersInJail, setPlayersInJail] = useState(new Set()); // Track players in jail
+
+  // Initialize player positions on START as soon as they join
+  React.useEffect(() => {
+    if (players.length > 0) {
+      // Create fresh state for all current players
+      const newPositions = {};
+      const newOrder = { 0: [] };
+      
+      players.forEach((player) => {
+        newPositions[player.id] = 0; // START position
+        newOrder[0].push(player.id);
+      });
+      
+      setPlayerPositions(newPositions);
+      setSpaceArrivalOrder(newOrder);
+    } else {
+      // Clear all positions if no players
+      setPlayerPositions({});
+      setSpaceArrivalOrder({});
+    }
+  }, [players.length, JSON.stringify(players.map(p => ({ id: p.id, name: p.name })))]);
 
   const rollDice = () => {
-    if (isRolling) return;
+    if (isRolling || gamePhase !== 'rolling') return;
     
     setIsRolling(true);
     
-    // Animate dice rolling
+    // More engaging dice animation with sound effect simulation
     const rollAnimation = setInterval(() => {
       setDice({
         dice1: Math.floor(Math.random() * 6) + 1,
         dice2: Math.floor(Math.random() * 6) + 1
       });
-    }, 100);
+    }, 80); // Faster animation for more excitement
 
     // Stop animation and show result
     setTimeout(() => {
       clearInterval(rollAnimation);
       const finalDice1 = Math.floor(Math.random() * 6) + 1;
       const finalDice2 = Math.floor(Math.random() * 6) + 1;
+      const total = finalDice1 + finalDice2;
       
       setDice({ dice1: finalDice1, dice2: finalDice2 });
       setIsRolling(false);
 
-      // Show modal for special events
-      if (Math.random() > 0.7) {
-        setModalContent('Received a Pardon card.');
-        setShowModal(true);
+      // Move current player with smooth step-by-step animation
+      const currentPlayer = players[currentPlayerIndex];
+      if (currentPlayer) {
+        // Check if player is in vacation - they skip their turn
+        if (playersInVacation.has(currentPlayer.id)) {
+          console.log(`${currentPlayer.name} is in vacation, skipping turn`);
+          setPlayersInVacation(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(currentPlayer.id);
+            return newSet;
+          });
+          
+          if (onPlayerStatusChange) {
+            onPlayerStatusChange(currentPlayer.id, 'vacation', false);
+          }
+          
+          // Check if doubles were rolled
+          const isDoubles = finalDice1 === finalDice2;
+          
+          // Notify parent component - no movement, just end turn
+          if (onRollDice) {
+            onRollDice(finalDice1, finalDice2, 0, isDoubles, 'vacation-skip');
+          }
+          return;
+        }
+        
+        // Check if player is in jail
+        if (playersInJail.has(currentPlayer.id)) {
+          console.log(`${currentPlayer.name} is in jail`);
+          
+          // Check if doubles were rolled to get out of jail
+          const isDoubles = finalDice1 === finalDice2;
+          
+          if (isDoubles) {
+            console.log(`${currentPlayer.name} rolled doubles and got out of jail!`);
+            setPlayersInJail(prev => {
+              const newSet = new Set(prev);
+              newSet.delete(currentPlayer.id);
+              return newSet;
+            });
+            
+            if (onPlayerStatusChange) {
+              onPlayerStatusChange(currentPlayer.id, 'jail', false);
+            }
+            
+            // Player moves from jail with the roll
+            const currentPos = 10; // Jail position
+            const newPos = (currentPos + total) % 40;
+            
+            // Move player normally from jail
+            let step = 0;
+            const moveInterval = setInterval(() => {
+              step++;
+              const intermediatePos = (currentPos + step) % 40;
+              
+              setPlayerPositions(prev => ({
+                ...prev,
+                [currentPlayer.id]: intermediatePos
+              }));
+              
+              // Update arrival order for intermediate positions during movement
+              setSpaceArrivalOrder(prev => {
+                const newOrder = { ...prev };
+                
+                // Remove player from all positions
+                Object.keys(newOrder).forEach(spaceIndex => {
+                  newOrder[spaceIndex] = newOrder[spaceIndex].filter(id => id !== currentPlayer.id);
+                  if (newOrder[spaceIndex].length === 0) {
+                    delete newOrder[spaceIndex];
+                  }
+                });
+                
+                // Add player to new position
+                if (!newOrder[intermediatePos]) {
+                  newOrder[intermediatePos] = [];
+                }
+                newOrder[intermediatePos].push(currentPlayer.id);
+                
+                return newOrder;
+              });
+              
+              if (step >= total) {
+                clearInterval(moveInterval);
+                // Notify parent component after movement is complete
+                if (onRollDice) {
+                  onRollDice(finalDice1, finalDice2, total, isDoubles, 'jail-escape');
+                }
+              }
+            }, 150);
+            
+            return;
+          } else {
+            // Player stays in jail
+            console.log(`${currentPlayer.name} stays in jail (didn't roll doubles)`);
+            if (onRollDice) {
+              onRollDice(finalDice1, finalDice2, 0, false, 'jail-stay');
+            }
+            return;
+          }
+        }
+        
+        const currentPos = playerPositions[currentPlayer.id] || 0;
+        const newPos = (currentPos + total) % 40; // 40 spaces on the board
+        
+        // Animate movement step by step with smooth transitions
+        let step = 0;
+        const moveInterval = setInterval(() => {
+          step++;
+          const intermediatePos = (currentPos + step) % 40;
+          
+          setPlayerPositions(prev => ({
+            ...prev,
+            [currentPlayer.id]: intermediatePos
+          }));
+          
+          // Update arrival order for intermediate positions during movement
+          setSpaceArrivalOrder(prev => {
+            const newOrder = { ...prev };
+            
+            // Remove player from all positions
+            Object.keys(newOrder).forEach(spaceIndex => {
+              newOrder[spaceIndex] = newOrder[spaceIndex].filter(id => id !== currentPlayer.id);
+              if (newOrder[spaceIndex].length === 0) {
+                delete newOrder[spaceIndex];
+              }
+            });
+            
+            // Add player to new position
+            if (!newOrder[intermediatePos]) {
+              newOrder[intermediatePos] = [];
+            }
+            newOrder[intermediatePos].push(currentPlayer.id);
+            
+            return newOrder;
+          });
+          
+          if (step >= total) {
+            clearInterval(moveInterval);
+            // Final position update - ensure player stays at the final position
+            setPlayerPositions(prev => ({
+              ...prev,
+              [currentPlayer.id]: newPos
+            }));
+            
+            // Final arrival order update
+            setSpaceArrivalOrder(prev => {
+              const newOrder = { ...prev };
+              
+              // Remove player from all positions
+              Object.keys(newOrder).forEach(spaceIndex => {
+                newOrder[spaceIndex] = newOrder[spaceIndex].filter(id => id !== currentPlayer.id);
+                if (newOrder[spaceIndex].length === 0) {
+                  delete newOrder[spaceIndex];
+                }
+              });
+              
+              // Add player to final position
+              if (!newOrder[newPos]) {
+                newOrder[newPos] = [];
+              }
+              newOrder[newPos].push(currentPlayer.id);
+              
+              return newOrder;
+            });
+            
+            // Check if doubles were rolled
+            const isDoubles = finalDice1 === finalDice2;
+            
+            // Handle special spaces
+            let specialAction = null;
+            if (newPos === 20) { // Vacation
+              console.log(`${currentPlayer.name} landed on Vacation - will skip next turn`);
+              setPlayersInVacation(prev => new Set(prev).add(currentPlayer.id));
+              if (onPlayerStatusChange) {
+                onPlayerStatusChange(currentPlayer.id, 'vacation', true);
+              }
+              specialAction = 'vacation';
+            } else if (newPos === 30) { // Go to prison
+              console.log(`${currentPlayer.name} landed on Go to prison - sent to jail`);
+              // Move player to jail position (10)
+              setPlayerPositions(prev => ({
+                ...prev,
+                [currentPlayer.id]: 10
+              }));
+              
+              // Update arrival order for jail
+              setSpaceArrivalOrder(prev => {
+                const newOrder = { ...prev };
+                
+                // Remove player from go to prison position
+                if (newOrder[30]) {
+                  newOrder[30] = newOrder[30].filter(id => id !== currentPlayer.id);
+                  if (newOrder[30].length === 0) {
+                    delete newOrder[30];
+                  }
+                }
+                
+                // Add player to jail position
+                if (!newOrder[10]) {
+                  newOrder[10] = [];
+                }
+                newOrder[10].push(currentPlayer.id);
+                
+                return newOrder;
+              });
+              
+              setPlayersInJail(prev => new Set(prev).add(currentPlayer.id));
+              if (onPlayerStatusChange) {
+                onPlayerStatusChange(currentPlayer.id, 'jail', true);
+              }
+              specialAction = 'jail';
+            }
+            
+            // Notify parent component after movement is complete
+            if (onRollDice) {
+              onRollDice(finalDice1, finalDice2, total, isDoubles, specialAction);
+            }
+          }
+        }, 150); // Slightly faster movement for better pacing
+      } else {
+        // No current player, just notify parent
+        const isDoubles = finalDice1 === finalDice2;
+        if (onRollDice) {
+          onRollDice(finalDice1, finalDice2, total, isDoubles);
+        }
       }
-    }, 1000);
+    }, 1800); // Slightly longer dice roll for anticipation
   };
 
-  const endTurn = () => {
-    // Logic to end current player's turn
-    console.log('Turn ended');
+  const handleEndTurn = () => {
+    if (onEndTurn) {
+      onEndTurn();
+    }
+  };
+
+  const getCurrentPlayer = () => {
+    return players && players.length > 0 ? players[currentPlayerIndex] : null;
+  };
+
+  // Helper function to get space index from position arrays
+  const getSpaceIndex = (position) => {
+    // Board has 40 positions total
+    // 0-10: top row (START to PRISON)
+    // 11-20: right row 
+    // 21-30: bottom row (VACATION going left)
+    // 31-39: left row (going up to START)
+    return position;
+  };
+
+  // Helper function to render player avatars on spaces
+  const renderPlayerAvatars = (spaceIndex) => {
+    // Get players in arrival order for this space
+    const playerIdsOnSpace = spaceArrivalOrder[spaceIndex] || [];
+    const playersOnSpace = playerIdsOnSpace
+      .map(playerId => players.find(player => player.id === playerId))
+      .filter(player => player && playerPositions[player.id] === spaceIndex);
+    
+    if (playersOnSpace.length === 0) return null;
+
+    const currentPlayer = getCurrentPlayer();
+    const isMoving = gamePhase === 'moving';
+    
+    // Check if this is a corner space for special sizing
+    const isCornerSpace = spaceIndex === 0 || spaceIndex === 10 || spaceIndex === 20 || spaceIndex === 30;
+    const avatarSize = isCornerSpace ? 36 : 32;
+    const fontSize = isCornerSpace ? '13px' : '12px';
+    
+    // Calculate overlap - each avatar should overlap the previous one by 50% to show an arc
+    const overlapAmount = avatarSize * 0.5; // 50% overlap to show arc of each avatar
+    
+    // Determine stacking direction based on space position
+    const isLeftSide = spaceIndex >= 31 && spaceIndex <= 39; // Left column
+    const isRightSide = spaceIndex >= 11 && spaceIndex <= 19; // Right column
+    const isHorizontalStack = isLeftSide || isRightSide;
+
+    return (
+      <Box sx={{ 
+        position: 'absolute', 
+        top: '50%',
+        left: '50%',
+        transform: 'translate(-50%, -50%)',
+        display: 'flex', 
+        flexDirection: isHorizontalStack ? 'row' : 'column',
+        alignItems: 'center',
+        zIndex: 100, // High z-index to ensure avatars are always visible
+        // Calculate container dimensions based on stacking direction
+        width: isHorizontalStack 
+          ? (playersOnSpace.length > 1 
+            ? `${avatarSize + (playersOnSpace.length - 1) * (avatarSize - overlapAmount)}px` 
+            : `${avatarSize}px`)
+          : `${avatarSize}px`,
+        height: isHorizontalStack 
+          ? `${avatarSize}px`
+          : (playersOnSpace.length > 1 
+            ? `${avatarSize + (playersOnSpace.length - 1) * (avatarSize - overlapAmount)}px` 
+            : `${avatarSize}px`),
+        justifyContent: 'flex-start'
+      }}>
+        {playersOnSpace.map((player, index) => {
+          const isCurrentPlayer = currentPlayer && player.id === currentPlayer.id;
+          const isMovingPlayer = isMoving && isCurrentPlayer;
+          const isInJail = playersInJail.has(player.id);
+          const isInVacation = playersInVacation.has(player.id);
+          const isJailSpace = spaceIndex === 10;
+          const isVacationSpace = spaceIndex === 20;
+          
+          // For jail space, differentiate between visiting and in jail
+          const isJustVisiting = isJailSpace && !isInJail;
+          const isBehindBars = isJailSpace && isInJail;
+          
+          // Different positioning for jail - jailed players go to bottom left, visitors on top
+          const jailPositionAdjustment = isJailSpace ? (
+            isBehindBars ? { transform: 'translate(-70%, 20%)' } : { transform: 'translate(-30%, -70%)' }
+          ) : {};
+          
+          return (
+            <Box
+              key={player.id}
+              sx={{
+                position: 'relative',
+                width: avatarSize,
+                height: avatarSize,
+                borderRadius: '50%',
+                backgroundColor: player.color,
+                border: '3px solid white',
+                fontSize: fontSize,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'white',
+                fontWeight: 'bold',
+                textShadow: '0 0 4px rgba(0, 0, 0, 0.9)',
+                boxShadow: isMovingPlayer 
+                  ? `0 4px 8px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.2), 0 0 20px ${player.color}` 
+                  : '0 4px 8px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.2)',
+                transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+                zIndex: isBehindBars ? 90 + index : 100 + index, // Put jailed players behind bars
+                // Use appropriate margins based on stacking direction
+                marginTop: index > 0 && !isHorizontalStack ? `-${overlapAmount}px` : 0,
+                marginLeft: index > 0 && isHorizontalStack ? `-${overlapAmount}px` : 0,
+                flexShrink: 0, // Prevent compression that causes oval shape
+                animation: isMovingPlayer ? 'avatarGlow 1s ease-in-out infinite alternate' : 'none',
+                ...jailPositionAdjustment, // Apply jail positioning
+                '@keyframes avatarGlow': {
+                  '0%': { 
+                    boxShadow: `0 4px 8px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.2), 0 0 20px ${player.color}`,
+                    transform: 'scale(1.05)'
+                  },
+                  '100%': { 
+                    boxShadow: `0 4px 8px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.2), 0 0 30px ${player.color}`,
+                    transform: 'scale(1.1)'
+                  }
+                },
+                '&:hover': {
+                  transform: 'scale(1.15)',
+                  boxShadow: '0 6px 12px rgba(0, 0, 0, 0.8), 0 0 0 2px rgba(255, 255, 255, 0.4)',
+                  zIndex: 200 // Bring hovered avatar to top
+                }
+              }}
+            >
+              {player.name.charAt(0).toUpperCase()}
+              
+              {/* Vacation indicator */}
+              {isInVacation && (
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    top: '-8px',
+                    right: '-8px',
+                    width: '20px',
+                    height: '20px',
+                    backgroundColor: '#22c55e',
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '10px',
+                    border: '2px solid white',
+                    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.4)',
+                    zIndex: 150
+                  }}
+                >
+                  🏖️
+                </Box>
+              )}
+              
+              {/* Jail bars overlay for players in jail */}
+              {isBehindBars && (
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: '100%',
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'repeating-linear-gradient(90deg, transparent, transparent 3px, rgba(0,0,0,0.8) 3px, rgba(0,0,0,0.8) 5px)',
+                    zIndex: 120,
+                    pointerEvents: 'none'
+                  }}
+                />
+              )}
+            </Box>
+          );
+        })}
+      </Box>
+    );
   };
   // Property to country flag mapping
   const propertyFlags = {
@@ -64,7 +609,7 @@ const MonopolyBoard = ({ gameStarted, gameLog = [], onStartGame }) => {
     'Liverpool': '🇬🇧', // UK
     'Manchester': '🇬🇧', // UK
     'London': '🇬🇧', // UK
-    'San Francisco': '🇺🇸', // USA
+    'California': '🇺🇸', // USA
     'New York': '🇺🇸' // USA
   };
 
@@ -117,7 +662,7 @@ const MonopolyBoard = ({ gameStarted, gameLog = [], onStartGame }) => {
     { name: 'London', type: 'property', flag: propertyFlags['London'], price: '320$' },
     { name: 'JFK Airport', type: 'airport', color: 'gray', price: '200$' },
     { name: 'Surprise', type: 'surprise', color: 'pink' },
-    { name: 'San Francisco', type: 'property', flag: propertyFlags['San Francisco'], price: '350$' },
+    { name: 'California', type: 'property', flag: propertyFlags['California'], price: '350$' },
     { name: 'Luxury Tax', type: 'tax', color: 'white' },
     { name: 'New York', type: 'property', flag: propertyFlags['New York'], price: '400$' }
   ];
@@ -132,8 +677,29 @@ const MonopolyBoard = ({ gameStarted, gameLog = [], onStartGame }) => {
     const isCorner = space.type === 'corner';
     const spaceClasses = `space ${space.type} ${position} ${isCorner ? 'corner' : ''} ${space.className || ''}`;
     
+    // Calculate the global space index for player positioning
+    // Board layout clockwise: 0-10 (top), 11-19 (right), 20-30 (bottom), 31-39 (left)
+    let globalSpaceIndex = 0;
+    if (position === 'top') {
+      globalSpaceIndex = index; // 0-10
+    } else if (position === 'right') {
+      globalSpaceIndex = 11 + index; // 11-19
+    } else if (position === 'bottom') {
+      if (space.name === 'Vacation') {
+        globalSpaceIndex = 20;
+      } else if (space.name === 'Go to prison') {
+        globalSpaceIndex = 30;
+      } else {
+        // Bottom row properties: index 0-8 should map to positions 21-29 (left to right)
+        globalSpaceIndex = 21 + index;
+      }
+    } else if (position === 'left') {
+      // Left row properties: index 0-8 should map to positions 31-39 (bottom to top)
+      globalSpaceIndex = 31 + index;
+    }
+    
     return (
-      <div key={`${position}-${index}`} className={spaceClasses}>
+      <div key={`${position}-${index}`} className={spaceClasses} style={{ position: 'relative' }}>
         <div className="space-content">
           {space.type === 'property' && (
             <>
@@ -158,6 +724,40 @@ const MonopolyBoard = ({ gameStarted, gameLog = [], onStartGame }) => {
           {space.type === 'utility' && space.utilityType !== 'electric' && <div className="utility-icon">🏭</div>}
           {space.type === 'tax' && <div className="tax-icon">💰</div>}
         </div>
+        {/* Render player avatars on this space - show avatars as soon as players join */}
+        {renderPlayerAvatars(globalSpaceIndex)}
+        
+        {/* Add jail bars for the jail space */}
+        {space.className === 'prison' && (
+          <div style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            background: 'repeating-linear-gradient(90deg, transparent, transparent 8px, rgba(0,0,0,0.6) 8px, rgba(0,0,0,0.6) 12px)',
+            pointerEvents: 'none',
+            zIndex: 110
+          }} />
+        )}
+        
+        {/* Add "JAIL" text in corner for jail space */}
+        {space.className === 'prison' && (
+          <div style={{
+            position: 'absolute',
+            top: '2px',
+            left: '2px',
+            fontSize: '8px',
+            fontWeight: 'bold',
+            color: '#ef4444',
+            backgroundColor: 'rgba(255, 255, 255, 0.9)',
+            padding: '1px 3px',
+            borderRadius: '2px',
+            zIndex: 120
+          }}>
+            JAIL
+          </div>
+        )}
       </div>
     );
   };
@@ -188,67 +788,345 @@ const MonopolyBoard = ({ gameStarted, gameLog = [], onStartGame }) => {
 
       {/* Center Area */}
       <div className="board-center">
-        {!gameStarted ? (
-          <div className="game-info">
-            <div className="dice-area">
-              <div className="dice">🎲</div>
-              <div className="dice">🎲</div>
-            </div>
-            <div className="game-title">MONOPOLY</div>
-            <button className="start-game-btn" onClick={onStartGame}>
-              Start Game
-            </button>
-          </div>
+        {isPreviewMode && previewContent ? (
+          <Box sx={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            textAlign: 'center',
+            color: '#e5e7eb',
+            p: 3,
+            width: '100%',
+            height: '100%'
+          }}>
+            {previewContent}
+          </Box>
+        ) : !gameStarted ? (
+          <Box sx={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            textAlign: 'center',
+            color: '#e5e7eb',
+            p: 3
+          }}>
+            <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
+              <Box sx={{ 
+                fontSize: '30px',
+                background: 'linear-gradient(145deg, #f8fafc, #e2e8f0)',
+                width: 50,
+                height: 50,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '8px',
+                border: '2px solid #4c1d95',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                color: '#1e293b'
+              }}>
+                🎲
+              </Box>
+              <Box sx={{ 
+                fontSize: '30px',
+                background: 'linear-gradient(145deg, #f8fafc, #e2e8f0)',
+                width: 50,
+                height: 50,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '8px',
+                border: '2px solid #4c1d95',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                color: '#1e293b'
+              }}>
+                🎲
+              </Box>
+            </Box>
+            <Typography 
+              variant="h4" 
+              sx={{ 
+                fontWeight: 'bold', 
+                color: '#f8fafc', 
+                mb: 3,
+                textShadow: '1px 1px 2px rgba(0,0,0,0.5)',
+                fontSize: '24px'
+              }}
+            >
+              MONOPOLY
+            </Typography>
+            
+            {/* Game Log - Show even before game starts */}
+            <StyledGameLog elevation={3}>
+              <List sx={{ py: 0 }}>
+                {gameLog.length > 0 ? gameLog.map((entry, index) => (
+                  <ListItem key={entry.id || index} sx={{ px: 0, py: 0.5 }}>
+                    <ListItemIcon sx={{ minWidth: 'auto', mr: 1 }}>
+                      {entry.type === 'join' && (
+                        <FiberManualRecord sx={{ color: '#22c55e', fontSize: '8px' }} />
+                      )}
+                      {entry.type === 'info' && (
+                        <FiberManualRecord sx={{ color: '#3b82f6', fontSize: '8px' }} />
+                      )}
+                      {entry.type === 'purchase' && (
+                        <FiberManualRecord sx={{ color: '#fbbf24', fontSize: '8px' }} />
+                      )}
+                      {entry.type === 'rent' && (
+                        <FiberManualRecord sx={{ color: '#f97316', fontSize: '8px' }} />
+                      )}
+                      {entry.type === 'special' && (
+                        <FiberManualRecord sx={{ color: '#a855f7', fontSize: '8px' }} />
+                      )}
+                      {entry.type === 'bankruptcy' && (
+                        <FiberManualRecord sx={{ color: '#ef4444', fontSize: '8px' }} />
+                      )}
+                      {entry.type === 'trade' && (
+                        <FiberManualRecord sx={{ color: '#10b981', fontSize: '8px' }} />
+                      )}
+                      {entry.type === 'bot' && (
+                        <FiberManualRecord sx={{ color: '#06b6d4', fontSize: '8px' }} />
+                      )}
+                    </ListItemIcon>
+                    <ListItemText
+                      primary={
+                        <Box component="span" sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                          {entry.player && (
+                            <Typography 
+                              component="span" 
+                              sx={{ 
+                                fontWeight: 'bold', 
+                                color: entry.type === 'join' ? '#22c55e' : '#f8fafc', 
+                                fontSize: '13px' 
+                              }}
+                            >
+                              {entry.player}
+                            </Typography>
+                          )}
+                          <Typography 
+                            component="span" 
+                            sx={{ 
+                              color: entry.type === 'bankruptcy' ? '#fca5a5' : '#d1d5db', 
+                              fontSize: '13px',
+                              fontWeight: entry.type === 'bankruptcy' ? 'bold' : 'normal'
+                            }}
+                          >
+                            {entry.message}
+                          </Typography>
+                        </Box>
+                      }
+                    />
+                  </ListItem>
+                )) : (
+                  <ListItem sx={{ px: 0, py: 0.5 }}>
+                    <ListItemText
+                      primary={
+                        <Typography 
+                          component="span" 
+                          sx={{ 
+                            color: '#9ca3af', 
+                            fontSize: '13px',
+                            fontStyle: 'italic',
+                            textAlign: 'center'
+                          }}
+                        >
+                          Game log will appear here...
+                        </Typography>
+                      }
+                    />
+                  </ListItem>
+                )}
+              </List>
+            </StyledGameLog>
+
+            {/* Show Start Game button when there are players who have chosen colors */}
+            {players.length > 0 && players.some(p => p.color) && (
+              <StyledActionButton onClick={onStartGame}>
+                Start Game
+              </StyledActionButton>
+            )}
+          </Box>
         ) : (
-          <div className="game-center">
+          <Box sx={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            textAlign: 'center',
+            p: 3,
+            width: '100%',
+            height: '100%'
+          }}>
             {/* Dice */}
-            <div className="dice-area">
-              <div className={`dice ${isRolling ? 'rolling' : ''}`}>
+            <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
+              <StyledDice elevation={4} isRolling={isRolling}>
                 {dice.dice1}
-              </div>
-              <div className={`dice ${isRolling ? 'rolling' : ''}`}>
+              </StyledDice>
+              <StyledDice elevation={4} isRolling={isRolling}>
                 {dice.dice2}
-              </div>
-            </div>
+              </StyledDice>
+            </Box>
 
             {/* Action Button */}
-            <button 
-              className="action-btn"
-              onClick={isRolling ? undefined : rollDice}
-              disabled={isRolling}
-            >
-              {isRolling ? 'Rolling...' : 'End turn'}
-            </button>
+            {gamePhase === 'rolling' && (
+              <StyledActionButton 
+                onClick={isRolling ? undefined : rollDice}
+                disabled={isRolling}
+              >
+                {isRolling ? 'Rolling...' : 'Roll Dice'}
+              </StyledActionButton>
+            )}
+            
+            {gamePhase === 'turn-end' && (
+              <StyledActionButton 
+                onClick={handleEndTurn}
+              >
+                End Turn
+              </StyledActionButton>
+            )}
+
+            {gamePhase === 'moving' && (
+              <Typography 
+                variant="h6" 
+                sx={{ 
+                  color: '#f8fafc', 
+                  mb: 2,
+                  textAlign: 'center'
+                }}
+              >
+                Moving...
+              </Typography>
+            )}
 
             {/* Game Log */}
-            <div className="game-log">
-              {gameLog.map((entry, index) => (
-                <div key={entry.id || index} className={`log-entry ${entry.type}`}>
-                  {entry.type === 'join' && <span className="log-dot">🟢</span>}
-                  {entry.type === 'info' && <span className="log-dot">🟡</span>}
-                  {entry.player && <span className="log-player">{entry.player}</span>}
-                  <span className="log-message">{entry.message}</span>
-                </div>
-              ))}
-            </div>
+            <StyledGameLog elevation={3}>
+              <List sx={{ py: 0 }}>
+                {gameLog.map((entry, index) => (
+                  <ListItem key={entry.id || index} sx={{ px: 0, py: 0.5 }}>
+                    <ListItemIcon sx={{ minWidth: 'auto', mr: 1 }}>
+                      {entry.type === 'join' && (
+                        <FiberManualRecord sx={{ color: '#22c55e', fontSize: '8px' }} />
+                      )}
+                      {entry.type === 'info' && (
+                        <FiberManualRecord sx={{ color: '#3b82f6', fontSize: '8px' }} />
+                      )}
+                      {entry.type === 'purchase' && (
+                        <FiberManualRecord sx={{ color: '#fbbf24', fontSize: '8px' }} />
+                      )}
+                      {entry.type === 'rent' && (
+                        <FiberManualRecord sx={{ color: '#f97316', fontSize: '8px' }} />
+                      )}
+                      {entry.type === 'special' && (
+                        <FiberManualRecord sx={{ color: '#a855f7', fontSize: '8px' }} />
+                      )}
+                      {entry.type === 'bankruptcy' && (
+                        <FiberManualRecord sx={{ color: '#ef4444', fontSize: '8px' }} />
+                      )}
+                      {entry.type === 'trade' && (
+                        <FiberManualRecord sx={{ color: '#10b981', fontSize: '8px' }} />
+                      )}
+                      {entry.type === 'bot' && (
+                        <FiberManualRecord sx={{ color: '#06b6d4', fontSize: '8px' }} />
+                      )}
+                    </ListItemIcon>
+                    <ListItemText
+                      primary={
+                        <Box component="span" sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                          {entry.player && (
+                            <Typography 
+                              component="span" 
+                              sx={{ 
+                                fontWeight: 'bold', 
+                                color: entry.type === 'join' ? '#22c55e' : '#f8fafc', 
+                                fontSize: '13px' 
+                              }}
+                            >
+                              {entry.player}
+                            </Typography>
+                          )}
+                          <Typography 
+                            component="span" 
+                            sx={{ 
+                              color: entry.type === 'bankruptcy' ? '#fca5a5' : '#d1d5db', 
+                              fontSize: '13px',
+                              fontWeight: entry.type === 'bankruptcy' ? 'bold' : 'normal'
+                            }}
+                          >
+                            {entry.message}
+                          </Typography>
+                        </Box>
+                      }
+                    />
+                  </ListItem>
+                ))}
+              </List>
+            </StyledGameLog>
 
             {/* Current Player Info */}
-            <div className="current-player">
-              <span className="player-indicator">🟢</span>
-              <span>{currentPlayer} got a Pardon card from the surprises stack</span>
-            </div>
-          </div>
+            {getCurrentPlayer() && (
+              <StyledCurrentPlayer>
+                <Box
+                  sx={{
+                    width: 16,
+                    height: 16,
+                    borderRadius: '50%',
+                    backgroundColor: getCurrentPlayer().color,
+                    border: '1px solid white',
+                    mr: 1
+                  }}
+                />
+                <Typography 
+                  variant="body2" 
+                  sx={{ color: '#22c55e', fontSize: '14px' }}
+                >
+                  {getCurrentPlayer().name}'s turn
+                </Typography>
+              </StyledCurrentPlayer>
+            )}
+          </Box>
         )}
 
         {/* Modal */}
-        {showModal && (
-          <div className="modal-overlay" onClick={() => setShowModal(false)}>
-            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-              <button className="modal-close" onClick={() => setShowModal(false)}>×</button>
-              <div className="modal-text">{modalContent}</div>
-            </div>
-          </div>
-        )}
+        <Modal
+          open={showModal}
+          onClose={() => setShowModal(false)}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+        >
+          <Card 
+            sx={{
+              background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
+              color: 'white',
+              maxWidth: 300,
+              border: '1px solid #4c1d95',
+              borderRadius: '12px',
+              position: 'relative',
+              boxShadow: '0 20px 40px rgba(0, 0, 0, 0.4)'
+            }}
+          >
+            <IconButton
+              onClick={() => setShowModal(false)}
+              sx={{
+                position: 'absolute',
+                top: 8,
+                right: 8,
+                color: 'white',
+                opacity: 0.7,
+                '&:hover': { opacity: 1 }
+              }}
+            >
+              <Close />
+            </IconButton>
+            <CardContent sx={{ textAlign: 'center', pt: 3 }}>
+              <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                {modalContent}
+              </Typography>
+            </CardContent>
+          </Card>
+        </Modal>
       </div>
     </div>
   );

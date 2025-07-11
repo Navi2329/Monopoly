@@ -1,117 +1,262 @@
 import React from 'react';
+import {
+  Box,
+  Typography,
+  Avatar,
+  Chip,
+  IconButton,
+  Paper,
+  Badge,
+  Tooltip
+} from '@mui/material';
+import {
+  Settings,
+  Close,
+  RadioButtonChecked,
+  Palette
+} from '@mui/icons-material';
+import { styled } from '@mui/material/styles';
 
-const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = false, onKickPlayer, playerJoined = true }) => {
+const StyledPlayerCard = styled(Paper)(({ theme }) => ({
+  background: 'rgba(30, 41, 59, 0.3)',
+  backdropFilter: 'blur(10px)',
+  border: '1px solid rgba(255, 255, 255, 0.1)',
+  borderRadius: '12px',
+  padding: theme.spacing(1.5),
+  marginBottom: theme.spacing(1),
+  transition: 'all 0.2s ease',
+  '&:hover': {
+    background: 'rgba(30, 41, 59, 0.5)',
+    border: '1px solid rgba(255, 255, 255, 0.2)',
+    transform: 'translateY(-1px)',
+  }
+}));
+
+const StyledAvatar = styled(Avatar)(({ playercolor }) => ({
+  width: 32,
+  height: 32,
+  backgroundColor: playercolor,
+  fontSize: '0.9rem',
+  fontWeight: 700,
+  border: '2px solid rgba(255, 255, 255, 0.2)',
+  position: 'relative',
+  '&::after': {
+    content: '""',
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 10,
+    height: 10,
+    backgroundColor: '#10b981',
+    borderRadius: '50%',
+    border: '2px solid rgba(15, 23, 42, 0.8)',
+  }
+}));
+
+const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = false, onKickPlayer, onChangeAppearance, playerJoined = true, playerStatuses = {} }) => {
   const hasPlayers = players.length > 0;
   
   return (
-    <div className="players-section">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-medium text-white/90">
-          Players {hasPlayers && `(${players.length})`}
-        </span>
-        {!gameStarted && (
-          <button className="text-white/60 hover:text-white/80 transition-colors duration-200 w-4 h-4 flex items-center justify-center">
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-          </button>
-        )}
-      </div>
-      
-      {/* Players List or Waiting State */}
-      {!playerJoined ? (
-        <div className="text-center py-8">
-          <div className="text-white/50 text-sm mb-2">Waiting for players...</div>
-          <div className="animate-pulse flex justify-center">
-            <div className="w-8 h-8 bg-white/10 rounded-full"></div>
-          </div>
-        </div>
-      ) : !hasPlayers ? (
-        <div className="text-center py-8">
-          <div className="text-white/50 text-sm mb-2">No other players yet</div>
-          <div className="animate-pulse flex justify-center">
-            <div className="w-8 h-8 bg-white/10 rounded-full"></div>
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-2">
+    <Box>
+      {/* Players List */}
+      {hasPlayers && (
+        <Box>
           {players.map((player) => (
-            <div key={player.id} className={`group transition-all duration-500 ${player.isJoining ? 'animate-pulse' : ''}`}>
-              <div className="flex items-center justify-between bg-black/20 backdrop-blur-sm p-2.5 rounded-md border border-white/5 hover:border-white/10 transition-all duration-200 hover:bg-black/30">
-                <div className="flex items-center gap-2.5">
-                  <div className="relative">
-                    {/* Color circle */}
-                    <div
-                      className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-sm transition-all duration-300 ${player.isJoining ? 'scale-110' : ''}`}
-                      style={{ 
-                        backgroundColor: player.color,
-                        boxShadow: `0 0 10px ${player.color}30${player.isJoining ? ', 0 0 20px ' + player.color + '50' : ''}`
+            <StyledPlayerCard key={player.id} elevation={0}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                {/* Left side - Avatar and player info */}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flex: 1 }}>
+                  {/* Avatar with crown badge and status indicators */}
+                  <Box sx={{ position: 'relative' }}>
+                    <Badge
+                      overlap="circular"
+                      anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+                      badgeContent={
+                        player.isHost ? (
+                          <Box
+                            sx={{
+                              fontSize: '12px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            👑
+                          </Box>
+                        ) : null
+                      }
+                    >
+                      <StyledAvatar playercolor={player.color}>
+                        {player.name.charAt(0).toUpperCase()}
+                        
+                        {/* Jail bars overlay for players in jail */}
+                        {playerStatuses[player.id]?.inJail && (
+                          <Box
+                            sx={{
+                              position: 'absolute',
+                              top: 0,
+                              left: 0,
+                              width: '100%',
+                              height: '100%',
+                              borderRadius: '50%',
+                              background: 'repeating-linear-gradient(90deg, transparent, transparent 2px, rgba(0,0,0,0.7) 2px, rgba(0,0,0,0.7) 4px)',
+                              pointerEvents: 'none',
+                              zIndex: 1
+                            }}
+                          />
+                        )}
+                      </StyledAvatar>
+                    </Badge>
+                    
+                    {/* Vacation indicator */}
+                    {playerStatuses[player.id]?.inVacation && (
+                      <Box
+                        sx={{
+                          position: 'absolute',
+                          top: '-6px',
+                          left: '-6px',
+                          width: '18px',
+                          height: '18px',
+                          backgroundColor: '#22c55e',
+                          borderRadius: '50%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '8px',
+                          border: '2px solid white',
+                          boxShadow: '0 2px 4px rgba(0, 0, 0, 0.4)',
+                          zIndex: 2
+                        }}
+                      >
+                        🏖️
+                      </Box>
+                    )}
+                  </Box>
+                  
+                  {/* Player name and icons */}
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <Typography 
+                      variant="body2" 
+                      sx={{ 
+                        color: 'white',
+                        fontWeight: 600,
+                        fontSize: '0.875rem'
                       }}
                     >
-                      {player.avatar ? (
-                        <img 
-                          src={player.avatar} 
-                          alt={player.name}
-                          className="w-full h-full rounded-full object-cover"
-                        />
-                      ) : (
-                        player.name.charAt(0).toUpperCase()
-                      )}
-                    </div>
-                    
-                    {/* Host crown */}
-                    {player.isHost && (
-                      <div className="absolute -top-1 -right-1 w-4 h-4 bg-yellow-500 rounded-full flex items-center justify-center text-[10px] shadow-sm">
-                        👑
-                      </div>
-                    )}
-                    
-                    {/* Joining indicator */}
-                    {player.isJoining && (
-                      <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full flex items-center justify-center text-[8px] shadow-sm animate-bounce">
-                        ✨
-                      </div>
-                    )}
-                  </div>
-                  
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-xs text-white/90 truncate flex items-center gap-1">
                       {player.name}
-                      {player.isJoining && (
-                        <span className="text-[10px] text-green-400 animate-pulse">joining...</span>
-                      )}
-                      {!player.isJoining && player.isOnline && (
-                        <div className="w-1.5 h-1.5 bg-green-500 rounded-full shadow-sm flex-shrink-0"></div>
-                      )}
-                      {player.isBot && !player.isJoining && (
-                        <span className="text-[10px] text-purple-400 bg-purple-500/20 px-1 rounded">BOT</span>
-                      )}
-                    </div>
-                    <div className="text-xs text-white/60">${player.money?.toLocaleString() || '1500'}</div>
-                  </div>
-                </div>
-                
-                <div className="flex items-center gap-1">
-                  {!gameStarted && player.id !== currentPlayerId && isHost && (
-                    <button 
-                      onClick={() => onKickPlayer && onKickPlayer(player.id)}
-                      className="bg-red-600/80 hover:bg-red-600 text-white w-6 h-6 rounded text-xs font-medium transition-all duration-200 opacity-0 group-hover:opacity-100 flex items-center justify-center"
-                      title={`Kick ${player.isBot ? 'bot' : 'player'}`}
+                    </Typography>
+                    {player.isHost && (
+                      <Typography 
+                        variant="caption"
+                        sx={{ 
+                          color: '#fbbf24',
+                          fontSize: '0.7rem'
+                        }}
+                      >
+                        👑
+                      </Typography>
+                    )}
+                    {/* Show bot icon next to name during game */}
+                    {player.isBot && gameStarted && (
+                      <Typography 
+                        variant="caption"
+                        sx={{ 
+                          color: '#a78bfa',
+                          fontSize: '0.8rem',
+                          ml: 0.5
+                        }}
+                      >
+                        🤖
+                      </Typography>
+                    )}
+                  </Box>
+                  
+                  {/* Bot indicator - only show before game starts */}
+                  {player.isBot && !gameStarted && (
+                    <Typography 
+                      variant="caption"
+                      sx={{ 
+                        color: '#a78bfa',
+                        fontSize: '0.8rem',
+                        ml: 0.5
+                      }}
                     >
-                      ✕
-                    </button>
+                      🤖
+                    </Typography>
                   )}
-                </div>
-              </div>
-            </div>
+                </Box>
+                
+                {/* Right side - Action buttons and cash display */}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  {/* Change appearance button - only for current player and only before game starts */}
+                  {!gameStarted && player.id === currentPlayerId && (
+                    <IconButton 
+                      size="small"
+                      onClick={() => {
+                        console.log('Change appearance clicked for:', player.name);
+                        onChangeAppearance && onChangeAppearance();
+                      }}
+                      sx={{ 
+                        color: 'rgba(255, 255, 255, 0.7)',
+                        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        borderRadius: '8px',
+                        padding: '4px 8px',
+                        fontSize: '0.75rem',
+                        '&:hover': {
+                          color: '#60a5fa',
+                          backgroundColor: 'rgba(96, 165, 250, 0.1)',
+                          border: '1px solid rgba(96, 165, 250, 0.3)'
+                        }
+                      }}
+                    >
+                      <Palette fontSize="small" sx={{ mr: 0.5 }} />
+                      <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
+                        Change appearance
+                      </Typography>
+                    </IconButton>
+                  )}
+                  
+                  {/* Kick button */}
+                  {!gameStarted && player.id !== currentPlayerId && isHost && (
+                    <IconButton 
+                      size="small"
+                      onClick={() => onKickPlayer && onKickPlayer(player.id)}
+                      sx={{ 
+                        color: 'rgba(255, 255, 255, 0.5)',
+                        '&:hover': {
+                          color: '#ef4444',
+                          backgroundColor: 'rgba(239, 68, 68, 0.1)'
+                        }
+                      }}
+                    >
+                      <Close fontSize="small" />
+                    </IconButton>
+                  )}
+                  
+                  {/* Cash display - when game started */}
+                  {gameStarted && (
+                    <Typography 
+                      variant="body2" 
+                      sx={{ 
+                        color: 'rgba(255, 255, 255, 0.9)',
+                        fontSize: '0.875rem',
+                        fontWeight: 600,
+                        minWidth: '60px',
+                        textAlign: 'right'
+                      }}
+                    >
+                      ${player.money?.toLocaleString() || '1,500'}
+                    </Typography>
+                  )}
+                </Box>
+              </Box>
+            </StyledPlayerCard>
           ))}
-        </div>
+        </Box>
       )}
-    </div>
+    </Box>
   );
 };
-
 
 export default PlayerList;

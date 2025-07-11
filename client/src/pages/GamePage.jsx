@@ -1,11 +1,101 @@
 import React, { useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { 
+  Box, 
+  Container, 
+  Paper, 
+  Typography, 
+  Button, 
+  Divider,
+  Card,
+  CardContent,
+  List,
+  ListItem,
+  ListItemIcon,
+  ListItemText,
+  IconButton,
+  Tooltip,
+  Grid
+} from '@mui/material';
+import { 
+  Home,
+  PersonRemove,
+  MoneyOff,
+  SwapHoriz,
+  Add
+} from '@mui/icons-material';
+import { styled } from '@mui/material/styles';
 import MonopolyBoard from '../components/game/MonopolyBoard';
 import ShareGame from '../components/game/ShareGame';
 import Chat from '../components/game/Chat';
 import PlayerList from '../components/game/PlayerList';
 import GameSettings from '../components/game/GameSettings';
 import PlayerSelection from '../components/game/PlayerSelection';
+import MapPreviewModal from '../components/game/MapPreviewModal';
+import MapFullPreview from '../components/game/MapFullPreview';
+
+const StyledSidebar = styled(Paper)(({ theme }) => ({
+  background: 'linear-gradient(145deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.95))',
+  backdropFilter: 'blur(20px)',
+  border: '1px solid rgba(255, 255, 255, 0.08)',
+  width: '380px',
+  height: '100dvh',
+  display: 'flex',
+  flexDirection: 'column',
+  position: 'relative',
+  overflow: 'hidden'
+}));
+
+const StyledMainArea = styled(Box)(({ theme }) => ({
+  background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.8), rgba(30, 41, 59, 0.8))',
+  backdropFilter: 'blur(10px)',
+  flex: 1,
+  position: 'relative',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: 0,
+  minHeight: 0,
+  overflow: 'hidden',
+  height: '100dvh',
+  maxHeight: '100dvh'
+}));
+
+const StyledHeader = styled(Box)(({ theme }) => ({
+  padding: theme.spacing(3),
+  background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(147, 51, 234, 0.1))',
+  borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+  textAlign: 'center'
+}));
+
+const StyledActionButton = styled(Button)(({ theme }) => ({
+  borderRadius: '12px',
+  textTransform: 'none',
+  fontWeight: 600,
+  padding: '12px 20px',
+  background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
+  color: 'white',
+  border: 'none',
+  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+  '&:hover': {
+    background: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
+    transform: 'translateY(-2px)',
+    boxShadow: '0 8px 25px rgba(139, 92, 246, 0.4)',
+  }
+}));
+
+const PropertyCard = styled(Card)(({ theme }) => ({
+  background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.6), rgba(15, 23, 42, 0.6))',
+  backdropFilter: 'blur(8px)',
+  border: '1px solid rgba(255, 255, 255, 0.05)',
+  borderRadius: '12px',
+  transition: 'all 0.3s ease',
+  '&:hover': {
+    background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.8), rgba(15, 23, 42, 0.8))',
+    transform: 'translateY(-2px)',
+    boxShadow: '0 8px 25px rgba(0, 0, 0, 0.3)',
+  }
+}));
 
 const GamePage = () => {
   const { roomId } = useParams();
@@ -21,6 +111,18 @@ const GamePage = () => {
   // Game state
   const [gameStarted, setGameStarted] = useState(false);
   const [gameLog, setGameLog] = useState([]);
+  const [mapPreviewOpen, setMapPreviewOpen] = useState(false);
+  const [mapFullPreviewOpen, setMapFullPreviewOpen] = useState(false);
+  const [previewingMap, setPreviewingMap] = useState('Classic');
+  const [changeAppearanceOpen, setChangeAppearanceOpen] = useState(false);
+
+  // Game turn management
+  const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0);
+  const [gamePhase, setGamePhase] = useState('waiting'); // 'waiting', 'rolling', 'moving', 'turn-end'
+  const [lastDiceRoll, setLastDiceRoll] = useState({ dice1: 1, dice2: 1, total: 2 });
+
+  // Player status tracking
+  const [playerStatuses, setPlayerStatuses] = useState({}); // { playerId: { inVacation: bool, inJail: bool } }
 
   // Players data - Initially empty, will be populated when player joins
   const [players, setPlayers] = useState([]);
@@ -40,6 +142,19 @@ const GamePage = () => {
     'AutoInvestor', 'SmartPlayer', 'GameBot', 'TradeMaster'
   ];
 
+  // Available colors for players (matches PlayerSelection.jsx)
+  const availableColors = [
+    '#a3e635', '#fbbf24', '#f97316', '#ef4444',
+    '#3b82f6', '#06b6d4', '#10b981', '#22c55e',
+    '#a855f7', '#ec4899', '#f43f5e', '#8b5cf6'
+  ];
+
+  // Function to get next available color
+  const getNextAvailableColor = (currentBots = []) => {
+    const usedColors = [...players.map(p => p.color), ...bots.map(b => b.color), ...currentBots.map(b => b.color)];
+    return availableColors.find(color => !usedColors.includes(color)) || availableColors[0];
+  };
+
   // Function to add bots with delays
   const addBotsWithDelay = async (botsNeeded, startingCash) => {
     if (botsNeeded <= 0) return;
@@ -50,6 +165,8 @@ const GamePage = () => {
     const existingBotNames = bots.map(bot => bot.name);
     const availableBotNames = botNames.filter(name => !existingBotNames.includes(name));
     
+    const newBots = [];
+    
     for (let i = 0; i < botsNeeded && i < availableBotNames.length; i++) {
       const botName = availableBotNames[i];
       const bot = {
@@ -57,16 +174,24 @@ const GamePage = () => {
         name: botName,
         isBot: true,
         isOnline: true,
-        color: ['#ef4444', '#f97316', '#06b6d4', '#8b5cf6', '#10b981', '#f59e0b', '#ec4899', '#6366f1'][i % 8],
+        color: getNextAvailableColor(newBots),
         money: startingCash,
         icon: botName[0],
         isJoining: true
       };
       
+      newBots.push(bot);
       setBots(prev => [...prev, bot]);
       
-      // Add to game log
-      console.log(`Bot ${bot.name} is joining...`);
+      // Add bot join message to game log
+      setGameLog(prev => [...prev, { 
+        id: Date.now() + i, 
+        type: 'join', 
+        player: botName,
+        message: 'joined the game' 
+      }]);
+      
+      console.log(`Bot ${bot.name} joined the game`);
       
       // Wait 1 second before adding next bot
       if (i < botsNeeded - 1) {
@@ -154,12 +279,137 @@ const GamePage = () => {
     if (!playerJoined) return; // Don't allow game start until player joined
     
     setGameStarted(true);
-    setGameLog([...gameLog, { id: Date.now(), type: 'info', message: 'Game started!' }]);
+    setGamePhase('rolling'); // Start with first player's turn
+    setCurrentPlayerIndex(0);
+    setGameLog([...gameLog, { 
+      id: Date.now(), 
+      type: 'info', 
+      message: 'Game started! All players placed on START.' 
+    }]);
+  };
+
+  const handleRollDice = (dice1, dice2, total, isDoubles, specialAction) => {
+    setLastDiceRoll({ dice1, dice2, total });
+    setGamePhase('moving');
+    
+    const currentPlayer = allPlayers[currentPlayerIndex];
+    
+    // Handle special actions
+    if (specialAction === 'vacation') {
+      setGameLog(prev => [...prev, { 
+        id: Date.now(), 
+        type: 'special', 
+        player: currentPlayer?.name,
+        message: `landed on Vacation! Will skip next turn 🏖️` 
+      }]);
+    } else if (specialAction === 'jail') {
+      setGameLog(prev => [...prev, { 
+        id: Date.now(), 
+        type: 'special', 
+        player: currentPlayer?.name,
+        message: `was sent to jail! 🚔` 
+      }]);
+    } else if (specialAction === 'vacation-skip') {
+      setGameLog(prev => [...prev, { 
+        id: Date.now(), 
+        type: 'info', 
+        player: currentPlayer?.name,
+        message: `skipped turn due to vacation 🏖️` 
+      }]);
+    } else if (specialAction === 'jail-escape') {
+      setGameLog(prev => [...prev, { 
+        id: Date.now(), 
+        type: 'special', 
+        player: currentPlayer?.name,
+        message: `rolled doubles and escaped from jail! 🎲` 
+      }]);
+    } else if (specialAction === 'jail-stay') {
+      setGameLog(prev => [...prev, { 
+        id: Date.now(), 
+        type: 'info', 
+        player: currentPlayer?.name,
+        message: `stays in jail (didn't roll doubles) 🔒` 
+      }]);
+    }
+    
+    // Only add important dice roll events (like doubles, high rolls, or special outcomes)
+    if (dice1 === dice2) {
+      setGameLog(prev => [...prev, { 
+        id: Date.now(), 
+        type: 'special', 
+        player: currentPlayer?.name,
+        message: `rolled doubles! ${dice1} + ${dice2} = ${total}` 
+      }]);
+    } else if (total >= 10) {
+      setGameLog(prev => [...prev, { 
+        id: Date.now(), 
+        type: 'info', 
+        player: currentPlayer?.name,
+        message: `rolled a high ${total}!` 
+      }]);
+    }
+    // Normal rolls are not logged to keep the log clean
+
+    // Simulate movement time, then handle turn end or doubles
+    setTimeout(() => {
+      if (isDoubles) {
+        // Player gets another turn for rolling doubles
+        setGamePhase('rolling');
+        setGameLog(prev => [...prev, { 
+          id: Date.now(), 
+          type: 'special', 
+          player: currentPlayer?.name,
+          message: `gets another turn for rolling doubles!` 
+        }]);
+      } else {
+        // Normal turn end
+        setGamePhase('turn-end');
+      }
+    }, 1000);
+  };
+
+  const handleEndTurn = () => {
+    const nextPlayerIndex = (currentPlayerIndex + 1) % allPlayers.length;
+    setCurrentPlayerIndex(nextPlayerIndex);
+    setGamePhase('rolling');
+    
+    const nextPlayer = allPlayers[nextPlayerIndex];
+    // Only log turn changes at the start of a new round (when returning to first player)
+    if (nextPlayerIndex === 0) {
+      setGameLog(prev => [...prev, { 
+        id: Date.now(), 
+        type: 'info', 
+        message: `New round started` 
+      }]);
+    }
+    // Individual turn changes are not logged to keep the log clean
   };
 
   const handleSettingsChange = (newSettings) => {
     console.log('Settings changed:', newSettings);
     setGameSettings(newSettings);
+  };
+
+  const handleMapPreviewOpen = () => {
+    setMapPreviewOpen(true);
+  };
+
+  const handleMapPreviewClose = () => {
+    setMapPreviewOpen(false);
+  };
+
+  const handleMapSelect = (selectedMap) => {
+    setGameSettings(prev => ({ ...prev, boardMap: selectedMap }));
+  };
+
+  const handleMapFullPreview = (mapName) => {
+    setPreviewingMap(mapName);
+    setMapFullPreviewOpen(true);
+    setMapPreviewOpen(false); // Close the browser modal
+  };
+
+  const handleMapFullPreviewClose = () => {
+    setMapFullPreviewOpen(false);
   };
 
   const handleBotsChange = (newBots) => {
@@ -198,196 +448,502 @@ const GamePage = () => {
     }
   };
 
+  const handleChangeAppearance = () => {
+    setChangeAppearanceOpen(true);
+  };
+
+  const handleChangeAppearanceClose = () => {
+    setChangeAppearanceOpen(false);
+  };
+
+  const handleAppearanceUpdate = (newColor) => {
+    // Update current player's color
+    const updatedPlayer = { ...currentPlayer, color: newColor };
+    setCurrentPlayer(updatedPlayer);
+    setPlayers(prev => prev.map(p => p.id === currentPlayer.id ? updatedPlayer : p));
+    setChangeAppearanceOpen(false);
+    
+    // Add message to chat
+    setMessages(prev => [...prev, {
+      id: Date.now(),
+      text: `Changed appearance to ${getColorName(newColor)}`,
+      sender: currentPlayer?.name || 'You',
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    }]);
+  };
+
+  const getColorName = (color) => {
+    const colorOptions = [
+      { color: '#a3e635', name: 'Lime' },
+      { color: '#fbbf24', name: 'Yellow' },
+      { color: '#f97316', name: 'Orange' },
+      { color: '#ef4444', name: 'Red' },
+      { color: '#3b82f6', name: 'Blue' },
+      { color: '#06b6d4', name: 'Cyan' },
+      { color: '#10b981', name: 'Teal' },
+      { color: '#22c55e', name: 'Green' },
+      { color: '#a855f7', name: 'Purple' },
+      { color: '#ec4899', name: 'Pink' },
+      { color: '#f43f5e', name: 'Rose' },
+      { color: '#8b5cf6', name: 'Violet' }
+    ];
+    return colorOptions.find(opt => opt.color === color)?.name || 'Unknown';
+  };
+
+  // Get all used colors (excluding current player when changing appearance)
+  const getUsedColors = () => {
+    return allPlayers.filter(p => p.id !== currentPlayer?.id).map(p => p.color);
+  };
+
   // Combine human players and bots for display
   const allPlayers = [...players, ...bots];
 
+  // Handler for property purchase events
+  const handlePropertyPurchase = (playerName, propertyName, price) => {
+    setGameLog(prev => [...prev, { 
+      id: Date.now(), 
+      type: 'purchase', 
+      player: playerName,
+      message: `bought ${propertyName} for $${price}` 
+    }]);
+  };
+
+  // Handler for property rent events
+  const handlePropertyRent = (playerName, ownerName, propertyName, rent) => {
+    setGameLog(prev => [...prev, { 
+      id: Date.now(), 
+      type: 'rent', 
+      player: playerName,
+      message: `paid $${rent} rent to ${ownerName} for ${propertyName}` 
+    }]);
+  };
+
+  // Handler for special space events (Jail, Tax, etc.)
+  const handleSpecialSpace = (playerName, spaceName, action) => {
+    setGameLog(prev => [...prev, { 
+      id: Date.now(), 
+      type: 'special', 
+      player: playerName,
+      message: `${action} on ${spaceName}` 
+    }]);
+  };
+
+  // Handler for player bankruptcy
+  const handlePlayerBankruptcy = (playerName) => {
+    setGameLog(prev => [...prev, { 
+      id: Date.now(), 
+      type: 'bankruptcy', 
+      player: playerName,
+      message: `went bankrupt and is out of the game!` 
+    }]);
+  };
+
+  // Handler for trade completion
+  const handleTradeCompletion = (player1Name, player2Name, details) => {
+    setGameLog(prev => [...prev, { 
+      id: Date.now(), 
+      type: 'trade', 
+      message: `${player1Name} and ${player2Name} completed a trade` 
+    }]);
+  };
+
+  // Handler for bot actions
+  const handleBotAction = (botName, action) => {
+    setGameLog(prev => [...prev, { 
+      id: Date.now(), 
+      type: 'bot', 
+      player: botName,
+      message: action 
+    }]);
+  };
+
+  const handlePlayerStatusChange = (playerId, statusType, isActive) => {
+    setPlayerStatuses(prev => ({
+      ...prev,
+      [playerId]: {
+        ...prev[playerId],
+        [statusType === 'vacation' ? 'inVacation' : 'inJail']: isActive
+      }
+    }));
+  };
+
   return (
-    <div className="h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white overflow-hidden">
-      <div className="flex h-full">
-        {/* Left Sidebar */}
-        <div className="w-80 bg-gradient-to-b from-slate-800/90 to-slate-900/90 backdrop-blur-sm flex flex-col border-r border-white/10 shadow-2xl">
-          {/* Header with Logo */}
-          <div className="px-6 py-4 border-b border-white/10 bg-gradient-to-r from-slate-800/50 to-slate-700/50 backdrop-blur-sm">
-            <button
-              className="bg-transparent border-none cursor-pointer w-full text-left group"
+    <Box sx={{ 
+      height: '100dvh', 
+      background: 'linear-gradient(135deg, #0f172a, #1e293b, #0f172a)',
+      overflow: 'hidden',
+      display: 'flex',
+      maxWidth: '100vw'
+    }}>
+      {/* Left Sidebar */}
+      <StyledSidebar elevation={24}>
+        {/* Header with Logo */}
+        <StyledHeader>
+          <Tooltip title="Go to Lobby" arrow>
+            <IconButton
               onClick={() => window.location.assign('/')}
-              aria-label="Go to Lobby"
+              sx={{ p: 0, width: '100%' }}
             >
-              <h1
-                className="font-bold tracking-widest text-center group-hover:scale-105 transition-transform duration-200"
-                style={{
-                  fontSize: '1.4rem',
+              <Typography
+                variant="h4"
+                sx={{
+                  fontWeight: 800,
                   letterSpacing: '0.15em',
-                  lineHeight: 1,
-                  textShadow: '0 0 20px rgba(255,255,255,0.5), 0 0 40px rgba(255,255,255,0.3)',
-                  color: '#fff',
-                  WebkitTextStroke: '0.5px rgba(255,255,255,0.8)',
-                  textTransform: 'uppercase',
-                  margin: 0,
-                  padding: '8px 0',
+                  background: 'linear-gradient(135deg, #60a5fa, #a78bfa)',
+                  backgroundClip: 'text',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                  textShadow: '0 0 20px rgba(255,255,255,0.5)',
+                  fontSize: '1.5rem',
+                  transition: 'transform 0.2s ease',
+                  '&:hover': {
+                    transform: 'scale(1.05)'
+                  }
                 }}
               >
                 MONOPOLY
-              </h1>
-            </button>
-          </div>
+              </Typography>
+            </IconButton>
+          </Tooltip>
+        </StyledHeader>
 
-          {/* Share Game Section */}
-          <div className="px-4 py-4 border-b border-white/10">
-            <ShareGame gameUrl={gameUrl} />
-          </div>
+        {/* Share Game Section */}
+        <Box sx={{ p: 2, borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+          <ShareGame gameUrl={gameUrl} />
+        </Box>
 
-          {/* Chat Section */}
-          <div className="flex-1 flex flex-col min-h-0">
-            <Chat 
-              messages={messages} 
-              onSendMessage={handleSendMessage}
-              disabled={!playerJoined}
+        {/* Chat Section - Fixed container with scrollable content */}
+        <Box sx={{ 
+          flex: 1,
+          display: 'flex', 
+          flexDirection: 'column', 
+          minHeight: 0,
+          borderTop: '1px solid rgba(255, 255, 255, 0.08)'
+        }}>
+          <Chat 
+            messages={messages} 
+            onSendMessage={handleSendMessage}
+            disabled={!playerJoined}
+          />
+        </Box>
+      </StyledSidebar>
+
+      {/* Main Game Area */}
+      <StyledMainArea>
+        {/* Always render the Monopoly Board */}        <Box sx={{
+          position: 'absolute',
+          inset: 0,
+          transition: 'all 0.5s ease',
+          filter: !playerJoined ? 'blur(2px)' : 'none',
+          transform: !playerJoined ? 'scale(1.02)' : 'scale(1)',
+          opacity: !playerJoined ? 0.6 : 1,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          p: 0,
+          width: '100%',
+          height: '100%'
+        }}>
+          <MonopolyBoard 
+            gameStarted={gameStarted}
+            gameLog={gameLog}
+            onStartGame={handleStartGame}
+            players={allPlayers}
+            currentPlayerIndex={currentPlayerIndex}
+            onRollDice={handleRollDice}
+            onEndTurn={handleEndTurn}
+            gamePhase={gamePhase}
+            onPlayerStatusChange={handlePlayerStatusChange}
+          />
+        </Box>
+
+        {/* Map Preview Overlay */}
+        {mapPreviewOpen && (
+          <MapPreviewModal
+            open={mapPreviewOpen}
+            onClose={handleMapPreviewClose}
+            selectedMap={gameSettings.boardMap || 'Classic'}
+            onMapSelect={handleMapSelect}
+            onMapPreview={handleMapFullPreview}
+            availableMaps={['Classic', 'Mr. Worldwide', 'Death Valley', 'Lucky Wheel']}
+          />
+        )}
+
+        {/* Player Selection Overlay */}
+        {!playerJoined && (
+          <Box sx={{ 
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10,
+            background: 'rgba(0, 0, 0, 0.2)',
+            backdropFilter: 'blur(1px)'
+          }}>
+            <PlayerSelection 
+              onJoinGame={handlePlayerJoin}
+              usedColors={allPlayers.map(p => p.color)}
             />
-          </div>
-        </div>
+          </Box>
+        )}
 
-        {/* Main Game Area */}
-        <div className="flex-1 relative bg-gradient-to-br from-slate-800 via-slate-900 to-slate-800">
-          {/* Always render the Monopoly Board */}
-          <div className={`absolute inset-0 transition-all duration-500 ${!playerJoined ? 'blur-sm scale-105 opacity-60' : ''}`}>
-            <div className="h-full flex items-center justify-center p-8">
-              <MonopolyBoard 
-                gameStarted={gameStarted}
-                gameLog={gameLog}
-                onStartGame={handleStartGame}
-              />
-            </div>
-          </div>
+        {/* Change Appearance Overlay */}
+        {changeAppearanceOpen && (
+          <Box sx={{ 
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10,
+            background: 'rgba(0, 0, 0, 0.2)',
+            backdropFilter: 'blur(1px)'
+          }}>
+            <PlayerSelection 
+              onChangeAppearance={handleAppearanceUpdate}
+              onClose={handleChangeAppearanceClose}
+              currentPlayerColor={currentPlayer?.color}
+              usedColors={getUsedColors()}
+              isChangingAppearance={true}
+            />
+          </Box>
+        )}
+      </StyledMainArea>
 
-          {/* Player Selection Overlay */}
-          {!playerJoined && (
-            <div className="absolute inset-0 flex items-center justify-center z-10 bg-black/20 backdrop-blur-[1px]">
-              <PlayerSelection onJoinGame={handlePlayerJoin} />
-            </div>
-          )}
-        </div>
+      {/* Full Page Map Preview */}
+      <MapFullPreview
+        open={mapFullPreviewOpen}
+        onClose={handleMapFullPreviewClose}
+        selectedMap={previewingMap}
+      />
 
         {/* Right Sidebar */}
-        <div className="w-80 bg-gradient-to-b from-slate-800/90 to-slate-900/90 backdrop-blur-sm flex flex-col border-l border-white/10 shadow-2xl">
+        <StyledSidebar elevation={24}>
           {/* Players Section */}
-          <div className="px-4 py-4 border-b border-white/10">
+          <Box sx={{ p: 2, borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>            
             <PlayerList 
               players={allPlayers} 
               currentPlayerId={currentPlayer?.id} 
               gameStarted={gameStarted}
               isHost={true}
               onKickPlayer={handleKickPlayer}
+              onChangeAppearance={handleChangeAppearance}
               playerJoined={playerJoined}
+              playerStatuses={playerStatuses}
             />
-          </div>
+          </Box>
 
           {gameStarted ? (
             /* Game Started Layout */
             <>
-              {/* Votekick and Bankrupt Buttons */}
-              <div className="px-4 py-3 border-b border-white/10 space-y-2">
-                <button 
-                  className="w-full bg-gray-600/80 hover:bg-gray-600 text-white py-2 px-4 rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center gap-2"
-                  onClick={handleVotekick}
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
-                  Votekick
-                </button>
-                <button 
-                  className="w-full bg-red-600/80 hover:bg-red-600 text-white py-2 px-4 rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center gap-2"
-                  onClick={handleBankrupt}
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
-                  </svg>
-                  Bankrupt
-                </button>
-              </div>
+              {/* Votekick and Bankrupt Buttons - Side by side */}
+              <Box sx={{ p: 2, borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Button
+                    startIcon={<PersonRemove />}
+                    onClick={handleVotekick}
+                    size="small"
+                    sx={{
+                      flex: 1,
+                      background: 'linear-gradient(135deg, #6b7280, #4b5563)',
+                      color: 'white',
+                      fontSize: '0.75rem',
+                      fontWeight: 600,
+                      borderRadius: '8px',
+                      textTransform: 'none',
+                      py: 0.75,
+                      '&:hover': {
+                        background: 'linear-gradient(135deg, #4b5563, #374151)',
+                        transform: 'translateY(-1px)',
+                      }
+                    }}
+                  >
+                    Votekick
+                  </Button>
+                  <Button
+                    startIcon={<MoneyOff />}
+                    onClick={handleBankrupt}
+                    size="small"
+                    sx={{
+                      flex: 1,
+                      background: 'linear-gradient(135deg, #dc2626, #b91c1c)',
+                      color: 'white',
+                      fontSize: '0.75rem',
+                      fontWeight: 600,
+                      borderRadius: '8px',
+                      textTransform: 'none',
+                      py: 0.75,
+                      '&:hover': {
+                        background: 'linear-gradient(135deg, #b91c1c, #991b1b)',
+                        transform: 'translateY(-1px)',
+                      }
+                    }}
+                  >
+                    Bankrupt
+                  </Button>
+                </Box>
+              </Box>
 
               {/* Trades Section */}
-              <div className="px-4 py-4 border-b border-white/10">
-                <div className="flex items-center justify-between mb-4">
-                  <span className="text-sm font-medium text-white/90">Trades</span>
-                  <button 
-                    className="bg-purple-600/80 hover:bg-purple-600 text-white px-4 py-1.5 rounded-md text-xs font-medium transition-all duration-200 shadow-sm"
+              <Box sx={{ p: 2, borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                  <Typography variant="subtitle2" sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
+                    Trades
+                  </Typography>
+                  <Button
+                    size="small"
+                    startIcon={<SwapHoriz />}
                     onClick={handleCreateTrade}
+                    sx={{
+                      background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
+                      color: 'white',
+                      fontSize: '0.75rem',
+                      fontWeight: 600,
+                      borderRadius: '8px',
+                      textTransform: 'none',
+                      px: 2,
+                      py: 0.75,
+                      '&:hover': {
+                        background: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
+                        transform: 'translateY(-1px)',
+                      }
+                    }}
                   >
                     Create
-                  </button>
-                </div>
-                {/* Scrollable Trades Container */}
-                <div className="bg-slate-800/50 backdrop-blur-sm rounded-lg border border-white/10 p-3 max-h-24 overflow-y-auto">
-                  <div className="text-center text-white/60 text-sm">
+                  </Button>
+                </Box>
+                <Paper 
+                  sx={{ 
+                    background: 'rgba(30, 41, 59, 0.5)',
+                    backdropFilter: 'blur(8px)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: '12px',
+                    p: 2,
+                    height: 80,
+                    overflow: 'auto',
+                    '&::-webkit-scrollbar': {
+                      width: '4px',
+                    },
+                    '&::-webkit-scrollbar-track': {
+                      background: 'transparent',
+                    },
+                    '&::-webkit-scrollbar-thumb': {
+                      background: 'rgba(255, 255, 255, 0.2)',
+                      borderRadius: '2px',
+                    }
+                  }}
+                >
+                  <Typography 
+                    variant="body2" 
+                    sx={{ 
+                      textAlign: 'center', 
+                      color: 'rgba(255, 255, 255, 0.6)',
+                      fontSize: '0.875rem'
+                    }}
+                  >
                     No active trades
-                  </div>
-                </div>
-              </div>
+                  </Typography>
+                </Paper>
+              </Box>
 
               {/* Properties Section */}
-              <div className="flex-1 px-4 py-4">
-                <div className="flex items-center justify-between mb-4">
-                  <span className="text-sm font-medium text-white/90">My properties (8)</span>
-                </div>
-                {/* Scrollable Properties Container */}
-                <div className="bg-slate-800/50 backdrop-blur-sm rounded-lg border border-white/10 p-2 flex-1 overflow-y-auto max-h-80">
-                  <div className="space-y-1">
+              <Box sx={{ flex: 1, p: 2, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                  <Typography variant="subtitle2" sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
+                    My properties (8)
+                  </Typography>
+                </Box>
+                <Paper 
+                  sx={{ 
+                    background: 'rgba(30, 41, 59, 0.5)',
+                    backdropFilter: 'blur(8px)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: '12px',
+                    p: 1,
+                    flex: 1,
+                    overflow: 'auto',
+                    minHeight: 280,
+                    '&::-webkit-scrollbar': {
+                      width: '4px',
+                    },
+                    '&::-webkit-scrollbar-track': {
+                      background: 'transparent',
+                    },
+                    '&::-webkit-scrollbar-thumb': {
+                      background: 'rgba(255, 255, 255, 0.2)',
+                      borderRadius: '2px',
+                    }
+                  }}
+                >
+                  <List sx={{ py: 0 }}>
                     {/* Sample Properties */}
-                    <div className="flex items-center gap-3 p-2 bg-slate-700/50 rounded-md hover:bg-slate-700/70 transition-colors">
-                      <span className="text-lg">🇧🇷</span>
-                      <span className="text-sm text-white/90">Salvador</span>
-                    </div>
-                    <div className="flex items-center gap-3 p-2 bg-slate-700/50 rounded-md hover:bg-slate-700/70 transition-colors">
-                      <span className="text-lg">🇮🇱</span>
-                      <span className="text-sm text-white/90">Tel Aviv</span>
-                    </div>
-                    <div className="flex items-center gap-3 p-2 bg-slate-700/50 rounded-md hover:bg-slate-700/70 transition-colors">
-                      <span className="text-lg">✈️</span>
-                      <span className="text-sm text-white/90">MUC Airport</span>
-                    </div>
-                    <div className="flex items-center gap-3 p-2 bg-slate-700/50 rounded-md hover:bg-slate-700/70 transition-colors">
-                      <span className="text-lg">🇨🇳</span>
-                      <span className="text-sm text-white/90">Shanghai</span>
-                    </div>
-                    <div className="flex items-center gap-3 p-2 bg-slate-700/50 rounded-md hover:bg-slate-700/70 transition-colors">
-                      <span className="text-lg">�🇷</span>
-                      <span className="text-sm text-white/90">Paris</span>
-                    </div>
-                    <div className="flex items-center gap-3 p-2 bg-slate-700/50 rounded-md hover:bg-slate-700/70 transition-colors">
-                      <span className="text-lg">🇬🇧</span>
-                      <span className="text-sm text-white/90">London</span>
-                    </div>
-                    <div className="flex items-center gap-3 p-2 bg-slate-700/50 rounded-md hover:bg-slate-700/70 transition-colors">
-                      <span className="text-lg">✈️</span>
-                      <span className="text-sm text-white/90">JFK Airport</span>
-                    </div>
-                    <div className="flex items-center gap-3 p-2 bg-slate-700/50 rounded-md hover:bg-slate-700/70 transition-colors">
-                      <span className="text-lg">🇺🇸</span>
-                      <span className="text-sm text-white/90">New York</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
+                    {/*
+                      { flag: '🇧🇷', name: 'Salvador' },
+                      { flag: '🇮🇱', name: 'Tel Aviv' },
+                      { flag: '✈️', name: 'MUC Airport' },
+                      { flag: '🇨🇳', name: 'Shanghai' },
+                      { flag: '🇫🇷', name: 'Paris' },
+                      { flag: '🇬🇧', name: 'London' },
+                      { flag: '✈️', name: 'JFK Airport' },
+                      { flag: '🇺🇸', name: 'New York' }
+                    */}
+                    {Array.from({ length: 8 }).map((_, index) => (
+                      <ListItem 
+                        key={index}
+                        sx={{ 
+                          px: 1.5, 
+                          py: 1, 
+                          borderRadius: '8px',
+                          background: 'rgba(51, 65, 85, 0.5)',
+                          mb: 0.5,
+                          transition: 'background 0.2s ease',
+                          '&:hover': {
+                            background: 'rgba(51, 65, 85, 0.7)'
+                          }
+                        }}
+                      >
+                        <ListItemIcon sx={{ minWidth: 'auto', mr: 1.5 }}>
+                          <Typography variant="h6" sx={{ fontSize: '1.125rem' }}>
+                            {['🇧🇷', '🇮🇱', '✈️', '🇨🇳', '🇫🇷', '🇬🇧', '✈️', '🇺🇸'][index]}
+                          </Typography>
+                        </ListItemIcon>
+                        <ListItemText
+                          primary={
+                            <Typography 
+                              variant="body2" 
+                              sx={{ 
+                                color: 'rgba(255, 255, 255, 0.9)',
+                                fontSize: '0.875rem'
+                              }}
+                            >
+                              {['Salvador', 'Tel Aviv', 'MUC Airport', 'Shanghai', 'Paris', 'London', 'JFK Airport', 'New York'][index]}
+                            </Typography>
+                          }
+                        />
+                      </ListItem>
+                    ))}
+                  </List>
+                </Paper>
+              </Box>
             </>
           ) : (
             /* Game Settings Section - Only before game starts */
-            <div className="flex-1 overflow-y-auto">
+            <Box sx={{ flex: 1, overflow: 'auto' }}>
               <GameSettings 
                 settings={gameSettings}
                 onSettingsChange={handleSettingsChange}
+                onMapPreviewOpen={handleMapPreviewOpen}
                 isHost={true}
                 players={players}
                 maxPlayers={gameSettings.maxPlayers}
                 gameStarted={gameStarted}
                 playerJoined={playerJoined}
               />
-            </div>
+            </Box>
           )}
-        </div>
-      </div>
-    </div>
+        </StyledSidebar>
+      </Box>
   );
 }
 export default GamePage;
