@@ -758,14 +758,14 @@ const MonopolyBoard = ({
                 <div 
                   className="space-price" 
                   style={{
-                    backgroundColor: propertyOwnership[space.name] 
+                    background: propertyOwnership[space.name] 
                       ? propertyOwnership[space.name].ownerColor 
-                      : 'rgba(255, 255, 255, 0.9)',
-                    color: propertyOwnership[space.name] ? 'white' : 'black',
-                    fontWeight: propertyOwnership[space.name] ? 'bold' : 'normal'
+                      : 'rgba(251, 191, 36, 0.3)',
+                    color: propertyOwnership[space.name] ? 'white' : '#fbbf24',
+                    fontWeight: propertyOwnership[space.name] ? 'bold' : 'bold'
                   }}
                 >
-                  {space.price}
+                  {propertyOwnership[space.name] ? '' : space.price}
                 </div>
               )}
             </>
@@ -774,28 +774,28 @@ const MonopolyBoard = ({
             <div 
               className="space-price"
               style={{
-                backgroundColor: propertyOwnership[space.name] 
+                background: propertyOwnership[space.name] 
                   ? propertyOwnership[space.name].ownerColor 
-                  : 'rgba(255, 255, 255, 0.9)',
-                color: propertyOwnership[space.name] ? 'white' : 'black',
-                fontWeight: propertyOwnership[space.name] ? 'bold' : 'normal'
+                  : 'rgba(251, 191, 36, 0.3)',
+                color: propertyOwnership[space.name] ? 'white' : '#fbbf24',
+                fontWeight: propertyOwnership[space.name] ? 'bold' : 'bold'
               }}
             >
-              {space.price}
+              {propertyOwnership[space.name] ? '' : space.price}
             </div>
           )}
           {space.type === 'utility' && space.price && (
             <div 
               className="space-price"
               style={{
-                backgroundColor: propertyOwnership[space.name] 
+                background: propertyOwnership[space.name] 
                   ? propertyOwnership[space.name].ownerColor 
-                  : 'rgba(255, 255, 255, 0.9)',
-                color: propertyOwnership[space.name] ? 'white' : 'black',
-                fontWeight: propertyOwnership[space.name] ? 'bold' : 'normal'
+                  : 'rgba(251, 191, 36, 0.3)',
+                color: propertyOwnership[space.name] ? 'white' : '#fbbf24',
+                fontWeight: propertyOwnership[space.name] ? 'bold' : 'bold'
               }}
             >
-              {space.price}
+              {propertyOwnership[space.name] ? '' : space.price}
             </div>
           )}
           <div className="space-name">
