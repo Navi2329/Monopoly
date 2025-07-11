@@ -129,12 +129,18 @@ const GamePage = () => {
   // Player status tracking
   const [playerStatuses, setPlayerStatuses] = useState({}); // { playerId: status } where status can be 'normal', 'jail', or 'vacation' with turn count
 
+  // Track consecutive doubles for each player
+  const [playerDoublesCount, setPlayerDoublesCount] = useState({}); // { playerId: number of consecutive doubles }
+
   // Track jail cards for each player
   const [playerJailCards, setPlayerJailCards] = useState({}); // { playerId: number of jail cards }
 
   // Property ownership and landing
   const [propertyOwnership, setPropertyOwnership] = useState({}); // { propertyName: { owner: playerId, ownerName: string, ownerColor: string } }
   const [propertyLandingState, setPropertyLandingState] = useState(null); // { property, player, isActive } - null when no property landing
+
+  // State to handle player move requests from GamePage to MonopolyBoard
+  const [playerMoveRequest, setPlayerMoveRequest] = useState(null);
 
   // Dev options state
   // Dev options state
@@ -546,20 +552,120 @@ const GamePage = () => {
     }]);
   };
 
-  const handleRollDice = (dice1, dice2, total, isDoubles, specialAction, landedSpaceIndex) => {
+  // Function to move a player to a specific position (used for jail, etc.)
+  const handleMovePlayerToPosition = (playerId, position) => {
+    // This will be passed to MonopolyBoard as a callback
+    // MonopolyBoard will handle the actual position update
+    return new Promise((resolve) => {
+      // Set a flag or trigger that MonopolyBoard can use
+      setPlayerMoveRequest({ playerId, position, resolve });
+    });
+  };
+
+  const handleRollDice = (dice1, dice2, total, isDoubles, specialAction, landedSpaceIndex, currentPos) => {
     setLastDiceRoll({ dice1, dice2, total });
     setGamePhase('moving');
     
     const currentPlayer = allPlayers[currentPlayerIndex];
     
+    // Track consecutive doubles
+    if (isDoubles) {
+      const currentDoublesCount = playerDoublesCount[currentPlayer.id] || 0;
+      const newDoublesCount = currentDoublesCount + 1;
+      
+      setPlayerDoublesCount(prev => ({
+        ...prev,
+        [currentPlayer.id]: newDoublesCount
+      }));
+      
+      // Check if player rolled 3 doubles in a row
+      if (newDoublesCount >= 3) {
+        // Send player to jail for rolling 3 doubles
+        setPlayerStatuses(prev => ({
+          ...prev,
+          [currentPlayer.id]: 'jail'
+        }));
+        
+        // Reset doubles count
+        setPlayerDoublesCount(prev => ({
+          ...prev,
+          [currentPlayer.id]: 0
+        }));
+        
+        setGameLog(prev => [{ 
+          id: Date.now(), 
+          type: 'special', 
+          player: currentPlayer?.name,
+          message: `rolled 3 doubles in a row and was sent to jail! 🚔` 
+        }, ...prev]);
+        
+        // Move player directly to jail (position 10) instead of their rolled position
+        handleMovePlayerToPosition(currentPlayer.id, 10).then(() => {
+          // End turn immediately after moving to jail
+          setTimeout(() => {
+            handleEndTurn();
+          }, 1000);
+        });
+        return;
+      }
+    } else {
+      // Reset doubles count if didn't roll doubles
+      setPlayerDoublesCount(prev => ({
+        ...prev,
+        [currentPlayer.id]: 0
+      }));
+    }
+    
+    // Handle START space rewards
+    const newPos = landedSpaceIndex;
+    const startPos = currentPos || 0;
+    
+    // Check if player passed or landed on START (position 0)
+    let startBonus = 0;
+    if (startPos !== 0 && newPos === 0) {
+      // Landed exactly on START
+      startBonus = 300;
+    } else if (startPos > newPos || (startPos + total) >= 40) {
+      // Passed START (wrapped around)
+      startBonus = 200;
+    }
+    
+    // Award START bonus
+    if (startBonus > 0) {
+      if (currentPlayer.isBot) {
+        setBots(prev => prev.map(bot => 
+          bot.id === currentPlayer.id 
+            ? { ...bot, money: bot.money + startBonus }
+            : bot
+        ));
+      } else {
+        setPlayers(prev => prev.map(p => 
+          p.id === currentPlayer.id 
+            ? { ...p, money: p.money + startBonus }
+            : p
+        ));
+        if (currentPlayer.id === currentPlayer?.id) {
+          setCurrentPlayer(prev => ({ ...prev, money: prev.money + startBonus }));
+        }
+      }
+      
+      const bonusMessage = startBonus === 300 ? 'landed on START and collected $300!' : 'passed START and collected $200!';
+      setGameLog(prev => [{ 
+        id: Date.now(), 
+        type: 'special', 
+        player: currentPlayer?.name,
+        message: bonusMessage 
+      }, ...prev]);
+    }
+    
     // Handle special actions
     if (specialAction === 'jail') {
-      setGameLog(prev => [...prev, { 
+      setGameLog(prev => [{ 
         id: Date.now(), 
         type: 'special', 
         player: currentPlayer?.name,
         message: `was sent to jail! 🚔` 
-      }]);
+      }, ...prev]);
       
       // Set player status to jail
       setPlayerStatuses(prev => ({
@@ -567,13 +673,19 @@ const GamePage = () => {
         [currentPlayer.id]: 'jail'
       }));
       
+      // Reset doubles count when sent to jail
+      setPlayerDoublesCount(prev => ({
+        ...prev,
+        [currentPlayer.id]: 0
+      }));
+      
     } else if (specialAction === 'vacation') {
-      setGameLog(prev => [...prev, { 
+      setGameLog(prev => [{ 
         id: Date.now(), 
         type: 'special', 
         player: currentPlayer?.name,
         message: `landed on vacation! 🏖️ Taking a break for a turn.` 
-      }]);
+      }, ...prev]);
       
       // Set player status to vacation with turn counter
       setPlayerStatuses(prev => ({
@@ -582,36 +694,36 @@ const GamePage = () => {
       }));
       
     } else if (specialAction === 'jail-escape') {
-      setGameLog(prev => [...prev, { 
+      setGameLog(prev => [{ 
         id: Date.now(), 
         type: 'special', 
         player: currentPlayer?.name,
         message: `rolled doubles and escaped from jail! 🎲` 
-      }]);
+      }, ...prev]);
     } else if (specialAction === 'jail-stay') {
-      setGameLog(prev => [...prev, { 
+      setGameLog(prev => [{ 
         id: Date.now(), 
         type: 'info', 
         player: currentPlayer?.name,
         message: `stays in jail (didn't roll doubles) 🔒` 
-      }]);
+      }, ...prev]);
     }
     
     // Only add important dice roll events (like doubles, high rolls, or special outcomes)
     if (dice1 === dice2 && !specialAction) {
-      setGameLog(prev => [...prev, { 
+      setGameLog(prev => [{ 
         id: Date.now(), 
         type: 'special', 
         player: currentPlayer?.name,
         message: `rolled doubles! ${dice1} + ${dice2} = ${total}` 
-      }]);
+      }, ...prev]);
     } else if (total >= 10 && !specialAction) {
-      setGameLog(prev => [...prev, { 
+      setGameLog(prev => [{ 
         id: Date.now(), 
         type: 'info', 
         player: currentPlayer?.name,
         message: `rolled a high ${total}!` 
-      }]);
+      }, ...prev]);
     }
     // Normal rolls are not logged to keep the log clean
 
@@ -628,15 +740,15 @@ const GamePage = () => {
         setTimeout(() => {
           handleEndTurn();
         }, 1500); // Give time to see the landing message
-      } else if (isDoubles && !specialAction) {
-        // Player gets another turn for rolling doubles
+      } else if (isDoubles && !specialAction && (playerDoublesCount[currentPlayer.id] || 0) < 3) {
+        // Player gets another turn for rolling doubles (if they haven't been sent to jail)
         setGamePhase('rolling');
-        setGameLog(prev => [...prev, { 
+        setGameLog(prev => [{ 
           id: Date.now(), 
           type: 'special', 
           player: currentPlayer?.name,
           message: `gets another turn for rolling doubles!` 
-        }]);
+        }, ...prev]);
       } else {
         // Normal turn end
         setGamePhase('turn-end');
@@ -645,6 +757,9 @@ const GamePage = () => {
   };
 
   const handleEndTurn = () => {
+    // Clear property landing state when turn ends
+    setPropertyLandingState(null);
+    
     // Handle current player's vacation status if they are on vacation
     const currentPlayerStatus = playerStatuses[allPlayers[currentPlayerIndex]?.id];
     
@@ -1142,6 +1257,8 @@ const GamePage = () => {
             onPayJailFine={handlePayJailFine}
             onUseJailCard={handleUseJailCard}
             playerStatuses={playerStatuses}
+            playerMoveRequest={playerMoveRequest}
+            onPlayerMoveComplete={() => setPlayerMoveRequest(null)}
             propertyLandingState={propertyLandingState}
             onBuyProperty={handleBuyProperty}
             onAuctionProperty={handleAuctionProperty}

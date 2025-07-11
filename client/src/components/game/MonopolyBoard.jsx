@@ -160,6 +160,9 @@ const MonopolyBoard = ({
   onPayJailFine, // Handler for paying jail fine
   onUseJailCard, // Handler for using jail card
   playerStatuses = {}, // Player status (jail, vacation)
+  // Player move request from GamePage (for sending to jail, etc.)
+  playerMoveRequest = null, // { playerId, position, resolve }
+  onPlayerMoveComplete, // Called when player move is complete
   // Property landing state and handlers
   propertyLandingState = null, // { property, player, isActive } - null when no property landing
   onBuyProperty, // Handler for buying property
@@ -224,6 +227,57 @@ const MonopolyBoard = ({
       setDice(null);
     }
   }, [gameStarted]);
+
+  // Handle player move requests (for sending to jail, etc.)
+  React.useEffect(() => {
+    if (playerMoveRequest && playerMoveRequest.playerId && playerMoveRequest.position !== undefined) {
+      const { playerId, position, resolve } = playerMoveRequest;
+      
+      console.log(`Moving player ${playerId} to position ${position}`);
+      
+      // Get the player's current position to remove them from that space's arrival order
+      const currentPosition = playerPositions[playerId];
+      
+      // Move the player to the specified position immediately
+      setPlayerPositions(prev => {
+        const newPositions = {
+          ...prev,
+          [playerId]: position
+        };
+        console.log('Updated player positions:', newPositions);
+        return newPositions;
+      });
+      
+      // Update space arrival order: remove from old position and add to new position
+      setSpaceArrivalOrder(prev => {
+        const newArrivalOrder = { ...prev };
+        
+        // Remove player from their current position (if they had one)
+        if (currentPosition !== undefined && newArrivalOrder[currentPosition]) {
+          newArrivalOrder[currentPosition] = newArrivalOrder[currentPosition].filter(id => id !== playerId);
+        }
+        
+        // Add player to the new position
+        const currentPlayersAtNewSpace = newArrivalOrder[position] || [];
+        if (!currentPlayersAtNewSpace.includes(playerId)) {
+          newArrivalOrder[position] = [...currentPlayersAtNewSpace, playerId];
+        }
+        
+        console.log('Updated space arrival order:', newArrivalOrder);
+        return newArrivalOrder;
+      });
+      
+      // Call the resolve function to let GamePage know the move is complete
+      if (resolve) {
+        resolve();
+      }
+      
+      // Notify GamePage that the move is complete
+      if (onPlayerMoveComplete) {
+        onPlayerMoveComplete();
+      }
+    }
+  }, [playerMoveRequest, onPlayerMoveComplete, playerPositions]);
 
   const rollDice = () => {
     if (isRolling || gamePhase !== 'rolling') return;
@@ -339,7 +393,7 @@ const MonopolyBoard = ({
               clearInterval(moveInterval);
               // Notify parent component after movement is complete
               if (onRollDice) {
-                onRollDice(finalDice1, finalDice2, total, isDoubles, 'jail-escape', newPos);
+                onRollDice(finalDice1, finalDice2, total, isDoubles, 'jail-escape', newPos, currentPos);
               }
             }
           }, 150);
@@ -468,7 +522,7 @@ const MonopolyBoard = ({
           
           // Notify parent component after movement is complete
           if (onRollDice) {
-            onRollDice(finalDice1, finalDice2, total, isDoubles, specialAction, newPos);
+            onRollDice(finalDice1, finalDice2, total, isDoubles, specialAction, newPos, currentPos);
           }
         }
       }, 150); // Slightly faster movement for better pacing
@@ -560,10 +614,10 @@ const MonopolyBoard = ({
           const isJustVisiting = isJailSpace && !isInJail;
           const isBehindBars = isJailSpace && isInJail;
           
-          // Different positioning for jail - jailed players go to bottom left, visitors on top
-          const jailPositionAdjustment = isJailSpace ? (
-            isBehindBars ? { transform: 'translate(-70%, 20%)' } : { transform: 'translate(-30%, -70%)' }
-          ) : {};
+          // Calculate base transform for jail positioning
+          const baseTransform = isJailSpace ? (
+            isBehindBars ? 'translate(-70%, 20%)' : 'translate(-30%, -70%)'
+          ) : 'translate(0, 0)';
           
           return (
             <Box
@@ -591,20 +645,20 @@ const MonopolyBoard = ({
                 marginTop: index > 0 && !isHorizontalStack ? `-${overlapAmount}px` : 0,
                 marginLeft: index > 0 && isHorizontalStack ? `-${overlapAmount}px` : 0,
                 flexShrink: 0, // Prevent compression that causes oval shape
+                transform: baseTransform, // Apply jail positioning first
                 animation: isMovingPlayer ? 'avatarGlow 1s ease-in-out infinite alternate' : 'none',
-                ...jailPositionAdjustment, // Apply jail positioning
                 '@keyframes avatarGlow': {
                   '0%': { 
                     boxShadow: `0 4px 8px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.2), 0 0 20px ${player.color}`,
-                    transform: 'scale(1.05)'
+                    transform: `${baseTransform} scale(1.05)` // Preserve jail positioning in animation
                   },
                   '100%': { 
                     boxShadow: `0 4px 8px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.2), 0 0 30px ${player.color}`,
-                    transform: 'scale(1.1)'
+                    transform: `${baseTransform} scale(1.1)` // Preserve jail positioning in animation
                   }
                 },
                 '&:hover': {
-                  transform: 'scale(1.15)',
+                  transform: `${baseTransform} scale(1.15)`, // Preserve jail positioning when hovering
                   boxShadow: '0 6px 12px rgba(0, 0, 0, 0.8), 0 0 0 2px rgba(255, 255, 255, 0.4)',
                   zIndex: 200 // Bring hovered avatar to top
                 }
@@ -1058,13 +1112,16 @@ const MonopolyBoard = ({
 
             {/* All Action Buttons - Horizontal Layout */}
             <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap', justifyContent: 'center', width: '100%' }}>
-              {/* Property Landing Actions */}
-              {propertyLandingState && propertyLandingState.isActive && (
+              {/* Property Landing Actions - Only show when it's the current player's turn and they landed on a property */}
+              {propertyLandingState && 
+               propertyLandingState.isActive && 
+               propertyLandingState.player && 
+               propertyLandingState.player.id === getCurrentPlayer()?.id && (
                 <>
                   {/* Buy Property Button */}
                   <UniformButton 
                     variant="green"
-                    disabled={!propertyLandingState.player || propertyLandingState.player.money < propertyLandingState.property.price}
+                    disabled={propertyLandingState.player.money < propertyLandingState.property.price}
                     onClick={() => onBuyProperty && onBuyProperty()}
                   >
                     Buy for ${propertyLandingState.property.price}
