@@ -6,7 +6,7 @@ import ProfileDropdown from '../auth/ProfileDropdown';
 
 const Header = ({ onLoginSuccess, onLogoutClick }) => {
   const { user } = useUser();
-  
+
   // To retain logged-in status, ensure your authentication logic (in UserContext or similar)
   // checks for a persisted token (e.g., in localStorage or cookies) on app load,
   // and restores the user session if present.

@@ -27,6 +27,7 @@ import './MonopolyBoard.css';
 import PropertyPopup from './PropertyPopup';
 import CustomModal from '../common/Modal';
 import { createPortal } from 'react-dom';
+import ReactCountryFlag from 'react-country-flag';
 
 const StyledDice = styled(Paper, {
   shouldForwardProp: (prop) => prop !== 'isRolling'
@@ -999,30 +1000,30 @@ const MonopolyBoard = ({
       </Box>
     );
   };
-  // Property to country flag mapping
+  // Property to country code mapping
   const propertyFlags = {
-    'Salvador': '🇧🇷', // Brazil
-    'Rio': '🇧🇷', // Brazil
-    'Tel Aviv': '🇮🇱', // Israel
-    'Haifa': '🇮🇱', // Israel
-    'Jerusalem': '🇮🇱', // Israel
-    'Venice': '🇮🇹', // Italy
-    'Milan': '🇮🇹', // Italy
-    'Rome': '🇮🇹', // Italy
-    'Frankfurt': '🇩🇪', // Germany
-    'Munich': '🇩🇪', // Germany
-    'Berlin': '🇩🇪', // Germany
-    'Shenzhen': '🇨🇳', // China
-    'Beijing': '🇨🇳', // China
-    'Shanghai': '🇨🇳', // China
-    'Lyon': '🇫🇷', // France
-    'Toulouse': '🇫🇷', // France
-    'Paris': '🇫🇷', // France
-    'Liverpool': '🇬🇧', // UK
-    'Manchester': '🇬🇧', // UK
-    'London': '🇬🇧', // UK
-    'California': '🇺🇸', // USA
-    'New York': '🇺🇸' // USA
+    'Salvador': 'BR', // Brazil
+    'Rio': 'BR', // Brazil
+    'Tel Aviv': 'IL', // Israel
+    'Haifa': 'IL', // Israel
+    'Jerusalem': 'IL', // Israel
+    'Venice': 'IT', // Italy
+    'Milan': 'IT', // Italy
+    'Rome': 'IT', // Italy
+    'Frankfurt': 'DE', // Germany
+    'Munich': 'DE', // Germany
+    'Berlin': 'DE', // Germany
+    'Shenzhen': 'CN', // China
+    'Beijing': 'CN', // China
+    'Shanghai': 'CN', // China
+    'Lyon': 'FR', // France
+    'Toulouse': 'FR', // France
+    'Paris': 'FR', // France
+    'Liverpool': 'GB', // UK
+    'Manchester': 'GB', // UK
+    'London': 'GB', // UK
+    'California': 'US', // USA
+    'New York': 'US' // USA
   };
 
   // Top row properties (left to right)
@@ -1126,7 +1127,16 @@ const MonopolyBoard = ({
         <div className="space-content">
           {space.type === 'property' && (
             <>
-              <div className="property-flag">{space.flag}</div>
+              <div className="property-flag">
+                {propertyFlags[space.name] && (
+                  <ReactCountryFlag
+                    countryCode={propertyFlags[space.name]}
+                    svg
+                    style={{ width: (position === 'top' || position === 'bottom') ? '1em' : '1.5em', height: (position === 'top' || position === 'bottom') ? '1em' : '1.5em' }}
+                    title={propertyFlags[space.name]}
+                  />
+                )}
+              </div>
               {space.price && (
                 <div
                   className="space-price"

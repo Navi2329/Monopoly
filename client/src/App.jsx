@@ -10,7 +10,7 @@ import GamePage from './pages/GamePage';
 const socket = io('http://localhost:4000');
 
 function App() {
-  const [gameState, setGameState] = useState('lobby'); 
+  const [gameState, setGameState] = useState('lobby');
   const [room, setRoom] = useState(null);
   const { user, loginUser, logoutUser } = useUser();
   const navigate = useNavigate();
@@ -51,14 +51,14 @@ function App() {
 
   return (
     <Routes>
-      <Route 
-        path="/" 
+      <Route
+        path="/"
         element={
           <HomePage
             onLoginSuccess={handleLoginSuccess}
             onCreatePrivateGame={handleCreatePrivateGame}
           />
-        } 
+        }
       />
       <Route path="/profile" element={<ProfilePage onLoginSuccess={handleLoginSuccess} />} />
       <Route path="/game/:roomId" element={<GamePage />} />
