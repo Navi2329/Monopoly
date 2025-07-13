@@ -7,9 +7,9 @@ const gameRooms = {}; // This object will store the state of all active games
 const createRoom = (hostSocketId, hostPlayerName) => {
   const host = new Player(hostSocketId, hostPlayerName, true);
   const room = new Room([host]);
-  
+
   gameRooms[room.id] = room;
-  
+
   return room;
 };
 

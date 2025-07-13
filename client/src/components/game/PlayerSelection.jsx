@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 
-const PlayerSelection = ({ 
-  onJoinGame, 
-  onChangeAppearance, 
+const PlayerSelection = ({
+  onJoinGame,
+  onChangeAppearance,
   onClose,
-  currentPlayerColor, 
-  usedColors = [], 
-  isChangingAppearance = false 
+  currentPlayerColor,
+  usedColors = [],
+  isChangingAppearance = false
 }) => {
   const [selectedColor, setSelectedColor] = useState(currentPlayerColor || '#a3e635'); // Default lime green
   const [showExtendedColors, setShowExtendedColors] = useState(false);
@@ -71,17 +71,18 @@ const PlayerSelection = ({
   return (
     <div className="flex items-center justify-center p-8">
       <div className="bg-slate-900/80 backdrop-blur-xl border border-white/30 rounded-3xl p-12 max-w-2xl w-full mx-8 shadow-2xl ring-1 ring-white/10">
-        <div className="text-center mb-8">
-          <h2 className="text-3xl font-bold text-white mb-4 drop-shadow-lg">
+        <div className="text-center mb-4">
+          <h2 className="text-3xl font-bold text-white mb-2 drop-shadow-lg">
             {isChangingAppearance ? 'Change your appearance' : 'Select your player appearance'}
           </h2>
-          <p className="text-slate-200 text-lg drop-shadow-md">
+          <p className="text-slate-200 text-lg drop-shadow-md mt-2">
             Choose a color to represent yourself in the game
           </p>
         </div>
-        
+        {/* Add gap after header/subtitle */}
+        <div className="h-4" />
         {/* Color Selection Grid - Clean circular design with better spacing */}
-        <div className={`grid gap-6 mb-8 justify-items-center px-4 ${showExtendedColors ? 'grid-cols-5' : 'grid-cols-4'}`}>
+        <div className={`grid gap-6 mb-6 justify-items-center px-4 ${showExtendedColors ? 'grid-cols-5' : 'grid-cols-4'}`}>
           {colorOptions.map((option, index) => {
             const disabled = isColorDisabled(option.color);
             return (
@@ -89,20 +90,18 @@ const PlayerSelection = ({
                 key={index}
                 onClick={() => !disabled && setSelectedColor(option.color)}
                 disabled={disabled}
-                className={`relative w-16 h-16 rounded-full transition-all duration-300 focus:outline-none ${
-                  disabled 
-                    ? 'opacity-40 cursor-not-allowed' 
+                className={`relative w-16 h-16 rounded-full transition-all duration-300 focus:outline-none ${disabled
+                    ? 'opacity-40 cursor-not-allowed'
                     : 'hover:scale-110 focus:ring-4 focus:ring-white/50 cursor-pointer'
-                } ${
-                  selectedColor === option.color 
-                    ? 'scale-125 shadow-2xl ring-4 ring-white/60' 
+                  } ${selectedColor === option.color
+                    ? 'scale-125 shadow-2xl ring-4 ring-white/60'
                     : 'shadow-lg hover:shadow-xl'
-                }`}
-                style={{ 
+                  }`}
+                style={{
                   backgroundColor: option.color,
-                  boxShadow: selectedColor === option.color 
-                    ? `0 0 30px ${option.color}80, 0 8px 32px rgba(0,0,0,0.3)` 
-                    : disabled 
+                  boxShadow: selectedColor === option.color
+                    ? `0 0 30px ${option.color}80, 0 8px 32px rgba(0,0,0,0.3)`
+                    : disabled
                       ? `0 4px 12px rgba(0,0,0,0.2)`
                       : `0 8px 24px ${option.color}40, 0 4px 12px rgba(0,0,0,0.2)`
                 }}
@@ -120,13 +119,14 @@ const PlayerSelection = ({
             );
           })}
         </div>
-
+        {/* Add gap after color grid */}
+        <div className="h-4" />
         {/* Selected Color Preview with better spacing */}
-        <div className="flex items-center justify-center gap-4 mb-8 bg-black/20 backdrop-blur-sm rounded-xl p-6 border border-white/10">
+        <div className="flex items-center justify-center gap-4 mb-6 bg-black/20 backdrop-blur-sm rounded-xl p-6 border border-white/10">
           <span className="text-slate-200 text-lg font-medium">Selected:</span>
-          <div 
+          <div
             className="w-10 h-10 rounded-full border-2 border-white shadow-lg"
-            style={{ 
+            style={{
               backgroundColor: selectedColor,
               boxShadow: `0 4px 16px ${selectedColor}60`
             }}
@@ -135,7 +135,8 @@ const PlayerSelection = ({
             {colorOptions.find(opt => opt.color === selectedColor)?.name}
           </span>
         </div>
-
+        {/* Add gap after selected color preview */}
+        <div className="h-4" />
         {/* Action Buttons with better contrast */}
         <div className="space-y-4">
           <button
