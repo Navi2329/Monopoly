@@ -181,11 +181,21 @@ const GamePage = () => {
   const [isAddingBots, setIsAddingBots] = useState(false);
   const [isShufflingPlayers, setIsShufflingPlayers] = useState(false);
 
-  // Combine human players and bots for display
-  const allPlayers = [...players, ...bots];
-
   // Ref to store the final shuffled order
   const shuffledOrderRef = useRef(null);
+  const [shuffleVersion, setShuffleVersion] = useState(0);
+
+  // Combine human players and bots for display
+  // Use shuffled order if available, otherwise use current order
+  const allPlayers = React.useMemo(() => {
+    if (shuffledOrderRef.current && gameStarted) {
+      return shuffledOrderRef.current;
+    }
+    return [...players, ...bots];
+  }, [players, bots, gameStarted, shuffleVersion]);
+
+  // State to track if randomization was used
+  const [wasRandomized, setWasRandomized] = useState(false);
 
   // Dev options change handler
   const handleDevDiceChange = (type, value) => {
@@ -309,7 +319,7 @@ const GamePage = () => {
     };
 
     manageBotsAsync();
-  }, [gameSettings.allowBots, gameSettings.maxPlayers, players.length, gameSettings.startingCash, gameStarted, playerJoined, isAddingBots, bots.length]);
+  }, [gameSettings.allowBots, gameSettings.maxPlayers, players.length, gameSettings.startingCash, gameStarted, playerJoined, isAddingBots]);
 
   // Effect to update existing players' money when starting cash changes
   React.useEffect(() => {
@@ -334,7 +344,7 @@ const GamePage = () => {
         money: gameSettings.startingCash
       })));
     }
-  }, [gameSettings.startingCash, gameStarted, playerJoined, currentPlayer]);
+  }, [gameSettings.startingCash, gameStarted, playerJoined]);
 
 
 
@@ -761,62 +771,139 @@ const GamePage = () => {
     // Randomize player order if setting is enabled
     if (gameSettings.randomizePlayerOrder) {
       setIsShufflingPlayers(true);
+      setWasRandomized(true);
 
       // Capture current players and bots to avoid recreation issues
       const currentPlayers = [...players];
       const currentBots = [...bots];
       const allCurrentPlayers = [...currentPlayers, ...currentBots];
 
-      // Create a shuffling animation with multiple random orders
-      const shuffleSteps = 5;
+      // Safety check - ensure we have players to shuffle
+      if (allCurrentPlayers.length === 0) {
+        setIsShufflingPlayers(false);
+        setGameStarted(true);
+        setGamePhase('rolling');
+        setCurrentPlayerIndex(0);
+        setRoundNumber(1);
+        return;
+      }
+
+      // Create a quick shuffling animation
+      const shuffleSteps = 3; // Fewer steps for faster animation
       let currentStep = 0;
 
       const shuffleInterval = setInterval(() => {
-        const shuffledPlayers = [...allCurrentPlayers].sort(() => Math.random() - 0.5);
-        setPlayers(shuffledPlayers.filter(p => !p.isBot));
-        setBots(shuffledPlayers.filter(p => p.isBot));
+        try {
+          // Quick shuffle animation
+          const shuffledPlayers = [...allCurrentPlayers];
+          for (let i = shuffledPlayers.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [shuffledPlayers[i], shuffledPlayers[j]] = [shuffledPlayers[j], shuffledPlayers[i]];
+          }
 
-        currentStep++;
-        if (currentStep >= shuffleSteps) {
-          clearInterval(shuffleInterval);
-          setIsShufflingPlayers(false);
+          setPlayers(shuffledPlayers.filter(p => !p.isBot));
+          setBots(shuffledPlayers.filter(p => p.isBot));
 
-          // Set the final shuffled order and store it in ref
-          const finalShuffledPlayers = [...allCurrentPlayers].sort(() => Math.random() - 0.5);
-          shuffledOrderRef.current = finalShuffledPlayers;
+          currentStep++;
+          if (currentStep >= shuffleSteps) {
+            clearInterval(shuffleInterval);
+            setIsShufflingPlayers(false);
 
-          setPlayers(finalShuffledPlayers.filter(p => !p.isBot));
-          setBots(finalShuffledPlayers.filter(p => p.isBot));
+            try {
+              // Set the final shuffled order and store it in ref
+              // Fisher-Yates shuffle with retry to ensure order changes
+              let finalShuffledPlayers = [...allCurrentPlayers];
+              let attempts = 0;
+              const maxAttempts = 10;
 
-          setGameLog(prev => [{
-            id: generateLogId(),
-            type: 'info',
-            message: 'Player order randomized!'
-          }, ...prev]);
+              do {
+                finalShuffledPlayers = [...allCurrentPlayers];
+                for (let i = finalShuffledPlayers.length - 1; i > 0; i--) {
+                  const j = Math.floor(Math.random() * (i + 1));
+                  [finalShuffledPlayers[i], finalShuffledPlayers[j]] = [finalShuffledPlayers[j], finalShuffledPlayers[i]];
+                }
+                attempts++;
+              } while (
+                attempts < maxAttempts &&
+                finalShuffledPlayers.map(p => p.name).join(',') === allCurrentPlayers.map(p => p.name).join(',')
+              );
 
-          // Start the game after a short delay to ensure state is updated
-          setTimeout(() => {
-            setGameStarted(true);
-            setGamePhase('rolling'); // Start with first player's turn
-            setCurrentPlayerIndex(0);
-            setRoundNumber(1); // Initialize round number
-            setGameLog(prev => [{
-              id: generateLogId(),
-              type: 'info',
-              message: 'Game started! All players placed on START.'
-            }, ...prev]);
+              // Set the final shuffled order in ref
+              shuffledOrderRef.current = finalShuffledPlayers;
 
-            // Show initial vacation cash if enabled
-            if (gameSettings.vacationCash) {
+              // Update players and bots arrays with the shuffled order
+              setPlayers(finalShuffledPlayers.filter(p => !p.isBot));
+              setBots(finalShuffledPlayers.filter(p => p.isBot));
+
+              // Force re-render by incrementing version
+              setShuffleVersion(prev => prev + 1);
+
+              // Check if the order actually changed
+              const originalOrder = allCurrentPlayers.map(p => p.name).join(',');
+              const newOrder = finalShuffledPlayers.map(p => p.name).join(',');
+              const orderChanged = originalOrder !== newOrder;
+
+              // Log the final player order
+              const playerOrderText = finalShuffledPlayers.map((player, index) =>
+                `${index + 1}. ${player.name}${player.isBot ? ' 🤖' : ''}`
+              ).join(', ');
+
+              setGameLog(prev => [
+                {
+                  id: generateLogId(),
+                  type: 'info',
+                  message: orderChanged ? '🎲 Player order randomized!' : '🎲 Shuffling completed (same order)'
+                },
+                {
+                  id: generateLogId(),
+                  type: 'info',
+                  message: `📋 Final order: ${playerOrderText}`
+                },
+                ...prev
+              ]);
+
+            } catch (error) {
+              console.error('Error during player randomization:', error);
               setGameLog(prev => [{
                 id: generateLogId(),
                 type: 'info',
-                message: 'Vacation cash collection enabled - Cash: $0'
+                message: '⚠️ Error during randomization, using original order'
               }, ...prev]);
             }
-          }, 500); // Short delay to ensure state updates are processed
+
+            // Start the game after a short delay to ensure state is updated
+            setTimeout(() => {
+              setGameStarted(true);
+              setGamePhase('rolling'); // Start with first player's turn
+              setCurrentPlayerIndex(0);
+              setRoundNumber(1); // Initialize round number
+              setGameLog(prev => [{
+                id: generateLogId(),
+                type: 'info',
+                message: '🚀 Game started! All players placed on START.'
+              }, ...prev]);
+
+              // Show initial vacation cash if enabled
+              if (gameSettings.vacationCash) {
+                setGameLog(prev => [{
+                  id: generateLogId(),
+                  type: 'info',
+                  message: 'Vacation cash collection enabled - Cash: $0'
+                }, ...prev]);
+              }
+            }, 300); // Quick delay to show the final order
+          }
+        } catch (error) {
+          console.error('Error during shuffle animation:', error);
+          clearInterval(shuffleInterval);
+          setIsShufflingPlayers(false);
+          // Fallback to immediate game start
+          setGameStarted(true);
+          setGamePhase('rolling');
+          setCurrentPlayerIndex(0);
+          setRoundNumber(1);
         }
-      }, 200); // Shuffle every 200ms for 1 second total
+      }, 100); // Very fast shuffling animation
     } else {
       // No randomization - start game immediately
       setGameStarted(true);
@@ -1041,15 +1128,18 @@ const GamePage = () => {
         }, ...prev]);
       }
 
-      setPlayerStatuses(prev => ({
-        ...prev,
-        [currentPlayer.id]: { status: 'vacation', vacationStartRound: roundNumber }
-      }));
+      setPlayerStatuses(prev => {
+        const newStatuses = {
+          ...prev,
+          [currentPlayer.id]: { status: 'vacation', vacationStartRound: roundNumber }
+        };
+        return newStatuses;
+      });
 
       // End turn immediately after setting vacation status
       setTimeout(() => {
-        handleEndTurn(true);
-      }, 500);
+        handleEndTurn(true, { [currentPlayer.id]: { status: 'vacation', vacationStartRound: roundNumber } });
+      }, 1000); // Increased delay to ensure state is updated
       return;
     } else if (specialAction === 'jail-escape') {
       setGameLog(prev => [{
@@ -1155,7 +1245,7 @@ const GamePage = () => {
   };
 
   // Fix: Add forceNextPlayer param to handleEndTurn
-  const handleEndTurn = (forceNextPlayer = false) => {
+  const handleEndTurn = (forceNextPlayer = false, pendingVacationStatus = null) => {
     setPropertyLandingState(null);
     isProcessingLanding.current = false; // Reset processing flag
 
@@ -1178,26 +1268,31 @@ const GamePage = () => {
     let roundsIncremented = 0;
 
     // First, check if all players are on vacation
+    // Use pending vacation status if provided, otherwise use current state
+    const effectivePlayerStatuses = pendingVacationStatus ? { ...playerStatuses, ...pendingVacationStatus } : playerStatuses;
+
     const allPlayersOnVacation = allPlayers.every(player => {
-      const status = playerStatuses[player.id];
-      return status && status.status === 'vacation';
+      const status = effectivePlayerStatuses[player.id];
+      return status && (status === 'vacation' || status.status === 'vacation');
     });
 
-    if (allPlayersOnVacation) {
+
+    if (allPlayersOnVacation && allPlayers.length > 0) {
       // All players are on vacation - advance the round and clear all vacation statuses
       roundsIncremented += 2;
       setRoundNumber(prev => prev + 2);
       setGameLog(prev => [{
         id: generateLogId(),
         type: 'info',
-        message: `All players on vacation - advancing to Round ${roundNumber + roundsIncremented} to get everyone out!`
+        message: `All players on vacation - advancing to Round ${roundNumber + 2} to get everyone out!`
       }, ...prev]);
 
       // Remove vacation status from all players
       setPlayerStatuses(prev => {
         const newStatuses = { ...prev };
         allPlayers.forEach(player => {
-          if (newStatuses[player.id] && newStatuses[player.id].status === 'vacation') {
+          if (newStatuses[player.id] &&
+            (newStatuses[player.id] === 'vacation' || newStatuses[player.id].status === 'vacation')) {
             delete newStatuses[player.id];
           }
         });
@@ -1229,9 +1324,10 @@ const GamePage = () => {
         }
 
         // Check vacation status for the current next player
-        const nextPlayerStatus = playerStatuses[allPlayers[nextPlayerIndex]?.id];
+        const nextPlayerStatus = effectivePlayerStatuses[allPlayers[nextPlayerIndex]?.id];
 
-        if (!nextPlayerStatus || nextPlayerStatus.status !== 'vacation') {
+        if (!nextPlayerStatus ||
+          (nextPlayerStatus !== 'vacation' && nextPlayerStatus.status !== 'vacation')) {
           // Increment jail rounds for players in jail (release happens when they roll dice)
           if (nextPlayerStatus === 'jail') {
             const currentJailRounds = playerJailRounds[allPlayers[nextPlayerIndex].id] || 0;
@@ -1280,9 +1376,38 @@ const GamePage = () => {
           nextPlayerIndex = (nextPlayerIndex + 1) % allPlayers.length;
           playersChecked++;
 
-          // If we've checked all players and they're all still on vacation, something is wrong
+          // If we've checked all players and they're all still on vacation, advance round and clear all vacation statuses
           if (playersChecked >= allPlayers.length) {
-            console.error('All players still on vacation after checking all of them');
+            // Advance the round and clear all vacation statuses
+            roundsIncremented += 2;
+            setRoundNumber(prev => prev + 2);
+            setGameLog(prev => [{
+              id: generateLogId(),
+              type: 'info',
+              message: `All players on vacation - advancing to Round ${roundNumber + 2} to get everyone out!`
+            }, ...prev]);
+
+            // Remove vacation status from all players
+            setPlayerStatuses(prev => {
+              const newStatuses = { ...prev };
+              allPlayers.forEach(player => {
+                if (newStatuses[player.id] &&
+                  (newStatuses[player.id] === 'vacation' || newStatuses[player.id].status === 'vacation')) {
+                  delete newStatuses[player.id];
+                }
+              });
+              return newStatuses;
+            });
+
+            // Log that all players are back from vacation
+            setGameLog(prev => [{
+              id: generateLogId(),
+              type: 'info',
+              message: `All players returned from vacation!`
+            }, ...prev]);
+
+            // Start with the first player
+            nextPlayerIndex = 0;
             break;
           }
         }

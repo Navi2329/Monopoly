@@ -7,14 +7,14 @@ let io;
 const init = (httpServer) => {
   io = new Server(httpServer, {
     cors: {
-      origin: "http://localhost:5173", // Your React app's address
+      origin: ["http://localhost:5173", "http://localhost:5174"], // Allow both ports
       methods: ["GET", "POST"]
     }
   });
 
   const onConnection = (socket) => {
     console.log(`⚡: User connected: ${socket.id}`);
-    
+
     // Register handlers from other files
     registerRoomHandlers(io, socket);
 
@@ -30,10 +30,10 @@ const init = (httpServer) => {
 };
 
 const getIo = () => {
-    if (!io) {
-        throw new Error("Socket.IO not initialized!");
-    }
-    return io;
+  if (!io) {
+    throw new Error("Socket.IO not initialized!");
+  }
+  return io;
 }
 
 module.exports = { init, getIo };

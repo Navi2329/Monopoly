@@ -17,6 +17,8 @@ import {
 } from '@mui/icons-material';
 import { styled } from '@mui/material/styles';
 
+
+
 const StyledPlayerCard = styled(Paper)(({ theme, isshuffling }) => ({
   background: 'rgba(30, 41, 59, 0.3)',
   backdropFilter: 'blur(10px)',
@@ -24,13 +26,14 @@ const StyledPlayerCard = styled(Paper)(({ theme, isshuffling }) => ({
   borderRadius: '12px',
   padding: theme.spacing(1.5),
   marginBottom: theme.spacing(1),
-  transition: isshuffling === 'true' ? 'all 0.1s ease' : 'all 0.2s ease',
-  transform: isshuffling === 'true' ? 'scale(0.95)' : 'scale(1)',
-  opacity: isshuffling === 'true' ? 0.8 : 1,
+  transition: isshuffling === 'true' ? 'all 0.15s ease' : 'all 0.2s ease',
+  transform: isshuffling === 'true' ? 'scale(0.98) rotate(1deg)' : 'scale(1)',
+  opacity: isshuffling === 'true' ? 0.9 : 1,
+  boxShadow: isshuffling === 'true' ? '0 4px 12px rgba(139, 92, 246, 0.3)' : '0 2px 8px rgba(0, 0, 0, 0.1)',
   '&:hover': {
     background: 'rgba(30, 41, 59, 0.5)',
     border: '1px solid rgba(255, 255, 255, 0.2)',
-    transform: isshuffling === 'true' ? 'scale(0.95)' : 'translateY(-1px)',
+    transform: isshuffling === 'true' ? 'scale(0.98) rotate(1deg)' : 'translateY(-1px)',
   }
 }));
 
@@ -60,6 +63,8 @@ const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = fa
 
   return (
     <Box>
+
+
       {/* Players List */}
       {hasPlayers && (
         <Box>
@@ -137,6 +142,27 @@ const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = fa
 
                   {/* Player name and icons */}
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    {/* Turn order indicator when game has started */}
+                    {gameStarted && (
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          color: '#fbbf24',
+                          fontSize: '0.7rem',
+                          fontWeight: 700,
+                          backgroundColor: 'rgba(251, 191, 36, 0.2)',
+                          borderRadius: '50%',
+                          width: '16px',
+                          height: '16px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          mr: 0.5
+                        }}
+                      >
+                        {players.indexOf(player) + 1}
+                      </Typography>
+                    )}
                     <Typography
                       variant="body2"
                       sx={{

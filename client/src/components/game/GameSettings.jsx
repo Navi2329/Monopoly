@@ -113,7 +113,7 @@ const GameSettings = ({
     mortgage: true,
     evenBuild: true,
     startingCash: 1500,
-    randomizeOrder: true,
+    randomizePlayerOrder: true,
     ...settings
   });
 
@@ -509,8 +509,8 @@ const GameSettings = ({
           </Box>
         </StyledSettingInfo>
         <StyledSwitch
-          checked={localSettings.randomizeOrder}
-          onChange={(e) => handleChange('randomizeOrder', e.target.checked)}
+          checked={localSettings.randomizePlayerOrder}
+          onChange={(e) => handleChange('randomizePlayerOrder', e.target.checked)}
           disabled={isDisabled}
         />
       </StyledSettingRow>
