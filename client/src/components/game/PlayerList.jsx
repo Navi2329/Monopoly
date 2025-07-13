@@ -17,18 +17,20 @@ import {
 } from '@mui/icons-material';
 import { styled } from '@mui/material/styles';
 
-const StyledPlayerCard = styled(Paper)(({ theme }) => ({
+const StyledPlayerCard = styled(Paper)(({ theme, isshuffling }) => ({
   background: 'rgba(30, 41, 59, 0.3)',
   backdropFilter: 'blur(10px)',
   border: '1px solid rgba(255, 255, 255, 0.1)',
   borderRadius: '12px',
   padding: theme.spacing(1.5),
   marginBottom: theme.spacing(1),
-  transition: 'all 0.2s ease',
+  transition: isshuffling === 'true' ? 'all 0.1s ease' : 'all 0.2s ease',
+  transform: isshuffling === 'true' ? 'scale(0.95)' : 'scale(1)',
+  opacity: isshuffling === 'true' ? 0.8 : 1,
   '&:hover': {
     background: 'rgba(30, 41, 59, 0.5)',
     border: '1px solid rgba(255, 255, 255, 0.2)',
-    transform: 'translateY(-1px)',
+    transform: isshuffling === 'true' ? 'scale(0.95)' : 'translateY(-1px)',
   }
 }));
 
@@ -53,16 +55,16 @@ const StyledAvatar = styled(Avatar)(({ playercolor }) => ({
   }
 }));
 
-const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = false, onKickPlayer, onChangeAppearance, playerJoined = true, playerStatuses = {} }) => {
+const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = false, onKickPlayer, onChangeAppearance, playerJoined = true, playerStatuses = {}, isShuffling = false }) => {
   const hasPlayers = players.length > 0;
-  
+
   return (
     <Box>
       {/* Players List */}
       {hasPlayers && (
         <Box>
           {players.map((player) => (
-            <StyledPlayerCard key={player.id} elevation={0}>
+            <StyledPlayerCard key={player.id} elevation={0} isshuffling={isShuffling.toString()}>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 {/* Left side - Avatar and player info */}
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flex: 1 }}>
@@ -88,7 +90,7 @@ const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = fa
                     >
                       <StyledAvatar playercolor={player.color}>
                         {player.name.charAt(0).toUpperCase()}
-                        
+
                         {/* Jail bars overlay for players in jail */}
                         {playerStatuses[player.id] === 'jail' && (
                           <Box
@@ -107,7 +109,7 @@ const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = fa
                         )}
                       </StyledAvatar>
                     </Badge>
-                    
+
                     {/* Vacation indicator */}
                     {playerStatuses[player.id] && typeof playerStatuses[player.id] === 'object' && playerStatuses[player.id].status === 'vacation' && (
                       <Box
@@ -132,12 +134,12 @@ const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = fa
                       </Box>
                     )}
                   </Box>
-                  
+
                   {/* Player name and icons */}
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <Typography 
-                      variant="body2" 
-                      sx={{ 
+                    <Typography
+                      variant="body2"
+                      sx={{
                         color: 'white',
                         fontWeight: 600,
                         fontSize: '0.875rem'
@@ -146,9 +148,9 @@ const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = fa
                       {player.name}
                     </Typography>
                     {player.isHost && (
-                      <Typography 
+                      <Typography
                         variant="caption"
-                        sx={{ 
+                        sx={{
                           color: '#fbbf24',
                           fontSize: '0.7rem'
                         }}
@@ -158,9 +160,9 @@ const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = fa
                     )}
                     {/* Show bot icon next to name during game */}
                     {player.isBot && gameStarted && (
-                      <Typography 
+                      <Typography
                         variant="caption"
-                        sx={{ 
+                        sx={{
                           color: '#a78bfa',
                           fontSize: '0.8rem',
                           ml: 0.5
@@ -170,12 +172,12 @@ const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = fa
                       </Typography>
                     )}
                   </Box>
-                  
+
                   {/* Bot indicator - only show before game starts */}
                   {player.isBot && !gameStarted && (
-                    <Typography 
+                    <Typography
                       variant="caption"
-                      sx={{ 
+                      sx={{
                         color: '#a78bfa',
                         fontSize: '0.8rem',
                         ml: 0.5
@@ -185,18 +187,17 @@ const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = fa
                     </Typography>
                   )}
                 </Box>
-                
+
                 {/* Right side - Action buttons and cash display */}
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   {/* Change appearance button - only for current player and only before game starts */}
                   {!gameStarted && player.id === currentPlayerId && (
-                    <IconButton 
+                    <IconButton
                       size="small"
                       onClick={() => {
-                        console.log('Change appearance clicked for:', player.name);
                         onChangeAppearance && onChangeAppearance();
                       }}
-                      sx={{ 
+                      sx={{
                         color: 'rgba(255, 255, 255, 0.7)',
                         backgroundColor: 'rgba(255, 255, 255, 0.05)',
                         border: '1px solid rgba(255, 255, 255, 0.1)',
@@ -216,13 +217,13 @@ const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = fa
                       </Typography>
                     </IconButton>
                   )}
-                  
+
                   {/* Kick button */}
                   {!gameStarted && player.id !== currentPlayerId && isHost && (
-                    <IconButton 
+                    <IconButton
                       size="small"
                       onClick={() => onKickPlayer && onKickPlayer(player.id)}
-                      sx={{ 
+                      sx={{
                         color: 'rgba(255, 255, 255, 0.5)',
                         '&:hover': {
                           color: '#ef4444',
@@ -233,12 +234,12 @@ const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = fa
                       <Close fontSize="small" />
                     </IconButton>
                   )}
-                  
+
                   {/* Cash display - when game started */}
                   {gameStarted && (
-                    <Typography 
-                      variant="body2" 
-                      sx={{ 
+                    <Typography
+                      variant="body2"
+                      sx={{
                         color: 'rgba(255, 255, 255, 0.9)',
                         fontSize: '0.875rem',
                         fontWeight: 600,

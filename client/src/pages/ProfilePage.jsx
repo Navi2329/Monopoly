@@ -24,13 +24,13 @@ const mockFriends = [
 
 const mockMatchHistory = Array.from({ length: 45 }, (_, i) => {
   const dates = [
-    'Jul 05, 22:34', 'Jul 05, 22:25', 'Jul 04, 22:30', 'Jun 29, 22:24', 'Jun 29, 22:02', 
+    'Jul 05, 22:34', 'Jul 05, 22:25', 'Jul 04, 22:30', 'Jun 29, 22:24', 'Jun 29, 22:02',
     'Jun 29, 00:56', 'Jun 29, 00:52', 'Jun 28, 18:48', 'Jun 28, 15:23', 'Jun 27, 20:15',
     'Jun 27, 18:42', 'Jun 26, 21:30', 'Jun 26, 19:15', 'Jun 25, 22:45', 'Jun 25, 20:30'
   ];
   return {
     id: i,
-    date: dates[i] || `Jun ${25 - Math.floor(i/2)}, ${20 + Math.floor(Math.random() * 4)}:${Math.floor(Math.random() * 60).toString().padStart(2, '0')}`,
+    date: dates[i] || `Jun ${25 - Math.floor(i / 2)}, ${20 + Math.floor(Math.random() * 4)}:${Math.floor(Math.random() * 60).toString().padStart(2, '0')}`,
     players: Math.floor(Math.random() * 4) + 2,
     outcome: Math.random() > 0.6 ? 'win' : 'loss',
     points: Math.floor(Math.random() * 400) + 50,
@@ -90,12 +90,12 @@ const ProfilePage = ({ onLoginSuccess }) => {
 
   return (
     <div className="bg-[#1e1332] min-h-screen text-white flex flex-col items-center">
-      <Header 
-        onLoginSuccess={onLoginSuccess} 
-        onLogoutClick={handleLogoutClick} 
+      <Header
+        onLoginSuccess={onLoginSuccess}
+        onLogoutClick={handleLogoutClick}
       />
 
-        <div className="px-6 pb-8 w-full flex flex-col items-center">
+      <div className="px-6 pb-8 w-full flex flex-col items-center">
         <div className="max-w-4xl w-full flex flex-col items-center" style={{ marginTop: '50px' }}>
           <div
             className="flex flex-col items-center justify-center mb-16"
@@ -157,11 +157,11 @@ const ProfilePage = ({ onLoginSuccess }) => {
           </div>
           <div className="mb-16 w-full flex flex-col items-center">
             <div className="text-center w-full" style={{ marginTop: '30px' }}>
-              <h2 className="text-4xl font-bold mb-4 text-white tracking-wide" style={{ marginTop: '20px',fontSize: '30px' }}>Last games</h2>
+              <h2 className="text-4xl font-bold mb-4 text-white tracking-wide" style={{ marginTop: '20px', fontSize: '30px' }}>Last games</h2>
               <p className="text-gray-300 text-base mb-8 font-medium">
-                Only last 80 games are shown. 
+                Only last 80 games are shown.
               </p>
-              
+
               <div className="max-w-4xl mx-auto space-y-3" style={{ marginTop: '20px' }}>
                 {currentGames.map((match) => (
                   <div key={match.id} className="flex items-center justify-between p-5 bg-purple-900/30 rounded-xl hover:bg-purple-900/40 transition-colors">
@@ -199,50 +199,48 @@ const ProfilePage = ({ onLoginSuccess }) => {
                   </div>
                 ))}
               </div>
-              
+
               <div className="flex justify-center items-center gap-3 mt-8">
-                <button 
+                <button
                   onClick={() => handlePageChange(currentPage - 1)}
                   disabled={currentPage === 1}
                   className="w-10 h-10 rounded-lg bg-purple-900/50 hover:bg-purple-900/70 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
                 >
                   ‹
                 </button>
-                
+
                 {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
                   const pageNumber = i + 1;
                   return (
                     <button
                       key={pageNumber}
                       onClick={() => handlePageChange(pageNumber)}
-                      className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors font-medium ${
-                        currentPage === pageNumber
+                      className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors font-medium ${currentPage === pageNumber
                           ? 'bg-purple-600 text-white'
                           : 'bg-purple-900/50 hover:bg-purple-900/70 text-gray-300'
-                      }`}
+                        }`}
                     >
                       {pageNumber}
                     </button>
                   );
                 })}
-                
+
                 {totalPages > 5 && (
                   <>
                     <span className="text-gray-400 mx-2">...</span>
                     <button
                       onClick={() => handlePageChange(totalPages)}
-                      className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors font-medium ${
-                        currentPage === totalPages
+                      className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors font-medium ${currentPage === totalPages
                           ? 'bg-purple-600 text-white'
                           : 'bg-purple-900/50 hover:bg-purple-900/70 text-gray-300'
-                      }`}
+                        }`}
                     >
                       {totalPages}
                     </button>
                   </>
                 )}
-                
-                <button 
+
+                <button
                   onClick={() => handlePageChange(currentPage + 1)}
                   disabled={currentPage === totalPages}
                   className="w-10 h-10 rounded-lg bg-purple-900/50 hover:bg-purple-900/70 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
@@ -258,24 +256,24 @@ const ProfilePage = ({ onLoginSuccess }) => {
 
       <Modal isOpen={showLogoutConfirm} onClose={() => setShowLogoutConfirm(false)}>
         <div className="text-center text-gray-900">
-            <h3 className="text-2xl font-bold mb-3 mt-0">Sign Out</h3>
-            <p className="text-gray-600 mb-8 leading-relaxed">
-                Are you sure you want to sign out?<br />You'll need to log in again to access your account.
-            </p>
-            <div className="flex gap-4">
-                <button
-                    onClick={() => setShowLogoutConfirm(false)}
-                    className="flex-1 px-6 py-3 bg-gradient-to-r from-purple-400 to-purple-500 hover:from-purple-500 hover:to-purple-600 text-white font-semibold rounded-xl transition-all duration-200 shadow-lg"
-                >
-                    Cancel
-                </button>
-                <button
-                    onClick={confirmLogout}
-                    className="flex-1 px-6 py-3 bg-gradient-to-r from-purple-400 to-purple-500 hover:from-purple-500 hover:to-purple-600 text-white font-semibold rounded-xl transition-all duration-200 shadow-lg"
-                >
-                    Sign Out
-                </button>
-            </div>
+          <h3 className="text-2xl font-bold mb-3 mt-0">Sign Out</h3>
+          <p className="text-gray-600 mb-8 leading-relaxed">
+            Are you sure you want to sign out?<br />You'll need to log in again to access your account.
+          </p>
+          <div className="flex gap-4">
+            <button
+              onClick={() => setShowLogoutConfirm(false)}
+              className="flex-1 px-6 py-3 bg-gradient-to-r from-purple-400 to-purple-500 hover:from-purple-500 hover:to-purple-600 text-white font-semibold rounded-xl transition-all duration-200 shadow-lg"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={confirmLogout}
+              className="flex-1 px-6 py-3 bg-gradient-to-r from-purple-400 to-purple-500 hover:from-purple-500 hover:to-purple-600 text-white font-semibold rounded-xl transition-all duration-200 shadow-lg"
+            >
+              Sign Out
+            </button>
+          </div>
         </div>
       </Modal>
     </div>

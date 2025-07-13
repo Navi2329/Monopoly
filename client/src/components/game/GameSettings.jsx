@@ -90,10 +90,10 @@ const StyledSelect = styled(Select)(({ theme }) => ({
   }
 }));
 
-const GameSettings = ({ 
-  settings = {}, 
-  onSettingsChange = () => {},
-  onMapPreviewOpen = () => {},
+const GameSettings = ({
+  settings = {},
+  onSettingsChange = () => { },
+  onMapPreviewOpen = () => { },
   isHost = true,
   players = [],
   maxPlayers = 8,
@@ -128,7 +128,7 @@ const GameSettings = ({
     if (key === 'maxPlayers' && value < totalPlayers) {
       return;
     }
-    
+
     const newSettings = { ...localSettings, [key]: value };
     setLocalSettings(newSettings);
     onSettingsChange(newSettings);
@@ -143,10 +143,10 @@ const GameSettings = ({
   return (
     <Box sx={{ p: 3 }}>
       {/* Header */}
-      <Typography 
-        variant="h6" 
-        sx={{ 
-          color: 'white', 
+      <Typography
+        variant="h6"
+        sx={{
+          color: 'white',
           fontWeight: 600,
           fontSize: '1rem',
           mb: 3,
@@ -182,11 +182,11 @@ const GameSettings = ({
           sx={{ minWidth: 80 }}
         >
           {[2, 3, 4, 5, 6, 7, 8].map(num => (
-            <MenuItem 
-              key={num} 
+            <MenuItem
+              key={num}
               value={num}
               disabled={num < totalPlayers}
-              sx={{ 
+              sx={{
                 color: num < totalPlayers ? 'rgba(255, 255, 255, 0.4)' : 'white',
                 backgroundColor: 'rgba(30, 41, 59, 0.9)'
               }}
@@ -312,10 +312,10 @@ const GameSettings = ({
 
       {/* Gameplay Rules Header */}
       <Box sx={{ mt: 4, mb: 2 }}>
-        <Typography 
-          variant="h6" 
-          sx={{ 
-            color: 'rgba(255, 255, 255, 0.8)', 
+        <Typography
+          variant="h6"
+          sx={{
+            color: 'rgba(255, 255, 255, 0.8)',
             fontWeight: 600,
             fontSize: '0.9rem'
           }}
@@ -340,8 +340,8 @@ const GameSettings = ({
           </Box>
         </StyledSettingInfo>
         <StyledSwitch
-          checked={localSettings.doubleRentFullSet}
-          onChange={(e) => handleChange('doubleRentFullSet', e.target.checked)}
+          checked={localSettings.doubleRentOnFullSet}
+          onChange={(e) => handleChange('doubleRentOnFullSet', e.target.checked)}
           disabled={isDisabled}
         />
       </StyledSettingRow>
@@ -479,10 +479,10 @@ const GameSettings = ({
           sx={{ minWidth: 100 }}
         >
           {startingCashOptions.map(amount => (
-            <MenuItem 
-              key={amount} 
+            <MenuItem
+              key={amount}
               value={amount}
-              sx={{ 
+              sx={{
                 color: 'white',
                 backgroundColor: 'rgba(30, 41, 59, 0.9)'
               }}
@@ -517,10 +517,10 @@ const GameSettings = ({
 
       {/* Status Messages */}
       {!playerJoined && (
-        <Alert 
-          severity="warning" 
-          sx={{ 
-            mt: 3, 
+        <Alert
+          severity="warning"
+          sx={{
+            mt: 3,
             backgroundColor: 'rgba(255, 193, 7, 0.1)',
             border: '1px solid rgba(255, 193, 7, 0.3)',
             color: '#ffc107',
@@ -530,11 +530,11 @@ const GameSettings = ({
           Join the game to access settings
         </Alert>
       )}
-      
+
       {gameStarted && (
-        <Alert 
-          severity="info" 
-          sx={{ 
+        <Alert
+          severity="info"
+          sx={{
             mt: 3,
             backgroundColor: 'rgba(33, 150, 243, 0.1)',
             border: '1px solid rgba(33, 150, 243, 0.3)',
@@ -545,11 +545,11 @@ const GameSettings = ({
           Settings are locked once the game starts
         </Alert>
       )}
-      
+
       {!isHost && playerJoined && !gameStarted && (
-        <Alert 
-          severity="info" 
-          sx={{ 
+        <Alert
+          severity="info"
+          sx={{
             mt: 3,
             backgroundColor: 'rgba(33, 150, 243, 0.1)',
             border: '1px solid rgba(33, 150, 243, 0.3)',

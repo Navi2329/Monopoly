@@ -17,7 +17,6 @@ function App() {
 
   useEffect(() => {
     socket.on('gameCreated', (gameRoom) => {
-      console.log('Game Created!', gameRoom);
       setRoom(gameRoom);
       setGameState('in-game');
       // Navigate to the game page with the room ID

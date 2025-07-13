@@ -59,21 +59,23 @@ const StyledMessagesContainer = styled(Box)(({ theme }) => ({
   }
 }));
 
-const StyledMessageBubble = styled(Box)(({ theme, isOwn, isGame }) => ({
+const StyledMessageBubble = styled(Box, {
+  shouldForwardProp: (prop) => prop !== 'isOwn' && prop !== 'isGame'
+})(({ theme, isOwn, isGame }) => ({
   maxWidth: isGame ? '85%' : '90%',
   minWidth: 'fit-content',
   padding: theme.spacing(0.75, 1.25),
   borderRadius: isGame ? '16px' : isOwn ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
   marginBottom: theme.spacing(0.5),
-  background: isGame 
-    ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(34, 197, 94, 0.2))' 
-    : isOwn 
-      ? 'linear-gradient(135deg, #3b82f6, #2563eb)' 
+  background: isGame
+    ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(34, 197, 94, 0.2))'
+    : isOwn
+      ? 'linear-gradient(135deg, #3b82f6, #2563eb)'
       : 'linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.12))',
-  border: isGame 
-    ? '1px solid rgba(34, 197, 94, 0.3)' 
-    : isOwn 
-      ? 'none' 
+  border: isGame
+    ? '1px solid rgba(34, 197, 94, 0.3)'
+    : isOwn
+      ? 'none'
       : '1px solid rgba(255, 255, 255, 0.15)',
   boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
   backdropFilter: 'blur(8px)',
@@ -133,22 +135,22 @@ const Chat = ({ messages, onSendMessage, disabled = false }) => {
       <StyledChatHeader>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <ChatBubbleOutline sx={{ color: 'rgb(59, 130, 246)', fontSize: '1.2rem' }} />
-          <Typography 
-            variant="subtitle2" 
-            sx={{ 
-              color: 'rgba(255, 255, 255, 0.9)', 
-              fontWeight: 600 
+          <Typography
+            variant="subtitle2"
+            sx={{
+              color: 'rgba(255, 255, 255, 0.9)',
+              fontWeight: 600
             }}
           >
             Chat
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 0.5 }}>
-          <IconButton 
+          <IconButton
             size="small"
-            sx={{ 
-              color: 'rgba(255, 255, 255, 0.4)', 
-              '&:hover': { 
+            sx={{
+              color: 'rgba(255, 255, 255, 0.4)',
+              '&:hover': {
                 color: 'rgba(255, 255, 255, 0.7)',
                 background: 'rgba(255, 255, 255, 0.05)'
               }
@@ -156,11 +158,11 @@ const Chat = ({ messages, onSendMessage, disabled = false }) => {
           >
             <VolumeOff fontSize="small" />
           </IconButton>
-          <IconButton 
+          <IconButton
             size="small"
-            sx={{ 
-              color: 'rgba(255, 255, 255, 0.4)', 
-              '&:hover': { 
+            sx={{
+              color: 'rgba(255, 255, 255, 0.4)',
+              '&:hover': {
                 color: 'rgba(255, 255, 255, 0.7)',
                 background: 'rgba(255, 255, 255, 0.05)'
               }
@@ -170,37 +172,37 @@ const Chat = ({ messages, onSendMessage, disabled = false }) => {
           </IconButton>
         </Box>
       </StyledChatHeader>
-      
+
       {/* Messages Area */}
       <StyledMessagesContainer ref={messagesContainerRef}>
         {messages.length === 0 ? (
-          <Box sx={{ 
-            height: '100%', 
-            display: 'flex', 
-            flexDirection: 'column', 
-            alignItems: 'center', 
+          <Box sx={{
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
             justifyContent: 'center',
             px: 3,
             color: 'rgba(255, 255, 255, 0.4)'
           }}>
-            <Avatar 
-              sx={{ 
-                width: 48, 
-                height: 48, 
+            <Avatar
+              sx={{
+                width: 48,
+                height: 48,
                 mb: 2,
-                background: 'rgba(255, 255, 255, 0.05)' 
+                background: 'rgba(255, 255, 255, 0.05)'
               }}
             >
               <ChatBubbleOutline sx={{ color: 'rgba(255, 255, 255, 0.3)' }} />
             </Avatar>
-            <Typography 
-              variant="body2" 
+            <Typography
+              variant="body2"
               sx={{ fontWeight: 600, color: 'rgba(255, 255, 255, 0.6)' }}
             >
               No messages yet
             </Typography>
-            <Typography 
-              variant="caption" 
+            <Typography
+              variant="caption"
               sx={{ color: 'rgba(255, 255, 255, 0.3)', mt: 0.5 }}
             >
               Start a conversation!
@@ -212,12 +214,12 @@ const Chat = ({ messages, onSendMessage, disabled = false }) => {
               {messages.map((msg, index) => {
                 const isOwn = isOwnMessage(msg.sender);
                 const isGameMessage = msg.sender === 'Game';
-                
+
                 return (
                   <ListItem
                     key={msg.id}
-                    sx={{ 
-                      px: 0, 
+                    sx={{
+                      px: 0,
                       py: 0.25,
                       display: 'flex',
                       flexDirection: 'column',
@@ -243,7 +245,7 @@ const Chat = ({ messages, onSendMessage, disabled = false }) => {
                       />
                     ) : (
                       // User messages - bubble style
-                      <Box sx={{ 
+                      <Box sx={{
                         width: '100%',
                         display: 'flex',
                         justifyContent: isOwn ? 'flex-end' : 'flex-start'
@@ -251,10 +253,10 @@ const Chat = ({ messages, onSendMessage, disabled = false }) => {
                         <Box sx={{ maxWidth: '95%', minWidth: 'fit-content' }}>
                           {/* Sender name (only for others) */}
                           {!isOwn && (
-                            <Typography 
-                              variant="caption" 
-                              sx={{ 
-                                color: 'rgb(59, 130, 246)', 
+                            <Typography
+                              variant="caption"
+                              sx={{
+                                color: 'rgb(59, 130, 246)',
                                 fontWeight: 600,
                                 ml: 1,
                                 mb: 0.3,
@@ -265,12 +267,12 @@ const Chat = ({ messages, onSendMessage, disabled = false }) => {
                               {msg.sender}
                             </Typography>
                           )}
-                          
+
                           {/* Message bubble */}
                           <StyledMessageBubble isOwn={isOwn} isGame={isGameMessage}>
-                            <Typography 
-                              variant="body2" 
-                              sx={{ 
+                            <Typography
+                              variant="body2"
+                              sx={{
                                 color: isOwn ? 'white' : 'rgba(255, 255, 255, 0.95)',
                                 lineHeight: 1.3,
                                 wordBreak: 'break-word',
@@ -284,11 +286,11 @@ const Chat = ({ messages, onSendMessage, disabled = false }) => {
                             >
                               {msg.text}
                             </Typography>
-                            
+
                             {/* Timestamp */}
-                            <Typography 
-                              variant="caption" 
-                              sx={{ 
+                            <Typography
+                              variant="caption"
+                              sx={{
                                 display: 'block',
                                 mt: 0.5,
                                 opacity: 0.6,
@@ -310,7 +312,7 @@ const Chat = ({ messages, onSendMessage, disabled = false }) => {
           </Box>
         )}
       </StyledMessagesContainer>
-      
+
       {/* Message Input */}
       <StyledInputContainer>
         <TextField
@@ -364,20 +366,20 @@ const Chat = ({ messages, onSendMessage, disabled = false }) => {
           sx={{
             width: 40,
             height: 40,
-            background: message.trim() && !disabled 
-              ? 'linear-gradient(135deg, #10b981, #059669)' 
+            background: message.trim() && !disabled
+              ? 'linear-gradient(135deg, #10b981, #059669)'
               : 'rgba(255, 255, 255, 0.08)',
             color: message.trim() && !disabled ? 'white' : 'rgba(255, 255, 255, 0.4)',
-            border: message.trim() && !disabled 
-              ? 'none' 
+            border: message.trim() && !disabled
+              ? 'none'
               : '1px solid rgba(255, 255, 255, 0.1)',
             '&:hover': {
-              background: message.trim() && !disabled 
-                ? 'linear-gradient(135deg, #059669, #047857)' 
+              background: message.trim() && !disabled
+                ? 'linear-gradient(135deg, #059669, #047857)'
                 : 'rgba(255, 255, 255, 0.12)',
               transform: message.trim() && !disabled ? 'scale(1.05)' : 'none',
-              borderColor: message.trim() && !disabled 
-                ? 'none' 
+              borderColor: message.trim() && !disabled
+                ? 'none'
                 : 'rgba(255, 255, 255, 0.2)'
             },
             '&:active': {
@@ -389,8 +391,8 @@ const Chat = ({ messages, onSendMessage, disabled = false }) => {
               border: '1px solid rgba(255, 255, 255, 0.05)'
             },
             transition: 'all 0.2s ease',
-            boxShadow: message.trim() && !disabled 
-              ? '0 4px 12px rgba(16, 185, 129, 0.25)' 
+            boxShadow: message.trim() && !disabled
+              ? '0 4px 12px rgba(16, 185, 129, 0.25)'
               : 'none'
           }}
         >
