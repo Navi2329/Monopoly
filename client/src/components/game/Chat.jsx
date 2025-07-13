@@ -44,6 +44,8 @@ const StyledMessagesContainer = styled(Box)(({ theme }) => ({
   flex: 1,
   overflowY: 'auto',
   minHeight: 0,
+  display: 'flex',
+  flexDirection: 'column',
   '&::-webkit-scrollbar': {
     width: '4px',
   },
@@ -57,6 +59,11 @@ const StyledMessagesContainer = styled(Box)(({ theme }) => ({
   '&::-webkit-scrollbar-thumb:hover': {
     background: 'rgba(255, 255, 255, 0.3)',
   }
+}));
+
+
+const StyledUserMessageSpacer = styled('div')(({ theme }) => ({
+  height: 18, // Adjust this value for more/less space
 }));
 
 const StyledMessageBubble = styled(Box, {
@@ -176,137 +183,112 @@ const Chat = ({ messages, onSendMessage, disabled = false }) => {
       {/* Messages Area */}
       <StyledMessagesContainer ref={messagesContainerRef}>
         {messages.length === 0 ? (
-          <Box sx={{
-            height: '100%',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            px: 3,
-            color: 'rgba(255, 255, 255, 0.4)'
-          }}>
-            <Avatar
-              sx={{
-                width: 48,
-                height: 48,
-                mb: 2,
-                background: 'rgba(255, 255, 255, 0.05)'
-              }}
-            >
-              <ChatBubbleOutline sx={{ color: 'rgba(255, 255, 255, 0.3)' }} />
-            </Avatar>
-            <Typography
-              variant="body2"
-              sx={{ fontWeight: 600, color: 'rgba(255, 255, 255, 0.6)' }}
-            >
-              No messages yet
-            </Typography>
-            <Typography
-              variant="caption"
-              sx={{ color: 'rgba(255, 255, 255, 0.3)', mt: 0.5 }}
-            >
-              Start a conversation!
-            </Typography>
-          </Box>
+          null // Do not show any sample message or placeholder
         ) : (
-          <Box sx={{ p: 1.5 }}>
-            <List sx={{ py: 0 }}>
-              {messages.map((msg, index) => {
-                const isOwn = isOwnMessage(msg.sender);
-                const isGameMessage = msg.sender === 'Game';
-
-                return (
-                  <ListItem
-                    key={msg.id}
-                    sx={{
-                      px: 0,
-                      py: 0.25,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: isGameMessage ? 'center' : isOwn ? 'flex-end' : 'flex-start',
-                      animationDelay: `${index * 30}ms`,
-                      animationFillMode: 'both'
-                    }}
-                  >
-                    {isGameMessage ? (
-                      // System/Game messages - centered chip
-                      <Chip
-                        label={msg.text}
-                        size="small"
+          <Box sx={{ p: 1.5, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+            <List sx={{ py: 0, flex: 1, minHeight: 0 }}>
+              {/* Find the index of the first user message */}
+              {(() => {
+                const firstUserMsgIdx = messages.findIndex(m => m.sender !== 'Game');
+                return messages.map((msg, index) => {
+                  const isOwn = isOwnMessage(msg.sender);
+                  const isGameMessage = msg.sender === 'Game';
+                  // Add a spacer above the first user message only
+                  const isFirstUserMessage = index === firstUserMsgIdx && !isGameMessage && firstUserMsgIdx !== -1;
+                  return (
+                    <React.Fragment key={msg.id}>
+                      {isFirstUserMessage && <StyledUserMessageSpacer />}
+                      <ListItem
                         sx={{
-                          background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(34, 197, 94, 0.2))',
-                          border: '1px solid rgba(34, 197, 94, 0.3)',
-                          color: 'rgb(34, 197, 94)',
-                          fontSize: '0.75rem',
-                          fontWeight: 500,
-                          backdropFilter: 'blur(8px)',
-                          '& .MuiChip-label': { px: 2 }
+                          px: 0,
+                          py: 0.25,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: isGameMessage ? 'center' : isOwn ? 'flex-end' : 'flex-start',
+                          animationDelay: `${index * 30}ms`,
+                          animationFillMode: 'both'
                         }}
-                      />
-                    ) : (
-                      // User messages - bubble style
-                      <Box sx={{
-                        width: '100%',
-                        display: 'flex',
-                        justifyContent: isOwn ? 'flex-end' : 'flex-start'
-                      }}>
-                        <Box sx={{ maxWidth: '95%', minWidth: 'fit-content' }}>
-                          {/* Sender name (only for others) */}
-                          {!isOwn && (
-                            <Typography
-                              variant="caption"
-                              sx={{
-                                color: 'rgb(59, 130, 246)',
-                                fontWeight: 600,
-                                ml: 1,
-                                mb: 0.3,
-                                display: 'block',
-                                fontSize: '0.7rem'
-                              }}
-                            >
-                              {msg.sender}
-                            </Typography>
-                          )}
+                      >
+                        {isGameMessage ? (
+                          // System/Game messages - centered chip
+                          <Chip
+                            label={msg.text}
+                            size="small"
+                            sx={{
+                              background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(34, 197, 94, 0.2))',
+                              border: '1px solid rgba(34, 197, 94, 0.3)',
+                              color: 'rgb(34, 197, 94)',
+                              fontSize: '0.75rem',
+                              fontWeight: 500,
+                              '& .MuiChip-label': { px: 2 }
+                            }}
+                          />
+                        ) : (
+                          // User messages - bubble style
+                          <Box sx={{
+                            width: '100%',
+                            display: 'flex',
+                            justifyContent: isOwn ? 'flex-end' : 'flex-start'
+                          }}>
+                            <Box sx={{ maxWidth: '95%', minWidth: 'fit-content' }}>
+                              {/* Sender name (only for others) */}
+                              {!isOwn && (
+                                <Typography
+                                  variant="caption"
+                                  sx={{
+                                    color: 'rgb(59, 130, 246)',
+                                    fontWeight: 600,
+                                    ml: 1,
+                                    mb: 0.3,
+                                    display: 'block',
+                                    fontSize: '0.7rem'
+                                  }}
+                                >
+                                  {msg.sender}
+                                </Typography>
+                              )}
 
-                          {/* Message bubble */}
-                          <StyledMessageBubble isOwn={isOwn} isGame={isGameMessage}>
-                            <Typography
-                              variant="body2"
-                              sx={{
-                                color: isOwn ? 'white' : 'rgba(255, 255, 255, 0.95)',
-                                lineHeight: 1.3,
-                                wordBreak: 'break-word',
-                                whiteSpace: 'pre-wrap',
-                                fontSize: '0.8rem',
-                                // Allow text to flow naturally, only wrapping when necessary
-                                hyphens: 'auto',
-                                wordWrap: 'break-word',
-                                overflowWrap: 'break-word'
-                              }}
-                            >
-                              {msg.text}
-                            </Typography>
+                              {/* Message bubble */}
+                              <StyledMessageBubble isOwn={isOwn} isGame={isGameMessage}>
+                                <Typography
+                                  variant="body2"
+                                  sx={{
+                                    color: isOwn ? 'white' : 'rgba(255, 255, 255, 0.95)',
+                                    lineHeight: 1.3,
+                                    wordBreak: 'break-word',
+                                    whiteSpace: 'pre-wrap',
+                                    fontSize: '0.8rem',
+                                    // Allow text to flow naturally, only wrapping when necessary
+                                    hyphens: 'auto',
+                                    wordWrap: 'break-word',
+                                    overflowWrap: 'break-word'
+                                  }}
+                                >
+                                  {msg.text}
+                                </Typography>
 
-                            {/* Timestamp */}
-                            <Typography
-                              variant="caption"
-                              sx={{
-                                display: 'block',
-                                mt: 0.5,
-                                opacity: 0.6,
-                                color: isOwn ? 'rgba(255, 255, 255, 0.7)' : 'rgba(255, 255, 255, 0.5)',
-                                fontSize: '0.65rem'
-                              }}
-                            >
-                              {msg.time}
-                            </Typography>
-                          </StyledMessageBubble>
-                        </Box>
-                      </Box>
-                    )}
-                  </ListItem>
-                );
-              })}
+                                {/* Timestamp */}
+                                <Typography
+                                  variant="caption"
+                                  sx={{
+                                    display: 'block',
+                                    mt: 0.5,
+                                    opacity: 0.6,
+                                    color: isOwn ? 'rgba(255, 255, 255, 0.7)' : 'rgba(255, 255, 255, 0.5)',
+                                    fontSize: '0.65rem'
+                                  }}
+                                >
+                                  {msg.time}
+                                </Typography>
+                              </StyledMessageBubble>
+                            </Box>
+                          </Box>
+                        )}
+                      </ListItem>
+                    </React.Fragment>
+                  );
+                });
+              })()}
             </List>
             <div ref={messagesEndRef} />
           </Box>

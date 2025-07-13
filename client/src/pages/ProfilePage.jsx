@@ -57,7 +57,7 @@ const ProfilePage = ({ onLoginSuccess }) => {
     } else {
       console.warn('❌ onLoginSuccess callback is missing in ProfilePage');
     }
-  }, [onLoginSuccess]);
+  }, []); // Removed onLoginSuccess dependency to prevent infinite loop
 
   if (!user) {
     return null;

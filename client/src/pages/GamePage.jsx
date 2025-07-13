@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Box,
@@ -27,7 +27,9 @@ import {
   MoneyOff,
   SwapHoriz,
   Add,
-  Settings
+  Settings,
+  MonetizationOn,
+  Close
 } from '@mui/icons-material';
 import { styled } from '@mui/material/styles';
 import MonopolyBoard from '../components/game/MonopolyBoard';
@@ -39,6 +41,7 @@ import PlayerSelection from '../components/game/PlayerSelection';
 import MapPreviewModal from '../components/game/MapPreviewModal';
 import MapFullPreview from '../components/game/MapFullPreview';
 import classicMap from '../data/maps/classic';
+import AuctionModal from '../components/game/AuctionModal';
 
 const StyledSidebar = styled(Paper)(({ theme }) => ({
   background: 'linear-gradient(145deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.95))',
@@ -49,7 +52,9 @@ const StyledSidebar = styled(Paper)(({ theme }) => ({
   display: 'flex',
   flexDirection: 'column',
   position: 'relative',
-  overflow: 'hidden'
+  overflow: 'hidden',
+  paddingBottom: 0, // Remove bottom padding
+  boxSizing: 'border-box',
 }));
 
 const StyledMainArea = styled(Box)(({ theme }) => ({
@@ -150,9 +155,7 @@ const GamePage = () => {
   // Counter for generating unique IDs for game log entries
   const [logIdCounter, setLogIdCounter] = useState(0);
 
-  // Debug effect to monitor playerStatuses changes
-  React.useEffect(() => {
-  }, [playerStatuses]);
+
 
   // Helper function to generate unique log IDs
   const generateLogId = () => {
@@ -185,6 +188,9 @@ const GamePage = () => {
   const shuffledOrderRef = useRef(null);
   const [shuffleVersion, setShuffleVersion] = useState(0);
 
+  // Ref to track if game has started (for immediate bot stopping)
+  const gameStartedRef = useRef(false);
+
   // Combine human players and bots for display
   // Use shuffled order if available, otherwise use current order
   const allPlayers = React.useMemo(() => {
@@ -196,6 +202,28 @@ const GamePage = () => {
 
   // State to track if randomization was used
   const [wasRandomized, setWasRandomized] = useState(false);
+
+  // Reset game started ref when game state changes
+  React.useEffect(() => {
+    if (!gameStarted) {
+      gameStartedRef.current = false;
+    }
+  }, [gameStarted]);
+
+  // Update shuffled order when player money changes (to keep UI in sync)
+  React.useEffect(() => {
+    if (shuffledOrderRef.current && gameStarted) {
+      // Update the shuffled order with current player data
+      const updatedShuffledOrder = shuffledOrderRef.current.map(player => {
+        // Find the current version of this player in players or bots arrays
+        const currentPlayer = players.find(p => p.id === player.id) || bots.find(b => b.id === player.id);
+        return currentPlayer || player; // Fallback to original if not found
+      });
+      shuffledOrderRef.current = updatedShuffledOrder;
+      // Force re-render by incrementing version
+      setShuffleVersion(prev => prev + 1);
+    }
+  }, [players, bots, gameStarted]);
 
   // Dev options change handler
   const handleDevDiceChange = (type, value) => {
@@ -214,19 +242,59 @@ const GamePage = () => {
     }
   };
 
+  // Handle player cash change from developer settings
+  const handlePlayerCashChange = (playerId, newCash) => {
+    // Update human players
+    setPlayers(prev => prev.map(player =>
+      player.id === playerId
+        ? { ...player, money: newCash }
+        : player
+    ));
+
+    // Update bots
+    setBots(prev => prev.map(bot =>
+      bot.id === playerId
+        ? { ...bot, money: newCash }
+        : bot
+    ));
+
+    // Update current player if it's the same player
+    if (currentPlayer && currentPlayer.id === playerId) {
+      setCurrentPlayer(prev => ({ ...prev, money: newCash }));
+    }
+
+    // Log the cash change
+    const player = allPlayers.find(p => p.id === playerId);
+    if (player) {
+      setGameLog(prev => [{
+        id: generateLogId(),
+        type: 'info',
+        message: `${player.name}'s cash adjusted to $${newCash}`
+      }, ...prev]);
+    }
+  };
+
   // Game settings
   const [gameSettings, setGameSettings] = useState({
     maxPlayers: 4,
     allowBots: false,
     startingCash: 1500,
-    allowAuction: true, // Enable auction by default
-    doubleRentOnFullSet: false, // x2 rent on full-set properties
-    vacationCash: false, // Vacation cash collection
-    noRentInPrison: false, // Don't collect rent while in prison
-    mortgage: false, // Mortgage properties
-    evenBuild: false, // Even build rule
-    randomizePlayerOrder: false // Randomize player order
+    allowAuction: false, // Default to false
+    doubleRentOnFullSet: false,
+    vacationCash: false,
+    noRentInPrison: false,
+    mortgage: false,
+    evenBuild: false,
+    randomizePlayerOrder: false
   });
+
+  // Sync allowAuction with auction on mount/settings change
+  useEffect(() => {
+    setGameSettings(prev => ({
+      ...prev,
+      allowAuction: prev.auction !== undefined ? prev.auction : prev.allowAuction
+    }));
+  }, []);
 
   // Bot names for dynamic joining
   const botNames = [
@@ -260,6 +328,19 @@ const GamePage = () => {
     const newBots = [];
 
     for (let i = 0; i < botsNeeded && i < availableBotNames.length; i++) {
+      // Check if game has started - if so, stop adding bots (use ref for immediate check)
+      if (gameStarted || gameStartedRef.current) {
+        // Log that bot adding was interrupted
+        if (i > 0) {
+          setGameLog(prev => [{
+            id: generateLogId(),
+            type: 'info',
+            message: `Game started while adding bots - ${i} bot${i !== 1 ? 's' : ''} added successfully`
+          }, ...prev]);
+        }
+        break;
+      }
+
       const botName = availableBotNames[i];
       const bot = {
         id: `bot-${generateLogId()}-${i}`,
@@ -280,9 +361,8 @@ const GamePage = () => {
         id: generateLogId(),
         type: 'join',
         player: botName,
-        message: 'joined the game'
+        message: ' joined the game'
       }, ...prev]);
-
 
       // Wait 1 second before adding next bot
       if (i < botsNeeded - 1) {
@@ -300,7 +380,12 @@ const GamePage = () => {
   // Effect to manage bots when settings change
   React.useEffect(() => {
     const manageBotsAsync = async () => {
-      if (gameSettings.allowBots && !gameStarted && !isAddingBots && playerJoined) {
+      // Stop adding bots if game has already started (use ref for immediate check)
+      if (gameStarted || gameStartedRef.current) {
+        return;
+      }
+
+      if (gameSettings.allowBots && !isAddingBots && playerJoined) {
         // Calculate how many bots we need
         const humanPlayers = players.filter(p => !p.isBot);
         const totalSlotsNeeded = gameSettings.maxPlayers - humanPlayers.length;
@@ -321,7 +406,7 @@ const GamePage = () => {
     manageBotsAsync();
   }, [gameSettings.allowBots, gameSettings.maxPlayers, players.length, gameSettings.startingCash, gameStarted, playerJoined, isAddingBots]);
 
-  // Effect to update existing players' money when starting cash changes
+  // Effect to update existing players' money when starting cash or any game setting changes
   React.useEffect(() => {
     if (!gameStarted && playerJoined) {
       // Update human players' money
@@ -331,12 +416,10 @@ const GamePage = () => {
       })));
 
       // Update current player's money
-      if (currentPlayer) {
-        setCurrentPlayer(prev => ({
-          ...prev,
-          money: gameSettings.startingCash
-        }));
-      }
+      setCurrentPlayer(prev => prev ? ({
+        ...prev,
+        money: gameSettings.startingCash
+      }) : null);
 
       // Update bots' money
       setBots(prev => prev.map(bot => ({
@@ -344,7 +427,7 @@ const GamePage = () => {
         money: gameSettings.startingCash
       })));
     }
-  }, [gameSettings.startingCash, gameStarted, playerJoined]);
+  }, [gameSettings, gameStarted, playerJoined]);
 
 
 
@@ -740,17 +823,9 @@ const GamePage = () => {
 
     // Add join message to game log
     setGameLog([
-      { id: generateLogId(), type: 'info', message: `Joined room ${roomId}` },
-      { id: generateLogId(), type: 'join', player: 'GODWILDBEAST', message: 'joined the game' }
+      { id: generateLogId(), type: 'join', player: 'GODWILDBEAST', message: ' joined the game' },
+      { id: generateLogId(), type: 'info', message: `Joined room ${roomId}` }
     ]);
-
-    // Add welcome message to chat
-    setMessages(prev => [...prev, {
-      id: generateLogId(),
-      text: 'Ready to play!',
-      sender: 'GODWILDBEAST',
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    }]);
   };
 
   const handleSendMessage = (messageText) => {
@@ -767,6 +842,12 @@ const GamePage = () => {
 
   const handleStartGame = () => {
     if (!playerJoined) return; // Don't allow game start until player joined
+
+    // Immediately set the ref to stop bot adding
+    gameStartedRef.current = true;
+
+    // Stop any ongoing bot adding process
+    setIsAddingBots(false);
 
     // Randomize player order if setting is enabled
     if (gameSettings.randomizePlayerOrder) {
@@ -809,13 +890,13 @@ const GamePage = () => {
             clearInterval(shuffleInterval);
             setIsShufflingPlayers(false);
 
-            try {
-              // Set the final shuffled order and store it in ref
-              // Fisher-Yates shuffle with retry to ensure order changes
-              let finalShuffledPlayers = [...allCurrentPlayers];
-              let attempts = 0;
-              const maxAttempts = 10;
+            // Set the final shuffled order and store it in ref
+            // Fisher-Yates shuffle with retry to ensure order changes
+            let finalShuffledPlayers = [...allCurrentPlayers];
+            let attempts = 0;
+            const maxAttempts = 10;
 
+            try {
               do {
                 finalShuffledPlayers = [...allCurrentPlayers];
                 for (let i = finalShuffledPlayers.length - 1; i > 0; i--) {
@@ -874,13 +955,20 @@ const GamePage = () => {
             // Start the game after a short delay to ensure state is updated
             setTimeout(() => {
               setGameStarted(true);
+              gameStartedRef.current = true; // Keep ref in sync
               setGamePhase('rolling'); // Start with first player's turn
               setCurrentPlayerIndex(0);
               setRoundNumber(1); // Initialize round number
+
+              // Log game start with player count information
+              const humanCount = finalShuffledPlayers.filter(p => !p.isBot).length;
+              const botCount = finalShuffledPlayers.filter(p => p.isBot).length;
+              const totalCount = finalShuffledPlayers.length;
+
               setGameLog(prev => [{
                 id: generateLogId(),
                 type: 'info',
-                message: '🚀 Game started! All players placed on START.'
+                message: `🚀 Game started with ${totalCount} players (${humanCount} human${humanCount !== 1 ? 's' : ''}, ${botCount} bot${botCount !== 1 ? 's' : ''})! All players placed on START.`
               }, ...prev]);
 
               // Show initial vacation cash if enabled
@@ -907,13 +995,21 @@ const GamePage = () => {
     } else {
       // No randomization - start game immediately
       setGameStarted(true);
+      gameStartedRef.current = true; // Keep ref in sync
       setGamePhase('rolling'); // Start with first player's turn
       setCurrentPlayerIndex(0);
       setRoundNumber(1); // Initialize round number
+
+      // Log game start with player count information
+      const allCurrentPlayers = [...players, ...bots];
+      const humanCount = allCurrentPlayers.filter(p => !p.isBot).length;
+      const botCount = allCurrentPlayers.filter(p => p.isBot).length;
+      const totalCount = allCurrentPlayers.length;
+
       setGameLog(prev => [{
         id: generateLogId(),
         type: 'info',
-        message: 'Game started! All players placed on START.'
+        message: `🚀 Game started with ${totalCount} players (${humanCount} human${humanCount !== 1 ? 's' : ''}, ${botCount} bot${botCount !== 1 ? 's' : ''})! All players placed on START.`
       }, ...prev]);
 
       // Show initial vacation cash if enabled
@@ -1419,7 +1515,12 @@ const GamePage = () => {
   };
 
   const handleSettingsChange = (newSettings) => {
-    setGameSettings(newSettings);
+    // Map 'auction' to 'allowAuction' for internal use
+    setGameSettings(prev => ({
+      ...prev,
+      ...newSettings,
+      allowAuction: newSettings.auction !== undefined ? newSettings.auction : prev.allowAuction
+    }));
   };
 
   const handleMapPreviewOpen = () => {
@@ -1591,28 +1692,10 @@ const GamePage = () => {
 
   // Handle auction from horizontal buttons
   const handleAuctionProperty = () => {
+    if (!gameSettings.allowAuction) return;
     const { property, player } = propertyLandingState;
-
-    // For now, just log that auction started - implement auction logic later
-    setGameLog(prev => [{
-      id: generateLogId(),
-      type: 'info',
-      player: player.name,
-      message: `started auction for ${property.name}`
-    }, ...prev]);
-
-    // Clear property landing state
-    setPropertyLandingState(null);
-
-    // Check if last roll was doubles before ending turn
-    const wasDoubles = lastDiceRoll && lastDiceRoll.dice1 === lastDiceRoll.dice2;
-    if (wasDoubles) {
-      // Player gets another turn for rolling doubles
-      setGamePhase('rolling');
-    } else {
-      // Normal turn end
-      setGamePhase('turn-end');
-    }
+    setGameLog(prev => [{ id: generateLogId(), type: 'info', player: player.name, message: `started auction for ${property.name}` }, ...prev]);
+    startAuction(property, player);
   };
 
   // Handle skipping to buy property
@@ -1628,6 +1711,13 @@ const GamePage = () => {
 
     // Clear property landing state
     setPropertyLandingState(null);
+
+    if (gameSettings.allowAuction) {
+      // Start auction and do not end turn yet
+      handleAuctionProperty();
+      // The auction logic should handle setting the game phase after auction ends
+      return;
+    }
 
     // Check if last roll was doubles before ending turn
     const wasDoubles = lastDiceRoll && lastDiceRoll.dice1 === lastDiceRoll.dice2;
@@ -2315,6 +2405,152 @@ const GamePage = () => {
     }
   };
 
+  // Auction state
+  const [auctionActive, setAuctionActive] = useState(false);
+  const [auctionProperty, setAuctionProperty] = useState(null);
+  const [auctionBids, setAuctionBids] = useState([]); // {playerId, name, color, amount, note}
+  const [auctionParticipants, setAuctionParticipants] = useState([]); // [{id, name, color, money}]
+  const [auctionCurrentBid, setAuctionCurrentBid] = useState(0);
+  const [auctionCurrentBidder, setAuctionCurrentBidder] = useState(null);
+  const [auctionTimer, setAuctionTimer] = useState(5);
+  const [auctionPassedPlayers, setAuctionPassedPlayers] = useState([]); // [playerId]
+  const [auctionEnded, setAuctionEnded] = useState(false);
+  const [auctionWinner, setAuctionWinner] = useState(null);
+  const auctionTimerRef = useRef();
+  const auctionBidOrderRef = useRef([]); // For round-robin
+
+  // Start auction
+  const startAuction = (property, player) => {
+    const participants = allPlayers.filter(p => p.money > 0);
+    setAuctionActive(true);
+    setAuctionProperty(property);
+    setAuctionBids([]);
+    setAuctionParticipants(participants);
+    setAuctionCurrentBid(0);
+    setAuctionCurrentBidder(participants[0]);
+    setAuctionTimer(5);
+    setAuctionPassedPlayers([]);
+    setAuctionEnded(false);
+    setAuctionWinner(null);
+    auctionBidOrderRef.current = participants.map(p => p.id);
+  };
+
+  // Handle auction bid
+  const handleAuctionBid = (inc) => {
+    if (!auctionActive || !auctionCurrentBidder) return;
+    const newBid = auctionCurrentBid + inc;
+    setAuctionBids(prev => [...prev, { playerId: auctionCurrentBidder.id, name: auctionCurrentBidder.name, color: auctionCurrentBidder.color, amount: newBid, note: `+${inc}` }]);
+    setAuctionCurrentBid(newBid);
+    setAuctionPassedPlayers([]); // Reset passes on new bid
+    setAuctionTimer(5); // Reset global timer on new bid
+    // Next bidder
+    nextAuctionBidder(auctionCurrentBidder.id);
+  };
+
+  // Handle auction pass
+  const handleAuctionPass = () => {
+    setAuctionPassedPlayers(prev => [...prev, auctionCurrentBidder.id]);
+    // Next bidder
+    nextAuctionBidder(auctionCurrentBidder.id);
+  };
+
+  // Next bidder logic
+  const nextAuctionBidder = (lastId) => {
+    const ids = auctionBidOrderRef.current;
+    let idx = ids.indexOf(lastId);
+    let nextIdx = (idx + 1) % ids.length;
+    let tries = 0;
+    while (auctionPassedPlayers.includes(ids[nextIdx]) && tries < ids.length) {
+      nextIdx = (nextIdx + 1) % ids.length;
+      tries++;
+    }
+    // If all but one passed, end auction
+    const activeBidders = auctionParticipants.filter(p => !auctionPassedPlayers.includes(p.id));
+    if (activeBidders.length <= 1) {
+      endAuction(activeBidders[0]);
+      return;
+    }
+    setAuctionCurrentBidder(auctionParticipants.find(p => p.id === ids[nextIdx]));
+  };
+
+  // Auction timer effect (global)
+  useEffect(() => {
+    if (!auctionActive || auctionEnded) return;
+    if (auctionTimer <= 0) {
+      // Timer ran out, end auction with current highest bidder
+      if (auctionBids.length > 0) {
+        const lastBid = auctionBids[auctionBids.length - 1];
+        const winner = auctionParticipants.find(p => p.id === lastBid.playerId);
+        endAuction(winner);
+      } else {
+        endAuction(null);
+      }
+      return;
+    }
+    auctionTimerRef.current = setTimeout(() => setAuctionTimer(t => t - 1), 1000);
+    return () => clearTimeout(auctionTimerRef.current);
+  }, [auctionTimer, auctionActive, auctionEnded, auctionBids, auctionParticipants]);
+
+  // End auction
+  const endAuction = (winner) => {
+    setAuctionEnded(true);
+    setAuctionActive(false);
+    if (!winner) {
+      setAuctionWinner(null);
+      setGameLog(prev => [{ id: generateLogId(), type: 'info', message: `No one bid for ${auctionProperty.name}` }, ...prev]);
+      setPropertyLandingState(null);
+      setGamePhase('turn-end');
+      return;
+    }
+    setAuctionWinner({ ...winner, amount: auctionCurrentBid });
+    // Deduct money and assign property
+    setPropertyOwnership(prev => ({
+      ...prev,
+      [auctionProperty.name]: {
+        owner: winner.id,
+        ownerName: winner.name,
+        ownerColor: winner.color,
+        houses: 0,
+        hotel: false,
+        mortgaged: false
+      }
+    }));
+    if (winner.isBot) {
+      setBots(prev => prev.map(bot => bot.id === winner.id ? { ...bot, money: bot.money - auctionCurrentBid } : bot));
+    } else {
+      setPlayers(prev => prev.map(p => p.id === winner.id ? { ...p, money: p.money - auctionCurrentBid } : p));
+      if (winner.id === currentPlayer?.id) {
+        setCurrentPlayer(prev => ({ ...prev, money: prev.money - auctionCurrentBid }));
+      }
+    }
+    setGameLog(prev => [{ id: generateLogId(), type: 'purchase', player: winner.name, message: `won ${auctionProperty.name} for $${auctionCurrentBid} (auction)` }, ...prev]);
+    setPropertyLandingState(null);
+    setGamePhase('turn-end');
+  };
+
+  // AuctionModal rendering
+  <AuctionModal
+    isOpen={auctionActive || auctionEnded}
+    onClose={() => { setAuctionActive(false); setAuctionEnded(false); }}
+    property={auctionProperty}
+    players={auctionParticipants}
+    currentBid={auctionCurrentBid}
+    currentBidder={auctionCurrentBidder}
+    bidHistory={auctionBids}
+    onBid={handleAuctionBid}
+    onPass={handleAuctionPass}
+    canBidAmounts={{
+      2: auctionCurrentBidder && auctionCurrentBidder.money >= auctionCurrentBid + 2,
+      10: auctionCurrentBidder && auctionCurrentBidder.money >= auctionCurrentBid + 10,
+      100: auctionCurrentBidder && auctionCurrentBidder.money >= auctionCurrentBid + 100,
+    }}
+    timeLeft={auctionTimer}
+    timeTotal={5}
+    auctionEnded={auctionEnded}
+    winner={auctionWinner}
+    showEndButton={auctionEnded && auctionWinner && currentPlayer && currentPlayer.id === currentPlayerIndex}
+    onEndTurn={handleEndTurn}
+  />
 
   return (
     <Box sx={{
@@ -2364,6 +2600,11 @@ const GamePage = () => {
             devDice1={devDice1}
             devDice2={devDice2}
             onDevDiceChange={handleDevDiceChange}
+            playerJoined={playerJoined}
+            gameStarted={gameStarted}
+            gameSettings={gameSettings}
+            players={allPlayers}
+            onPlayerCashChange={handlePlayerCashChange}
           />
         </Box>
 
@@ -2373,7 +2614,8 @@ const GamePage = () => {
           display: 'flex',
           flexDirection: 'column',
           minHeight: 0,
-          borderTop: '1px solid rgba(255, 255, 255, 0.08)'
+          borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+          p: 0 // Remove all padding
         }}>
           <Chat
             messages={messages}
@@ -2503,8 +2745,8 @@ const GamePage = () => {
 
       {/* Right Sidebar */}
       <StyledSidebar elevation={24}>
-        {/* Players Section */}
-        <Box sx={{ p: 2, borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+        {/* Players Section - Fixed at top */}
+        <Box sx={{ flex: '0 0 auto', p: 2, borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
           <PlayerList
             players={allPlayers}
             currentPlayerId={currentPlayer?.id}
@@ -2519,10 +2761,10 @@ const GamePage = () => {
         </Box>
 
         {gameStarted ? (
-          /* Game Started Layout */
-          <>
+          /* Game Started Layout - Flexible content area */
+          <Box sx={{ flex: '1 1 0', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             {/* Votekick and Bankrupt Buttons - Side by side */}
-            <Box sx={{ p: 2, borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+            <Box sx={{ flex: '0 0 auto', p: 2, borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
               <Box sx={{ display: 'flex', gap: 1 }}>
                 <Button
                   startIcon={<PersonRemove />}
@@ -2569,8 +2811,8 @@ const GamePage = () => {
               </Box>
             </Box>
 
-            {/* Trades Section */}
-            <Box sx={{ p: 2, borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+            {/* Trades Section - Fixed height */}
+            <Box sx={{ flex: '0 0 auto', p: 2, borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
                 <Typography variant="subtitle2" sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
                   Trades
@@ -2604,7 +2846,7 @@ const GamePage = () => {
                   border: '1px solid rgba(255, 255, 255, 0.1)',
                   borderRadius: '12px',
                   p: 2,
-                  height: 80,
+                  height: 100,
                   overflow: 'auto',
                   '&::-webkit-scrollbar': {
                     width: '4px',
@@ -2631,23 +2873,36 @@ const GamePage = () => {
               </Paper>
             </Box>
 
-            {/* Properties Section */}
-            <Box sx={{ flex: 1, p: 2, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            {/* Properties Section - Takes remaining space */}
+            <Box sx={{ flex: '1 1 0', minHeight: 0, overflow: 'auto', p: 2 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
                 <Typography variant="subtitle2" sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
-                  My properties (8)
+                  My properties ({classicMap.filter(
+                    (prop) => ['property', 'airport', 'utility', 'company'].includes(prop.type) && propertyOwnership[prop.name]?.owner === currentPlayer?.id
+                  ).length})
                 </Typography>
               </Box>
               <Paper
                 sx={{
-                  background: 'rgba(30, 41, 59, 0.5)',
-                  backdropFilter: 'blur(8px)',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
-                  borderRadius: '12px',
+                  background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.6), rgba(15, 23, 42, 0.6))',
+                  backdropFilter: 'blur(12px)',
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  borderRadius: '16px',
                   p: 1,
-                  flex: 1,
+                  height: '100%',
                   overflow: 'auto',
-                  minHeight: 280,
+                  position: 'relative',
+                  '&::before': {
+                    content: '""',
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'radial-gradient(circle at 20% 80%, rgba(139, 92, 246, 0.1) 0%, transparent 50%)',
+                    borderRadius: '16px',
+                    pointerEvents: 'none',
+                  },
                   '&::-webkit-scrollbar': {
                     width: '4px',
                   },
@@ -2659,61 +2914,184 @@ const GamePage = () => {
                     borderRadius: '2px',
                   }
                 }}
+                className="custom-scrollbar properties-container"
               >
                 <List sx={{ py: 0 }}>
-                  {/* Sample Properties */}
-                  {/*
-                      { flag: '🇧🇷', name: 'Salvador' },
-                      { flag: '🇮🇱', name: 'Tel Aviv' },
-                      { flag: '✈️', name: 'MUC Airport' },
-                      { flag: '🇨🇳', name: 'Shanghai' },
-                      { flag: '🇫🇷', name: 'Paris' },
-                      { flag: '🇬🇧', name: 'London' },
-                      { flag: '✈️', name: 'JFK Airport' },
-                      { flag: '🇺🇸', name: 'New York' }
-                    */}
-                  {Array.from({ length: 8 }).map((_, index) => (
-                    <ListItem
-                      key={index}
-                      sx={{
-                        px: 1.5,
-                        py: 1,
-                        borderRadius: '8px',
-                        background: 'rgba(51, 65, 85, 0.5)',
-                        mb: 0.5,
-                        transition: 'background 0.2s ease',
-                        '&:hover': {
-                          background: 'rgba(51, 65, 85, 0.7)'
-                        }
-                      }}
-                    >
-                      <ListItemIcon sx={{ minWidth: 'auto', mr: 1.5 }}>
-                        <Typography variant="h6" sx={{ fontSize: '1.125rem' }}>
-                          {['🇧🇷', '🇮🇱', '✈️', '🇨🇳', '🇫🇷', '🇬🇧', '✈️', '🇺🇸'][index]}
-                        </Typography>
-                      </ListItemIcon>
-                      <ListItemText
-                        primary={
-                          <Typography
-                            variant="body2"
+                  {classicMap.filter(
+                    (prop) => ['property', 'airport', 'utility', 'company'].includes(prop.type) && propertyOwnership[prop.name]?.owner === currentPlayer?.id
+                  ).map((prop) => {
+                    const ownership = propertyOwnership[prop.name];
+                    const propertyFlags = {
+                      'Salvador': '🇧🇷', 'Rio': '🇧🇷', 'Tel Aviv': '🇮🇱', 'Haifa': '🇮🇱', 'Jerusalem': '🇮🇱',
+                      'Venice': '🇮🇹', 'Milan': '🇮🇹', 'Rome': '🇮🇹', 'Frankfurt': '🇩🇪', 'Munich': '🇩🇪', 'Berlin': '🇩🇪',
+                      'Shenzhen': '🇨🇳', 'Beijing': '🇨🇳', 'Shanghai': '🇨🇳', 'Lyon': '🇫🇷', 'Toulouse': '🇫🇷', 'Paris': '🇫🇷',
+                      'Liverpool': '🇬🇧', 'Manchester': '🇬🇧', 'London': '🇬🇧', 'California': '🇺🇸', 'New York': '🇺🇸'
+                    };
+                    const flag = propertyFlags[prop.name] || (prop.type === 'airport' ? '✈️' : prop.type === 'utility' ? '⚡' : prop.type === 'company' ? '🏢' : '🏠');
+
+                    return (
+                      <ListItem
+                        key={prop.name}
+                        className="property-item"
+                        data-type={prop.type}
+                        data-mortgaged={ownership?.mortgaged || false}
+                        onClick={() => {
+                          // You can add property click functionality here
+                          // For example, open property details modal
+                          console.log('Property clicked:', prop.name);
+                        }}
+                        sx={{
+                          px: 1,
+                          py: 0.75,
+                          borderRadius: '8px',
+                          background: 'rgba(51, 65, 85, 0.4)',
+                          mb: 0.5,
+                          transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                          border: '1px solid rgba(255, 255, 255, 0.05)',
+                          position: 'relative',
+                          overflow: 'hidden',
+                          '&:hover': {
+                            background: 'rgba(51, 65, 85, 0.8)',
+                            transform: 'translateY(-2px)',
+                            boxShadow: '0 8px 25px rgba(0, 0, 0, 0.3)',
+                            border: '1px solid rgba(255, 255, 255, 0.15)',
+                            '& .property-flag': {
+                              transform: 'scale(1.1) rotate(5deg)',
+                            },
+                            '& .property-details': {
+                              opacity: 1,
+                            }
+                          },
+                          '&::before': {
+                            content: '""',
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            height: '2px',
+                            background: ownership?.ownerColor || 'rgba(255, 255, 255, 0.2)',
+                            opacity: 0,
+                            transition: 'opacity 0.3s ease',
+                          },
+                          '&:hover::before': {
+                            opacity: 1,
+                          }
+                        }}
+                      >
+                        {/* Property status indicator */}
+                        <Box
+                          className="property-status"
+                          data-mortgaged={ownership?.mortgaged || false}
+                        />
+                        <ListItemIcon sx={{ minWidth: 'auto', mr: 1 }}>
+                          <Box
+                            className="property-flag"
                             sx={{
-                              color: 'rgba(255, 255, 255, 0.9)',
-                              fontSize: '0.875rem'
+                              fontSize: '1.25rem',
+                              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                              filter: 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3))',
+                              textShadow: '0 0 8px rgba(255, 255, 255, 0.3)',
                             }}
                           >
-                            {['Salvador', 'Tel Aviv', 'MUC Airport', 'Shanghai', 'Paris', 'London', 'JFK Airport', 'New York'][index]}
-                          </Typography>
-                        }
-                      />
-                    </ListItem>
-                  ))}
+                            {flag}
+                          </Box>
+                        </ListItemIcon>
+                        <ListItemText
+                          primary={
+                            <Typography
+                              variant="body2"
+                              sx={{
+                                color: 'rgba(255, 255, 255, 0.95)',
+                                fontSize: '0.8rem',
+                                fontWeight: 600,
+                                mb: 0.25
+                              }}
+                            >
+                              {prop.name}
+                            </Typography>
+                          }
+                          secondary={
+                            <React.Fragment>
+                              <Typography
+                                variant="caption"
+                                sx={{
+                                  color: 'rgba(255, 255, 255, 0.7)',
+                                  fontSize: '0.7rem',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 0.5,
+                                  mb: 0.125
+                                }}
+                              >
+                                <span style={{ color: '#fbbf24', fontWeight: 600 }}>${prop.price}</span>
+                                {prop.type === 'property' && (
+                                  <span style={{ fontSize: '0.7rem' }}>
+                                    {ownership?.houses > 0 ? `🏠 ${ownership.houses}` : ''}
+                                    {ownership?.hotel ? '🏨' : ''}
+                                    {ownership?.mortgaged ? (
+                                      <span style={{
+                                        background: '#ef4444',
+                                        color: '#000',
+                                        borderRadius: '2px',
+                                        padding: '1px 3px',
+                                        fontSize: '12px',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        marginLeft: '2px'
+                                      }} title="Mortgaged">
+                                        <Close sx={{ fontSize: 16, color: '#000' }} />
+                                      </span>
+                                    ) : ''}
+                                  </span>
+                                )}
+                              </Typography>
+                              {prop.type === 'property' && (
+                                <Typography
+                                  variant="caption"
+                                  sx={{
+                                    color: 'rgba(255, 255, 255, 0.6)',
+                                    fontSize: '0.65rem',
+                                    fontStyle: 'italic'
+                                  }}
+                                >
+                                  {prop.set} • {prop.type}
+                                </Typography>
+                              )}
+                            </React.Fragment>
+                          }
+                        />
+                      </ListItem>
+                    );
+                  })}
+                  {classicMap.filter(
+                    (prop) => ['property', 'airport', 'utility', 'company'].includes(prop.type) && propertyOwnership[prop.name]?.owner === currentPlayer?.id
+                  ).length === 0 && (
+                      <ListItem>
+                        <ListItemText
+                          primary={
+                            <Typography
+                              variant="body2"
+                              sx={{
+                                color: 'rgba(255,255,255,0.6)',
+                                fontStyle: 'italic',
+                                textAlign: 'center',
+                                py: 2
+                              }}
+                            >
+                              No properties owned
+                            </Typography>
+                          }
+                        />
+                      </ListItem>
+                    )}
                 </List>
               </Paper>
             </Box>
-          </>
+          </Box>
         ) : (
           /* Game Settings Section - Only before game starts */
-          <Box sx={{ flex: 1, overflow: 'auto' }}>
+          <Box sx={{ flex: '1 1 0', minHeight: 0, overflow: 'auto' }}>
             <GameSettings
               settings={gameSettings}
               onSettingsChange={handleSettingsChange}
@@ -2727,6 +3105,28 @@ const GamePage = () => {
           </Box>
         )}
       </StyledSidebar>
+      <AuctionModal
+        isOpen={auctionActive || auctionEnded}
+        onClose={() => { setAuctionActive(false); setAuctionEnded(false); }}
+        property={auctionProperty}
+        players={auctionParticipants}
+        currentBid={auctionCurrentBid}
+        currentBidder={auctionCurrentBidder}
+        bidHistory={auctionBids}
+        onBid={handleAuctionBid}
+        onPass={handleAuctionPass}
+        canBidAmounts={{
+          2: auctionCurrentBidder && auctionCurrentBidder.money >= auctionCurrentBid + 2,
+          10: auctionCurrentBidder && auctionCurrentBidder.money >= auctionCurrentBid + 10,
+          100: auctionCurrentBidder && auctionCurrentBidder.money >= auctionCurrentBid + 100,
+        }}
+        timeLeft={auctionTimer}
+        timeTotal={5}
+        auctionEnded={auctionEnded}
+        winner={auctionWinner}
+        showEndButton={auctionEnded && auctionWinner && currentPlayer && currentPlayer.id === currentPlayerIndex}
+        onEndTurn={handleEndTurn}
+      />
     </Box>
   );
 }

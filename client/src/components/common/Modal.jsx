@@ -1,11 +1,11 @@
 import React from 'react';
 import { FaTimes } from 'react-icons/fa';
 
-const Modal = ({ isOpen, onClose, children }) => {
+const Modal = ({ isOpen, onClose, children, disableBackdropClose }) => {
   if (!isOpen) return null;
 
   const handleBackdropClick = (e) => {
-    if (e.target === e.currentTarget) {
+    if (e.target === e.currentTarget && !disableBackdropClose) {
       onClose();
     }
   };

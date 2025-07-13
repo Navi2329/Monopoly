@@ -19,7 +19,8 @@ import {
   Close,
   Person,
   Info,
-  FiberManualRecord
+  FiberManualRecord,
+  MonetizationOn
 } from '@mui/icons-material';
 import { styled } from '@mui/material/styles';
 import './MonopolyBoard.css';
@@ -61,7 +62,7 @@ const StyledDice = styled(Paper, {
 
 const StyledGameLog = styled(Paper)(({ theme }) => ({
   width: '100%',
-  maxWidth: 400,
+  maxWidth: 600,
   maxHeight: 200,
   overflow: 'auto',
   background: 'rgba(30, 27, 46, 0.8)',
@@ -79,6 +80,12 @@ const StyledGameLog = styled(Paper)(({ theme }) => ({
   '&::-webkit-scrollbar-thumb': {
     background: 'rgba(255, 255, 255, 0.2)',
     borderRadius: '2px',
+  },
+  [theme.breakpoints.down('md')]: {
+    maxWidth: 500,
+  },
+  [theme.breakpoints.down('sm')]: {
+    maxWidth: 350,
   }
 }));
 
@@ -247,7 +254,7 @@ const MonopolyBoard = ({
       setPlayerPositions({});
       setSpaceArrivalOrder({});
     }
-  }, [players.length, JSON.stringify(players.map(p => ({ id: p.id, name: p.name })))]);
+  }, [players.length, players.map(p => p.id).join(',')]);
 
   // Listen for dice roll results to set canRollAgain
   React.useEffect(() => {
@@ -347,7 +354,7 @@ const MonopolyBoard = ({
         onPlayerMoveComplete();
       }
     }
-  }, [playerMoveRequest, onPlayerMoveComplete, playerPositions]);
+  }, [playerMoveRequest, onPlayerMoveComplete]);
 
   // Watch for jail status changes to trigger exit animations
   React.useEffect(() => {
@@ -373,7 +380,7 @@ const MonopolyBoard = ({
         }, 400); // Match animation duration
       }
     });
-  }, [playerStatuses, players, playerPositions]);
+  }, [playerStatuses, players]); // Removed playerPositions dependency to prevent infinite loop
 
   const rollDice = () => {
     if (isRolling || gamePhase !== 'rolling') return;
@@ -1137,49 +1144,33 @@ const MonopolyBoard = ({
                     minHeight: '16px'
                   }}
                 >
+                  {propertyOwnership[space.name]?.mortgaged && (
+                    <div style={{ position: 'absolute', left: '12.5%', top: '12.5%', width: '75%', height: '75%', background: '#fff', zIndex: 10, pointerEvents: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {['top', 'bottom'].includes(position)
+                        ? <div style={{ width: '90%', height: '0', borderTop: '6px solid #ef4444' }} />
+                        : <div style={{ height: '90%', width: '0', borderLeft: '6px solid #ef4444' }} />}
+                    </div>
+                  )}
                   {propertyOwnership[space.name] ? (
                     <>
-                      {/* Houses and Hotels Display on Price Tag */}
                       {propertyOwnership[space.name].hotel ? (
-                        <span style={{ fontSize: '10px' }} title="Hotel">🏨</span>
+                        <span style={{ fontSize: '11px' }} title="Hotel">🏨</span>
                       ) : propertyOwnership[space.name].houses > 0 ? (
                         Array.from({ length: propertyOwnership[space.name].houses }, (_, i) => (
                           <span
                             key={i}
-                            style={{ fontSize: '8px' }}
+                            style={{ fontSize: '9px' }}
                             title={`${propertyOwnership[space.name].houses} house${propertyOwnership[space.name].houses > 1 ? 's' : ''}`}
                           >
                             🏠
                           </span>
                         ))
-                      ) : (
-                        <span style={{ fontSize: '8px', opacity: 0.7 }}>💰</span>
-                      )}
-
-                      {/* Mortgage indicator on price tag */}
-                      {propertyOwnership[space.name].mortgaged && (
-                        <span style={{ fontSize: '8px', marginLeft: '1px' }} title="Mortgaged">🏦</span>
-                      )}
+                      ) : null}
                     </>
                   ) : (
                     space.price
                   )}
                 </div>
-              )}
-
-              {/* Mortgage indicator (backup for non-property spaces) */}
-              {propertyOwnership[space.name] && propertyOwnership[space.name].mortgaged && (
-                <div style={{
-                  position: 'absolute',
-                  top: '2px',
-                  right: '2px',
-                  width: '8px',
-                  height: '8px',
-                  backgroundColor: '#ef4444',
-                  borderRadius: '50%',
-                  border: '1px solid white',
-                  zIndex: 50
-                }} title="Mortgaged" />
               )}
             </>
           )}
@@ -1200,16 +1191,14 @@ const MonopolyBoard = ({
                 minHeight: '16px'
               }}
             >
-              {propertyOwnership[space.name] ? (
-                <>
-                  <span style={{ fontSize: '8px' }}>✈️</span>
-                  {propertyOwnership[space.name].mortgaged && (
-                    <span style={{ fontSize: '8px', marginLeft: '1px' }} title="Mortgaged">🏦</span>
-                  )}
-                </>
-              ) : (
-                space.price
+              {propertyOwnership[space.name]?.mortgaged && (
+                <div style={{ position: 'absolute', left: '12.5%', top: '12.5%', width: '75%', height: '75%', background: '#fff', zIndex: 10, pointerEvents: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {['top', 'bottom'].includes(position)
+                    ? <div style={{ width: '90%', height: '0', borderTop: '6px solid #ef4444' }} />
+                    : <div style={{ height: '90%', width: '0', borderLeft: '6px solid #ef4444' }} />}
+                </div>
               )}
+              {propertyOwnership[space.name] ? null : space.price}
             </div>
           )}
           {space.type === 'utility' && space.price && (
@@ -1229,16 +1218,14 @@ const MonopolyBoard = ({
                 minHeight: '16px'
               }}
             >
-              {propertyOwnership[space.name] ? (
-                <>
-                  <span style={{ fontSize: '8px' }}>🏭</span>
-                  {propertyOwnership[space.name].mortgaged && (
-                    <span style={{ fontSize: '8px', marginLeft: '1px' }} title="Mortgaged">🏦</span>
-                  )}
-                </>
-              ) : (
-                space.price
+              {propertyOwnership[space.name]?.mortgaged && (
+                <div style={{ position: 'absolute', left: '12.5%', top: '12.5%', width: '75%', height: '75%', background: '#fff', zIndex: 10, pointerEvents: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {['top', 'bottom'].includes(position)
+                    ? <div style={{ width: '90%', height: '0', borderTop: '6px solid #ef4444' }} />
+                    : <div style={{ height: '90%', width: '0', borderLeft: '6px solid #ef4444' }} />}
+                </div>
               )}
+              {propertyOwnership[space.name] ? null : space.price}
             </div>
           )}
           <div className="space-name">
@@ -1367,7 +1354,8 @@ const MonopolyBoard = ({
             justifyContent: 'center',
             textAlign: 'center',
             color: '#e5e7eb',
-            p: 3
+            p: 3,
+            width: '100%'
           }}>
             <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
               <Box sx={{
@@ -1413,6 +1401,13 @@ const MonopolyBoard = ({
             >
               MONOPOLY
             </Typography>
+
+            {/* Show Start Game button when there are players who have chosen colors */}
+            {players.length > 0 && players.some(p => p.color) && (
+              <StyledActionButton onClick={onStartGame} sx={{ mb: 2 }}>
+                Start Game
+              </StyledActionButton>
+            )}
 
             {/* Game Log - Show even before game starts */}
             <StyledGameLog elevation={3}>
@@ -1495,13 +1490,6 @@ const MonopolyBoard = ({
                 )}
               </List>
             </StyledGameLog>
-
-            {/* Show Start Game button when there are players who have chosen colors */}
-            {players.length > 0 && players.some(p => p.color) && (
-              <StyledActionButton onClick={onStartGame}>
-                Start Game
-              </StyledActionButton>
-            )}
           </Box>
         ) : (
           <Box sx={{
@@ -1552,13 +1540,13 @@ const MonopolyBoard = ({
                         </UniformButton>
                       )}
 
-                      {/* Skip Button (if auction is disabled) */}
+                      {/* End Turn Button (only if auction is disabled) */}
                       {!gameSettings.allowAuction && (
                         <UniformButton
-                          variant="default"
-                          onClick={() => onSkipProperty && onSkipProperty()}
+                          variant="purple"
+                          onClick={handleEndTurn}
                         >
-                          Skip
+                          End Turn
                         </UniformButton>
                       )}
                     </>
@@ -1606,14 +1594,16 @@ const MonopolyBoard = ({
                 )}
 
                 {/* End Turn Button - Show when player can end turn (after rolling doubles) */}
-                {gamePhase === 'rolling' && getCurrentPlayer() && canPlayerRoll(getCurrentPlayer().id) && canRollAgain && !isRolling && (
-                  <UniformButton
-                    variant="purple"
-                    onClick={handleEndTurn}
-                  >
-                    End Turn
-                  </UniformButton>
-                )}
+                {gamePhase === 'rolling' && getCurrentPlayer() && canPlayerRoll(getCurrentPlayer().id) && canRollAgain && !isRolling &&
+                  // Hide End Turn if propertyLandingState is active and auction is enabled
+                  !(propertyLandingState && propertyLandingState.isActive && propertyLandingState.player && propertyLandingState.player.id === getCurrentPlayer().id && gameSettings.allowAuction) && (
+                    <UniformButton
+                      variant="purple"
+                      onClick={handleEndTurn}
+                    >
+                      End Turn
+                    </UniformButton>
+                  )}
 
                 {/* Roll Again Button - Show only after player ended turn after doubles */}
                 {gamePhase === 'rolling' && getCurrentPlayer() && canPlayerRoll(getCurrentPlayer().id) && hasEndedTurnAfterDoubles && !isRolling && (
@@ -1625,8 +1615,8 @@ const MonopolyBoard = ({
                   </UniformButton>
                 )}
 
-                {/* End Turn Button for normal turn end - but not when player is in jail */}
-                {gamePhase === 'turn-end' && getCurrentPlayer() && playerStatuses[getCurrentPlayer().id] !== 'jail' && (
+                {/* End Turn Button for normal turn end - but not when player is in jail and not during property landing */}
+                {!propertyLandingState && gamePhase === 'turn-end' && getCurrentPlayer() && playerStatuses[getCurrentPlayer().id] !== 'jail' && (
                   <UniformButton
                     onClick={handleEndTurn}
                   >
@@ -1643,7 +1633,7 @@ const MonopolyBoard = ({
             {/* Game Log */}
             <StyledGameLog elevation={3}>
               <List sx={{ py: 0 }}>
-                {gameLog.map((entry, index) => (
+                {gameLog.length > 0 ? gameLog.map((entry, index) => (
                   <ListItem key={entry.id || index} sx={{ px: 0, py: 0.5 }}>
                     <ListItemIcon sx={{ minWidth: 'auto', mr: 1 }}>
                       {entry.type === 'join' && (
@@ -1700,7 +1690,25 @@ const MonopolyBoard = ({
                       }
                     />
                   </ListItem>
-                ))}
+                )) : (
+                  <ListItem sx={{ px: 0, py: 0.5 }}>
+                    <ListItemText
+                      primary={
+                        <Typography
+                          component="span"
+                          sx={{
+                            color: '#9ca3af',
+                            fontSize: '13px',
+                            fontStyle: 'italic',
+                            textAlign: 'center'
+                          }}
+                        >
+                          Game log will appear here...
+                        </Typography>
+                      }
+                    />
+                  </ListItem>
+                )}
               </List>
             </StyledGameLog>
 

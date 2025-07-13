@@ -62,9 +62,7 @@ const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = fa
   const hasPlayers = players.length > 0;
 
   return (
-    <Box>
-
-
+    <Box sx={{ maxHeight: 240, overflow: 'auto' }} className="custom-scrollbar">
       {/* Players List */}
       {hasPlayers && (
         <Box>

@@ -11,9 +11,11 @@
   will-change: filter;
   transition: filter 300ms;
 }
+
 .logo:hover {
   filter: drop-shadow(0 0 2em #646cffaa);
 }
+
 .logo.react:hover {
   filter: drop-shadow(0 0 2em #61dafbaa);
 }
@@ -22,6 +24,7 @@
   from {
     transform: rotate(0deg);
   }
+
   to {
     transform: rotate(360deg);
   }
@@ -39,4 +42,165 @@
 
 .read-the-docs {
   color: #888;
+}
+
+/* Properties Container Styles */
+.properties-container {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.properties-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.properties-container::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 3px;
+}
+
+.properties-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  transition: background 0.3s ease;
+}
+
+.properties-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.property-item {
+  cursor: pointer;
+  user-select: none;
+}
+
+.property-item:hover {
+  z-index: 10;
+}
+
+.property-item .property-flag {
+  position: relative;
+}
+
+.property-item .property-flag::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.2) 0%, transparent 70%);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  opacity: 0;
+}
+
+.property-item:hover .property-flag::after {
+  width: 32px;
+  height: 32px;
+  opacity: 1;
+}
+
+/* Enhanced hover effects */
+.property-item:hover .property-flag {
+  text-shadow: 0 0 12px rgba(255, 255, 255, 0.5);
+}
+
+/* Property status indicators */
+.property-item .property-status {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  transition: all 0.3s ease;
+}
+
+.property-item:hover .property-status {
+  transform: scale(1.2);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+}
+
+/* Mortgaged property styling */
+.property-item[data-mortgaged="true"] .property-status {
+  background: #ef4444;
+}
+
+.property-item[data-mortgaged="true"] {
+  opacity: 0.7;
+}
+
+.property-item[data-mortgaged="true"]:hover {
+  opacity: 0.9;
+}
+
+.property-item .property-details {
+  transform: translateY(2px);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.property-item:hover .property-details {
+  transform: translateY(0);
+}
+
+/* Property type specific styling */
+.property-item[data-type="airport"] .property-flag {
+  color: #3b82f6;
+}
+
+.property-item[data-type="utility"] .property-flag {
+  color: #f59e0b;
+}
+
+.property-item[data-type="company"] .property-flag {
+  color: #10b981;
+}
+
+/* Animation for new properties */
+@keyframes propertySlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.property-item {
+  animation: propertySlideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Enhanced focus states for accessibility */
+.property-item:focus {
+  outline: 2px solid rgba(139, 92, 246, 0.5);
+  outline-offset: 2px;
+}
+
+/* Loading state for properties */
+.property-item.loading {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.property-item.loading .property-flag {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.5;
+  }
 }

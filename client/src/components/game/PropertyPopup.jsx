@@ -1,38 +1,66 @@
 import React from 'react';
 import classicMap from '../../data/maps/classic';
+import { Avatar, Tooltip } from '@mui/material';
+import { Home, Hotel, MonetizationOn, Gavel, Delete } from '@mui/icons-material';
 
 const glassStyle = {
-    background: 'rgba(30, 41, 59, 0.97)',
-    boxShadow: '0 8px 32px 0 rgba(31, 38, 135, 0.37)',
+    background: 'linear-gradient(135deg, rgb(30, 41, 59), rgb(139, 92, 246))',
+    boxShadow: '0 8px 32px 0 rgba(31, 38, 135, 0.18)',
     borderRadius: '12px',
-    border: '1.5px solid rgba(255,255,255,0.10)',
+    border: '1.5px solid rgb(139,92,246)',
     color: 'white',
-    minWidth: 210,
-    maxWidth: 250,
-    padding: '12px 12px 8px 12px',
+    minWidth: 200,
+    maxWidth: 220,
+    padding: '8px 10px 6px 10px',
     position: 'relative',
     fontFamily: 'inherit',
-    fontSize: '0.97rem',
+    fontSize: '0.93rem',
     zIndex: 200,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 4,
+    marginLeft: 5,
 };
+
+const actionBtn = (enabled) => ({
+    flex: 1,
+    background: enabled ? 'linear-gradient(90deg,#a78bfa,#8b5cf6)' : 'linear-gradient(90deg,#ede9fe,#c4b5fd)',
+    color: enabled ? '#fff' : '#a78bfa',
+    border: 'none',
+    borderRadius: 6,
+    fontWeight: 700,
+    fontSize: '0.93rem',
+    padding: '4px 0',
+    cursor: enabled ? 'pointer' : 'not-allowed',
+    minHeight: 0,
+    minWidth: 0,
+    boxShadow: enabled ? '0 1px 4px rgba(139,92,246,0.08)' : 'none',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    opacity: enabled ? 1 : 0.7,
+    transition: 'background 0.2s, color 0.2s, opacity 0.2s',
+});
 
 const mortgageBtn = (enabled) => ({
     width: '100%',
-    background: enabled ? 'linear-gradient(90deg,#fbbf24,#fde68a)' : 'rgba(100,116,139,0.15)',
-    color: enabled ? '#1e293b' : '#64748b',
+    background: enabled ? 'linear-gradient(90deg,#fbbf24,#f59e42)' : 'linear-gradient(90deg,#fef3c7,#fde68a)',
+    color: enabled ? '#1e293b' : '#b45309',
     border: 'none',
     borderRadius: 7,
     fontWeight: 700,
     fontSize: '1rem',
-    padding: '6px 0',
+    padding: '7px 0',
     marginBottom: 7,
     cursor: enabled ? 'pointer' : 'not-allowed',
-    transition: 'background 0.2s',
-    outline: 'none',
+    boxShadow: enabled ? '0 1px 4px rgba(251,191,36,0.10)' : 'none',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
+    opacity: enabled ? 1 : 0.7,
+    transition: 'background 0.2s, color 0.2s, opacity 0.2s',
 });
 
 const actionRow = {
@@ -252,126 +280,108 @@ const PropertyPopup = ({
 
     return (
         <div style={glassStyle}>
-            {/* Mortgage/Unmortgage button at top - only show if mortgage setting is enabled */}
+            {/* Mortgage Button at Top */}
             {gameSettings?.mortgage && (
-                <button
-                    style={mortgageBtn(canMortgage)}
-                    disabled={!canMortgage}
-                    onClick={handleMortgage}
-                >
-                    🏦
-                    {isMortgaged ? 'Unmortgage' : 'Mortgage'}
-                </button>
-            )}
-
-            {/* Rent table */}
-            <div style={rentTable}>
-                {rentRows.map((row, i) => (
-                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 1 }}>
-                        <span style={{ color: '#a5b4fc', fontSize: '0.95em' }}>{row.label}</span>
-                        <span style={{ fontWeight: 600 }}>
-                            {row.value}
-                            {hasDoubleRent && <span style={{ color: '#ef4444', marginLeft: '4px' }}>×2</span>}
+                <Tooltip
+                    title={canMortgage ? (
+                        <span>
+                            You can mortgage <b>{propertyName}</b> and get <b>${Math.floor(property.price / 2)}</b> from the bank, but players landing on this property won't pay you rent.
                         </span>
+                    ) : ''}
+                    arrow
+                    placement="bottom"
+                    disableHoverListener={!canMortgage}
+                >
+                    <span style={{ width: '100%' }}>
+                        <button
+                            style={{
+                                width: '100%',
+                                background: canMortgage ? 'linear-gradient(90deg,#eab308,#fbbf24)' : 'linear-gradient(90deg,#fef3c7,#fde68a)',
+                                color: canMortgage ? '#fff' : '#b45309',
+                                border: 'none',
+                                borderRadius: 8,
+                                fontWeight: 700,
+                                fontSize: '1.05rem',
+                                padding: '6px 0',
+                                marginBottom: 10,
+                                marginTop: 2,
+                                cursor: canMortgage ? 'pointer' : 'not-allowed',
+                                boxShadow: canMortgage ? '0 1px 6px rgba(251,191,36,0.13)' : 'none',
+                                opacity: canMortgage ? 1 : 0.7,
+                                transition: 'background 0.2s, color 0.2s, opacity 0.2s',
+                                letterSpacing: 0.2,
+                                outline: 'none',
+                                borderWidth: 0,
+                                borderStyle: 'solid',
+                                borderColor: 'transparent',
+                                textAlign: 'center',
+                                fontFamily: 'inherit',
+                            }}
+                            onClick={handleMortgage}
+                            disabled={!canMortgage}
+                        >
+                            {isMortgaged ? `Unmortgage for $${Math.ceil(property.price * 0.6)}` : `Mortgage for $${Math.floor(property.price / 2)}`}
+                        </button>
+                    </span>
+                </Tooltip>
+            )}
+            {/* Header: Property Name */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', marginBottom: 2 }}>
+                <span style={{ fontWeight: 700, fontSize: '1.05rem', color: property?.color || '#fbbf24', display: 'flex', alignItems: 'center', gap: 4 }}>
+                    {property.flag && <span style={{ fontSize: 15 }}>{property.flag}</span>}
+                    {propertyName}
+                </span>
+            </div>
+            {/* Rent Table */}
+            <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 5, padding: '5px 6px', marginBottom: 2, fontSize: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, marginBottom: 2 }}>
+                    <span style={{ color: '#a5b4fc' }}>when</span>
+                    <span style={{ color: '#a5b4fc' }}>get</span>
+                </div>
+                {property.type === 'property' && property.rent.map((r, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 1 }}>
+                        <span>{['with rent', 'with one house', 'with two houses', 'with three houses', 'with four houses', 'with hotel'][i]}</span>
+                        <span style={{ fontWeight: 600 }}>${r}</span>
                     </div>
                 ))}
-                {hasDoubleRent && (
-                    <div style={{
-                        display: 'flex',
-                        justifyContent: 'center',
-                        marginTop: 4,
-                        padding: '2px 6px',
-                        background: 'rgba(239, 68, 68, 0.2)',
-                        borderRadius: 4,
-                        fontSize: '0.85rem',
-                        color: '#ef4444',
-                        fontWeight: 600
-                    }}>
-                        DOUBLE RENT - FULL SET OWNED
+                {property.type === 'airport' && property.rent.map((r, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 1 }}>
+                        <span>{['1 airport owned', '2 airports owned', '3 airports owned', '4 airports owned'][i]}</span>
+                        <span style={{ fontWeight: 600 }}>${r}</span>
+                    </div>
+                ))}
+                {property.type === 'company' && property.rent.map((r, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 1 }}>
+                        <span>{['If one company is owned', 'If two companies are owned'][i]}</span>
+                        <span style={{ fontWeight: 600 }}>{r}</span>
+                    </div>
+                ))}
+            </div>
+            {/* Owner and Details at bottom */}
+            <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', margin: '3px 0 0 0', padding: '3px 0 0 0', fontSize: 12 }}>
+                {ownership && (
+                    <div style={{ color: ownership.ownerColor || '#22d3ee', fontWeight: 600, marginBottom: 2 }}>
+                        Owner: {players?.find(p => p.id === ownership.owner)?.name || 'Unowned'}
                     </div>
                 )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', justifyContent: 'space-between' }}>
+                    <span>Price <b style={{ color: '#fbbf24' }}>${property.price}</b></span>
+                    {property.type === 'property' && <span><Home sx={{ fontSize: 13, color: 'white', verticalAlign: 'middle' }} /> <b style={{ color: '#fbbf24' }}>${property.buildCost}</b></span>}
+                    {property.type === 'property' && <span><Hotel sx={{ fontSize: 13, color: 'white', verticalAlign: 'middle' }} /> <b style={{ color: '#fbbf24' }}>${property.hotelCost}</b></span>}
+                </div>
             </div>
-
-            {/* Action buttons row */}
-            <div style={actionRow}>
-                {property.type === 'property' && (
-                    <button
-                        style={iconBtn(canBuild)}
-                        disabled={!canBuild}
-                        title="Build House/Hotel"
-                        onClick={handleBuildHouse}
-                    >
-                        🏠
-                    </button>
-                )}
-                {property.type === 'property' && (
-                    <button
-                        style={iconBtn(canDestroy)}
-                        disabled={!canDestroy}
-                        title="Destroy House/Hotel"
-                        onClick={handleDestroyHouse}
-                    >
-                        🏚️
-                    </button>
-                )}
-                <button
-                    style={iconBtn(canSell)}
-                    disabled={!canSell}
-                    title="Sell"
-                    onClick={handleSellProperty}
-                >
-                    💰
+            {/* Action Buttons Row: Always show all three, disabled if not available */}
+            <div style={{ display: 'flex', gap: 4, marginTop: 6, justifyContent: 'center' }}>
+                <button style={actionBtn(canBuild)} disabled={!canBuild} onClick={handleBuildHouse} title="Build House">
+                    <Home sx={{ fontSize: 16, verticalAlign: 'middle', color: canBuild ? '#fff' : '#a78bfa', opacity: canBuild ? 1 : 0.5 }} />
+                </button>
+                <button style={actionBtn(canDestroy)} disabled={!canDestroy} onClick={handleDestroyHouse} title="Destroy House">
+                    <Delete sx={{ fontSize: 16, verticalAlign: 'middle', color: canDestroy ? '#fff' : '#a78bfa', opacity: canDestroy ? 1 : 0.5 }} />
+                </button>
+                <button style={actionBtn(canSell)} disabled={!canSell} onClick={handleSellProperty} title="Sell Property">
+                    <MonetizationOn sx={{ fontSize: 16, verticalAlign: 'middle', color: canSell ? '#fff' : '#a78bfa', opacity: canSell ? 1 : 0.5 }} />
                 </button>
             </div>
-
-            {/* Price/mortgage/house/hotel cost row at bottom */}
-            <div style={priceRow}>
-                <span>Price <b>${property.price}</b></span>
-                {property.type === 'property' && <span>🏦 <b>${property.price / 2}</b></span>}
-                {property.type === 'property' && <span>🏠 <b>${property.buildCost}</b></span>}
-                {property.type === 'property' && <span>🏨 <b>${property.hotelCost}</b></span>}
-            </div>
-
-            {/* Current property status */}
-            {isOwner && property.type === 'property' && (
-                <div style={{
-                    marginTop: 8,
-                    padding: '4px 8px',
-                    background: 'rgba(255,255,255,0.05)',
-                    borderRadius: 4,
-                    fontSize: '0.9rem',
-                    textAlign: 'center',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '4px'
-                }}>
-                    {isMortgaged ? (
-                        <>
-                            <span style={{ fontSize: '12px' }}>🏦</span>
-                            <span style={{ color: '#ef4444' }}>MORTGAGED</span>
-                        </>
-                    ) : hasHotel ? (
-                        <>
-                            <span style={{ fontSize: '12px' }}>🏨</span>
-                            <span style={{ color: '#10b981' }}>HOTEL</span>
-                        </>
-                    ) : currentHouses > 0 ? (
-                        <>
-                            <span style={{ fontSize: '12px' }}>🏠</span>
-                            <span style={{ color: '#3b82f6' }}>{currentHouses} HOUSE{currentHouses > 1 ? 'S' : ''}</span>
-                        </>
-                    ) : (
-                        <>
-                            <span style={{ fontSize: '12px' }}>💰</span>
-                            <span style={{ color: '#6b7280' }}>NO HOUSES</span>
-                        </>
-                    )}
-                </div>
-            )}
-
-            {/* Arrow pointer at bottom */}
-            <svg style={arrowStyle} viewBox="0 0 14 8"><polygon points="0,0 14,0 7,8" fill="rgba(30,41,59,0.97)" /></svg>
         </div>
     );
 };
