@@ -7,19 +7,17 @@ let io;
 const init = (httpServer) => {
   io = new Server(httpServer, {
     cors: {
-      origin: ["http://localhost:5173", "http://localhost:5174"], // Allow both ports
-      methods: ["GET", "POST"]
+      origin: ["http://localhost:5173", "http://localhost:5174"], // Make sure this matches your client
+      methods: ["GET", "POST"],
+      credentials: true
     }
   });
 
   const onConnection = (socket) => {
-    console.log(`⚡: User connected: ${socket.id}`);
-
     // Register handlers from other files
     registerRoomHandlers(io, socket);
 
     socket.on('disconnect', () => {
-      console.log('🔥: A user disconnected:', socket.id);
       // Disconnect logic is now handled within roomHandlers
     });
   };

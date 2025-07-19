@@ -28,6 +28,8 @@ import PropertyPopup from './PropertyPopup';
 import CustomModal from '../common/Modal';
 import { createPortal } from 'react-dom';
 import ReactCountryFlag from 'react-country-flag';
+import classicMap from '../../data/maps/classic';
+import socket from '../../socket';
 
 const StyledDice = styled(Paper, {
   shouldForwardProp: (prop) => prop !== 'isRolling'
@@ -155,52 +157,52 @@ const StyledCurrentPlayer = styled(Card)(({ theme }) => ({
   gap: theme.spacing(1)
 }));
 
-const MonopolyBoard = ({
-  gameStarted,
-  gameLog = [],
-  onStartGame,
-  isPreviewMode = false,
-  previewContent = null,
-  players = [],
-  currentPlayerIndex = 0,
-  onRollDice,
-  onEndTurn,
-  gamePhase = 'waiting', // 'waiting', 'rolling', 'moving', 'turn-end'
-  onPlayerStatusChange, // New callback for vacation/jail status
-  propertyOwnership = {}, // Property ownership data
-  gameSettings = {}, // Game settings including auction setting
-  playerJailCards = {}, // Player jail cards
-  onPayJailFine, // Handler for paying jail fine
-  onUseJailCard, // Handler for using jail card
-  onJailExit, // Handler for jail exit animations
-  playerStatuses = {}, // Player status (jail, vacation)
-  playerJailRounds = {}, // Player jail rounds tracking
-  // Player move request from GamePage (for sending to jail, etc.)
-  playerMoveRequest = null, // { playerId, position, resolve }
-  onPlayerMoveComplete, // Called when player move is complete
-  // Property landing state and handlers
-  propertyLandingState = null, // { property, player, isActive } - null when no property landing
-  onBuyProperty, // Handler for buying property
-  onAuctionProperty, // Handler for auctioning property
-  onSkipProperty, // Handler for skipping property purchase
-  // Property management handlers
-  onBuildHouse, // Handler for building houses
-  onDestroyHouse, // Handler for destroying houses
-  onMortgageProperty, // Handler for mortgaging/unmortgaging properties
-  onSellProperty, // Handler for selling properties
-  // Movement completion callback
-  onMovementComplete, // Called when player movement animation is complete
-  // Dev options for dice debugging
-  devDiceEnabled = false,
-  devDice1 = 1,
-  devDice2 = 1,
-  vacationCash = 0
-}) => {
-  const [dice, setDice] = useState(null);
-  const [isRolling, setIsRolling] = useState(false);
+const MonopolyBoard = (props) => {
+  const {
+    gameStarted,
+    gameLog = [],
+    onStartGame,
+    isPreviewMode = false,
+    previewContent = null,
+    players = [],
+    currentPlayerIndex = 0,
+    onRollDice,
+    onEndTurn,
+    gamePhase = 'waiting',
+    onPlayerStatusChange,
+    propertyOwnership = {},
+    gameSettings = {},
+    playerJailCards = {},
+    onPayJailFine,
+    onUseJailCard,
+    onJailExit,
+    playerStatuses = {},
+    playerJailRounds = {},
+    playerMoveRequest = null,
+    onPlayerMoveComplete,
+    propertyLandingState = null,
+    onMortgageProperty,
+    onSellProperty,
+    onMovementComplete,
+    devDiceEnabled = false,
+    devDice1 = 1,
+    devDice2 = 1,
+    vacationCash = 0,
+    isHost = false,
+    syncedPositions,
+    syncedLastDiceRoll,
+    syncedPlayerMoney,
+    syncedSpecialAction,
+    isMyTurn,
+    roomId,
+    globalDiceRolling = false,
+    onBuyProperty,
+    onAuctionProperty,
+    onSkipProperty,
+    onClearPropertyLandingState,
+  } = props;
   const [showModal, setShowModal] = useState(false);
   const [modalContent, setModalContent] = useState('');
-  const [playerPositions, setPlayerPositions] = useState({});
   const [spaceArrivalOrder, setSpaceArrivalOrder] = useState({}); // Track arrival order for each space
   const [playersInJail, setPlayersInJail] = useState(new Set()); // Track players in jail
   const [canRollAgain, setCanRollAgain] = useState(false);
@@ -209,6 +211,35 @@ const MonopolyBoard = ({
   const [propertyPopupOpen, setPropertyPopupOpen] = useState(false);
   const [selectedProperty, setSelectedProperty] = useState(null);
   const [jailAnimationStates, setJailAnimationStates] = useState({}); // Track jail entry/exit animations
+  const [movementComplete, setMovementComplete] = useState(true); // Track if movement animation is complete
+  const [localDiceRolling, setLocalDiceRolling] = useState(false); // Local dice rolling state for immediate response
+  const [previousDiceRoll, setPreviousDiceRoll] = useState(null); // Track previous dice roll to detect turn changes
+  const [isInDoublesSequence, setIsInDoublesSequence] = useState(false); // Track if we're in a doubles sequence
+  // Store the last valid dice roll for display
+  const [lastValidDiceRoll, setLastValidDiceRoll] = React.useState(null);
+  // Track local button state to prevent double-purchase (for property modal)
+  const [buying, setBuying] = React.useState(false);
+  // Add at the top of the component, after useState declarations
+  const [rollDiceButtonVisible, setRollDiceButtonVisible] = React.useState(false);
+  const [rollAgainButtonVisible, setRollAgainButtonVisible] = React.useState(false);
+  const [endTurnButtonVisible, setEndTurnButtonVisible] = React.useState(false);
+  const [justPurchasedProperty, setJustPurchasedProperty] = React.useState(false);
+  React.useEffect(() => { setBuying(false); }, [propertyLandingState]);
+
+  // --- FIX: Close property modal and reset buying state after purchase ---
+  React.useEffect(() => {
+    if (
+      propertyLandingState &&
+      propertyLandingState.isActive &&
+      propertyLandingState.property &&
+      propertyOwnership[propertyLandingState.property]
+    ) {
+      // Property is now owned, close modal and reset buying
+      setBuying(false);
+      setShowModal(false);
+      // Optionally, you could call onEndTurn() here if needed
+    }
+  }, [propertyOwnership, propertyLandingState]);
 
   const propertyPopupRootId = 'property-popup-root';
 
@@ -230,42 +261,74 @@ const MonopolyBoard = ({
   }, []);
 
   // Helper function to check if a player can roll dice
-  const canPlayerRoll = (playerId) => {
+  const canPlayerRoll = React.useCallback((playerId) => {
     const status = playerStatuses[playerId];
     // Player can't roll if in jail or on vacation
     return status !== 'jail' && (!status || typeof status !== 'object' || status.status !== 'vacation');
-  };
+  }, [playerStatuses]);
 
-  // Initialize player positions on START as soon as they join
+  // Update space arrival order when syncedPositions changes
   React.useEffect(() => {
-    if (players.length > 0) {
-      // Create fresh state for all current players
-      const newPositions = {};
-      const newOrder = { 0: [] };
+    if (syncedPositions && Object.keys(syncedPositions).length > 0) {
+      const newOrder = {};
 
-      players.forEach((player) => {
-        newPositions[player.id] = 0; // START position
-        newOrder[0].push(player.id);
+      // Group players by their positions
+      Object.entries(syncedPositions).forEach(([playerId, position]) => {
+        if (!newOrder[position]) {
+          newOrder[position] = [];
+        }
+        newOrder[position].push(playerId);
       });
 
-      setPlayerPositions(newPositions);
       setSpaceArrivalOrder(newOrder);
-    } else {
-      // Clear all positions if no players
-      setPlayerPositions({});
-      setSpaceArrivalOrder({});
     }
-  }, [players.length, players.map(p => p.id).join(',')]);
+  }, [syncedPositions]);
 
-  // Listen for dice roll results to set canRollAgain
+  // Listen for dice roll results to set canRollAgain and track movement
   React.useEffect(() => {
-    if (gamePhase === 'rolling' && dice && dice.dice1 === dice.dice2 && !isRolling && hasRolledBefore) {
-      setCanRollAgain(true);
-      setHasEndedTurnAfterDoubles(false); // Reset when new doubles are rolled
+    if (gamePhase === 'rolling' && syncedLastDiceRoll && syncedLastDiceRoll.dice1 === syncedLastDiceRoll.dice2) {
+      // Check if player went to jail for 3 doubles
+      if (syncedSpecialAction === 'jail') {
+        setCanRollAgain(false);
+        setHasEndedTurnAfterDoubles(false);
+        setIsInDoublesSequence(false); // Exit doubles sequence when going to jail
+        // Stop dice animation immediately when going to jail for 3 doubles
+        setLocalDiceRolling(false);
+      } else {
+        // Player rolled doubles but not 3 in a row - they need to click End Turn first
+        setCanRollAgain(false);
+        // Don't reset hasEndedTurnAfterDoubles here - let it persist for the Roll Again button
+      }
     } else {
       setCanRollAgain(false);
     }
-  }, [gamePhase, dice, isRolling, hasRolledBefore]);
+
+    // Track movement completion - wait for both dice animation AND server response
+    if (syncedLastDiceRoll && !globalDiceRolling && !localDiceRolling) {
+      // Movement is complete immediately when server responds (player moves instantly)
+      setMovementComplete(true);
+    } else if (globalDiceRolling || localDiceRolling) {
+      setMovementComplete(false);
+    }
+
+    // Stop local dice rolling when server responds
+    if (syncedLastDiceRoll && localDiceRolling) {
+      setLocalDiceRolling(false);
+    }
+
+    // Stop dice animation if special action is jail (for 3 doubles)
+    if (syncedSpecialAction === 'jail' && (globalDiceRolling || localDiceRolling)) {
+      setLocalDiceRolling(false);
+    }
+
+    // Handle jail-escape action - reset states since turn ends immediately
+    if (syncedSpecialAction === 'jail-escape' && (globalDiceRolling || localDiceRolling)) {
+      setCanRollAgain(false);
+      setHasEndedTurnAfterDoubles(false);
+      setIsInDoublesSequence(false);
+      setMovementComplete(true);
+    }
+  }, [gamePhase, syncedLastDiceRoll, globalDiceRolling, localDiceRolling, syncedSpecialAction]);
 
   // Reset canRollAgain when turn ends
   React.useEffect(() => {
@@ -279,17 +342,51 @@ const MonopolyBoard = ({
   React.useEffect(() => {
     if (gameStarted) {
       setHasRolledBefore(false);
-      setDice(null);
     }
   }, [gameStarted]);
 
   // Reset player-specific states when current player changes
   React.useEffect(() => {
-    setCanRollAgain(false);
-    setHasEndedTurnAfterDoubles(false);
-    setHasRolledBefore(false);
-    setDice(null);
-  }, [currentPlayerIndex]);
+    // Only reset if we're not in the middle of a doubles sequence for the same player
+    const currentPlayerId = getCurrentPlayer()?.id;
+    const lastRollPlayerId = previousDiceRoll?.playerId;
+
+    // Don't reset if we're in the middle of a doubles sequence for the same player
+    if (currentPlayerId !== lastRollPlayerId && !hasEndedTurnAfterDoubles) {
+      // Do NOT reset dice faces (syncedLastDiceRoll) immediately here!
+      // Only reset other states
+      setTimeout(() => {
+        setCanRollAgain(false);
+        setHasEndedTurnAfterDoubles(false);
+        setHasRolledBefore(false);
+        setIsInDoublesSequence(false); // Exit doubles sequence on turn change
+        setMovementComplete(true); // Reset movement state for new turn
+        setLocalDiceRolling(false); // Reset local dice rolling state
+        // Do NOT reset dice faces here
+      }, 200); // Delay to prevent animation glitches
+    }
+  }, [currentPlayerIndex, previousDiceRoll, hasEndedTurnAfterDoubles]);
+
+  // Track dice roll changes and detect turn changes
+  React.useEffect(() => {
+    if (syncedLastDiceRoll !== previousDiceRoll) {
+      // If we had a previous dice roll and now it's null, and the previous roll was from a different player
+      if (previousDiceRoll && syncedLastDiceRoll === null && previousDiceRoll.playerId !== getCurrentPlayer()?.id) {
+        // This is a turn change to a different player - reset all states EXCEPT dice faces
+        setCanRollAgain(false);
+        setHasEndedTurnAfterDoubles(false);
+        setHasRolledBefore(false);
+        setIsInDoublesSequence(false); // Exit doubles sequence on turn change
+        setMovementComplete(true);
+        setLocalDiceRolling(false);
+        // Do NOT reset dice faces here
+      }
+      // If same player's dice roll became null, don't reset hasEndedTurnAfterDoubles
+      // This preserves the state for the Roll Again button after ending turn on doubles
+      // Only update previousDiceRoll after animation starts (handled in rollDice)
+      // setPreviousDiceRoll(syncedLastDiceRoll); // Move this to after animation starts
+    }
+  }, [syncedLastDiceRoll, previousDiceRoll]);
 
   // Handle player move requests (for sending to jail, etc.)
   React.useEffect(() => {
@@ -316,16 +413,7 @@ const MonopolyBoard = ({
       }
 
       // Get the player's current position to remove them from that space's arrival order
-      const currentPosition = playerPositions[playerId];
-
-      // Move the player to the specified position immediately
-      setPlayerPositions(prev => {
-        const newPositions = {
-          ...prev,
-          [playerId]: position
-        };
-        return newPositions;
-      });
+      const currentPosition = syncedPositions[playerId];
 
       // Update space arrival order: remove from old position and add to new position
       setSpaceArrivalOrder(prev => {
@@ -364,7 +452,7 @@ const MonopolyBoard = ({
       const isInJail = playerStatuses[player.id] === 'jail';
 
       // If player was in jail but is no longer in jail, trigger exit animation
-      if (!isInJail && playerPositions[player.id] === 10) {
+      if (!isInJail && syncedPositions[player.id] === 10) {
         // Trigger jail exit animation
         setJailAnimationStates(prev => ({
           ...prev,
@@ -381,322 +469,183 @@ const MonopolyBoard = ({
         }, 400); // Match animation duration
       }
     });
-  }, [playerStatuses, players]); // Removed playerPositions dependency to prevent infinite loop
+  }, [playerStatuses, players, syncedPositions]); // Added syncedPositions dependency
+
+  // Track last property landing emission to prevent duplicates
+  const lastEmittedLanding = React.useRef(null);
+  const lastDiceRollRef = React.useRef(null);
+  const lastButtonLogRef = React.useRef('');
+
+  // Reset lastEmittedLanding when dice roll changes (new turn)
+  React.useEffect(() => {
+    if (syncedLastDiceRoll && lastDiceRollRef.current !== `${syncedLastDiceRoll.dice1}-${syncedLastDiceRoll.dice2}`) {
+      lastEmittedLanding.current = null;
+      lastDiceRollRef.current = `${syncedLastDiceRoll.dice1}-${syncedLastDiceRoll.dice2}`;
+      lastButtonLogRef.current = ''; // Reset button log when dice roll changes
+    }
+  }, [syncedLastDiceRoll]);
+
+  // Property landing detection
+  React.useEffect(() => {
+
+    if (gameStarted && syncedLastDiceRoll && isMyTurn && !propertyLandingState && !globalDiceRolling && !localDiceRolling) {
+      const currentPlayer = getCurrentPlayer();
+      if (!currentPlayer) return;
+
+      const currentPosition = syncedPositions[currentPlayer.id];
+      if (currentPosition === undefined) return;
+
+      // Get property name for current position
+      const propertyName = getPropertyNameByPosition(currentPosition);
+
+      // --- GUARD: Do not trigger property landing if property is now owned ---
+      // --- GUARD: Do not emit if we already emitted for this landing ---
+      if (
+        propertyName &&
+        isPropertySpace(propertyName) &&
+        !propertyOwnership[propertyName] &&
+        lastEmittedLanding.current !== `${currentPlayer.id}-${currentPosition}-${syncedLastDiceRoll.dice1}-${syncedLastDiceRoll.dice2}`
+      ) {
+        console.log('[DEBUG] MonopolyBoard: Emitting handlePropertyLanding for property:', propertyName);
+        socket.emit('handlePropertyLanding', {
+          roomId,
+          propertyName
+        });
+        lastEmittedLanding.current = `${currentPlayer.id}-${currentPosition}-${syncedLastDiceRoll.dice1}-${syncedLastDiceRoll.dice2}`;
+      }
+    }
+  }, [syncedLastDiceRoll, syncedPositions, isMyTurn, gameStarted, globalDiceRolling, localDiceRolling, propertyOwnership, roomId]);
+
+  // Reset button log when property landing state changes
+  React.useEffect(() => {
+    lastButtonLogRef.current = '';
+  }, [propertyLandingState]);
+
+  // Reset justPurchasedProperty when dice roll changes (but not immediately)
+  React.useEffect(() => {
+    if (syncedLastDiceRoll && lastDiceRollRef.current !== `${syncedLastDiceRoll.dice1}-${syncedLastDiceRoll.dice2}`) {
+      // Only reset when it's a new dice roll, not when the same roll is cleared
+      setJustPurchasedProperty(false);
+    }
+  }, [syncedLastDiceRoll]);
+
+  // Helper function to get property name by position
+  const getPropertyNameByPosition = (position) => {
+    const propertyMap = {
+      1: 'Salvador',
+      3: 'Rio',
+      5: 'TLV Airport',
+      6: 'Tel Aviv',
+      8: 'Haifa',
+      9: 'Jerusalem',
+      11: 'Venice',
+      12: 'Electric Company',
+      13: 'Milan',
+      14: 'Rome',
+      15: 'MUC Airport',
+      16: 'Frankfurt',
+      18: 'Munich',
+      19: 'Berlin',
+      21: 'Shenzhen',
+      23: 'Beijing',
+      24: 'Shanghai',
+      25: 'CDG Airport',
+      26: 'Lyon',
+      27: 'Toulouse',
+      28: 'Water Company',
+      29: 'Paris',
+      31: 'Liverpool',
+      32: 'Manchester',
+      34: 'London',
+      35: 'JFK Airport',
+      37: 'California',
+      39: 'New York'
+    };
+    return propertyMap[position];
+  };
+
+  // Helper function to check if a space is a property
+  const isPropertySpace = (propertyName) => {
+    return classicMap.some(prop => prop.name === propertyName);
+  };
 
   const rollDice = () => {
-    if (isRolling || gamePhase !== 'rolling') return;
+    if (gamePhase !== 'rolling') return;
 
-    setIsRolling(true);
+    // Prevent rolling if we're in the middle of a state transition
+    if (globalDiceRolling || localDiceRolling) return;
 
-    // If dev dice is enabled, use the predefined values
-    if (devDiceEnabled) {
-      // Still show rolling animation for visual effect
-      const rollAnimation = setInterval(() => {
-        setDice({
-          dice1: Math.floor(Math.random() * 6) + 1,
-          dice2: Math.floor(Math.random() * 6) + 1
-        });
-      }, 80);
+    // Start animation immediately for the roller with a small delay to prevent glitch
+    setTimeout(() => {
+      setLocalDiceRolling(true);
+    }, 50); // Small delay to prevent animation glitch
 
-      // Stop animation and show dev dice result
-      setTimeout(() => {
-        clearInterval(rollAnimation);
-        const finalDice1 = devDice1;
-        const finalDice2 = devDice2;
-        const total = finalDice1 + finalDice2;
+    socket.emit('diceRollingStarted', { roomId });
 
-        setDice({ dice1: finalDice1, dice2: finalDice2 });
-        setHasRolledBefore(true);
-        setIsRolling(false);
+    // Set movement as incomplete during animation
+    setMovementComplete(false);
 
-        // Continue with movement logic using dev dice values
-        handleMovementLogic(finalDice1, finalDice2, total);
-      }, 1000); // Shorter animation for dev mode
-    } else {
-      // Normal random dice rolling
-      const rollAnimation = setInterval(() => {
-        setDice({
-          dice1: Math.floor(Math.random() * 6) + 1,
-          dice2: Math.floor(Math.random() * 6) + 1
-        });
-      }, 80); // Faster animation for more excitement
-
-      // Stop animation and show result
-      setTimeout(() => {
-        clearInterval(rollAnimation);
-        const finalDice1 = Math.floor(Math.random() * 6) + 1;
-        const finalDice2 = Math.floor(Math.random() * 6) + 1;
-        const total = finalDice1 + finalDice2;
-
-        setDice({ dice1: finalDice1, dice2: finalDice2 });
-        setHasRolledBefore(true); // Mark that a dice roll has occurred
-        setIsRolling(false);
-
-        // Continue with movement logic
-        handleMovementLogic(finalDice1, finalDice2, total);
-      }, 1800); // Slightly longer dice roll for anticipation
-    }
+    // Send actual roll request after animation completes
+    setTimeout(() => {
+      if (onRollDice) {
+        onRollDice();
+      }
+      // Now that animation has started, update previousDiceRoll
+      setPreviousDiceRoll(syncedLastDiceRoll);
+    }, 800); // Wait for animation to finish before rolling
   };
 
-  // Extract movement logic into separate function for reuse
-  const handleMovementLogic = (finalDice1, finalDice2, total) => {
-    // Move current player directly to target position (no animation)
-    const currentPlayer = players[currentPlayerIndex];
-    if (currentPlayer) {
-      // Check if player is in jail using playerStatuses prop
-      if (playerStatuses[currentPlayer.id] === 'jail') {
-
-        // Check if doubles were rolled to get out of jail
-        const isDoubles = finalDice1 === finalDice2;
-
-        if (isDoubles) {
-
-          // Trigger jail exit animation
-          setJailAnimationStates(prev => ({
-            ...prev,
-            [currentPlayer.id]: 'exiting'
-          }));
-
-          // Clear animation after it completes
-          setTimeout(() => {
-            setJailAnimationStates(prev => {
-              const newStates = { ...prev };
-              delete newStates[currentPlayer.id];
-              return newStates;
-            });
-          }, 400); // Match animation duration
-
-          if (onPlayerStatusChange) {
-            onPlayerStatusChange(currentPlayer.id, 'jail', false);
-          }
-
-          // Player moves from jail with the roll
-          const currentPos = 10; // Jail position
-          const newPos = (currentPos + total) % 40;
-
-          // Move player directly to new position
-          setPlayerPositions(prev => ({
-            ...prev,
-            [currentPlayer.id]: newPos
-          }));
-
-          // Update arrival order
-          setSpaceArrivalOrder(prev => {
-            const newOrder = { ...prev };
-
-            // Remove player from jail position
-            if (newOrder[currentPos]) {
-              newOrder[currentPos] = newOrder[currentPos].filter(id => id !== currentPlayer.id);
-              if (newOrder[currentPos].length === 0) {
-                delete newOrder[currentPos];
-              }
-            }
-
-            // Add player to new position
-            if (!newOrder[newPos]) {
-              newOrder[newPos] = [];
-            }
-            newOrder[newPos].push(currentPlayer.id);
-
-            return newOrder;
-          });
-
-          // Notify parent component after movement is complete
-          if (onRollDice) {
-            onRollDice(finalDice1, finalDice2, total, isDoubles, 'jail-escape', newPos, currentPos);
-          }
-
-          // Notify that movement is complete
-          if (onMovementComplete) {
-            onMovementComplete();
-          }
-
-          return;
-        } else {
-          // Check if this is the 3rd turn in jail (should be automatically released)
-          const currentJailRounds = playerJailRounds[currentPlayer.id] || 0;
-
-          if (currentJailRounds >= 3) {
-            // Player is automatically released on 3rd turn without moving
-
-            // Trigger jail exit animation
-            setJailAnimationStates(prev => ({
-              ...prev,
-              [currentPlayer.id]: 'exiting'
-            }));
-
-            // Clear animation after it completes
-            setTimeout(() => {
-              setJailAnimationStates(prev => {
-                const newStates = { ...prev };
-                delete newStates[currentPlayer.id];
-                return newStates;
-              });
-            }, 400); // Match animation duration
-
-            if (onPlayerStatusChange) {
-              onPlayerStatusChange(currentPlayer.id, 'jail', false);
-            }
-
-            // Player stays in jail position (10) - no movement
-            const currentPos = 10; // Jail position
-
-            // Notify parent component after movement is complete
-            if (onRollDice) {
-              onRollDice(finalDice1, finalDice2, 0, false, 'jail-auto-release', currentPos, currentPos);
-            }
-
-            // Notify that movement is complete
-            if (onMovementComplete) {
-              onMovementComplete();
-            }
-            return;
-          } else {
-            // Player stays in jail (not 3rd turn yet)
-            if (onRollDice) {
-              onRollDice(finalDice1, finalDice2, 0, false, 'jail-stay');
-            }
-
-            // Notify that movement is complete (even though no movement happened)
-            if (onMovementComplete) {
-              onMovementComplete();
-            }
-            return;
-          }
-        }
-      }
-
-      const currentPos = playerPositions[currentPlayer.id] || 0;
-      const newPos = (currentPos + total) % 40; // 40 spaces on the board
-
-      // Move player directly to new position (no animation)
-      setPlayerPositions(prev => ({
-        ...prev,
-        [currentPlayer.id]: newPos
-      }));
-
-      // Update arrival order - remove from all spaces, add to new
-      setSpaceArrivalOrder(prev => {
-        const newOrder = { ...prev };
-        // Remove player from all spaces
-        Object.keys(newOrder).forEach(spaceIndex => {
-          newOrder[spaceIndex] = newOrder[spaceIndex].filter(id => id !== currentPlayer.id);
-          if (newOrder[spaceIndex].length === 0) {
-            delete newOrder[spaceIndex];
-          }
-        });
-        // Add player to new position if not already present
-        if (!newOrder[newPos]) newOrder[newPos] = [];
-        if (!newOrder[newPos].includes(currentPlayer.id)) {
-          newOrder[newPos].push(currentPlayer.id);
-        }
-        return newOrder;
-      });
-
-      // Check if doubles were rolled
-      const isDoubles = finalDice1 === finalDice2;
-
-      // Handle special spaces
-      let specialAction = null;
-      if (newPos === 30) { // Go to prison
-
-        // Trigger jail entry animation
-        setJailAnimationStates(prev => ({
-          ...prev,
-          [currentPlayer.id]: 'entering'
-        }));
-
-        // Clear animation after it completes
-        setTimeout(() => {
-          setJailAnimationStates(prev => {
-            const newStates = { ...prev };
-            delete newStates[currentPlayer.id];
-            return newStates;
-          });
-        }, 600); // Match animation duration
-
-        // Move player to jail position (10)
-        setPlayerPositions(prev => ({
-          ...prev,
-          [currentPlayer.id]: 10
-        }));
-
-        // Update arrival order for jail
-        setSpaceArrivalOrder(prev => {
-          const newOrder = { ...prev };
-
-          // Remove player from go to prison position
-          if (newOrder[30]) {
-            newOrder[30] = newOrder[30].filter(id => id !== currentPlayer.id);
-            if (newOrder[30].length === 0) {
-              delete newOrder[30];
-            }
-          }
-
-          // Add player to jail position
-          if (!newOrder[10]) {
-            newOrder[10] = [];
-          }
-          newOrder[10].push(currentPlayer.id);
-
-          return newOrder;
-        });
-
-        setPlayersInJail(prev => new Set(prev).add(currentPlayer.id));
-        if (onPlayerStatusChange) {
-          onPlayerStatusChange(currentPlayer.id, 'jail', true);
-        }
-        specialAction = 'jail';
-      } else if (newPos === 20) { // Vacation
-        if (onPlayerStatusChange) {
-          onPlayerStatusChange(currentPlayer.id, 'vacation', true);
-        }
-        specialAction = 'vacation';
-      }
-
-      // Notify parent component after movement is complete
-      if (onRollDice) {
-        onRollDice(finalDice1, finalDice2, total, isDoubles, specialAction, newPos, currentPos);
-      }
-
-      // Notify that movement is complete
-      if (onMovementComplete) {
-        onMovementComplete();
-      }
-    } else {
-      // No current player, just notify parent
-      const isDoubles = finalDice1 === finalDice2;
-      if (onRollDice) {
-        onRollDice(finalDice1, finalDice2, total, isDoubles);
-      }
-
-      // Notify that movement is complete
-      if (onMovementComplete) {
-        onMovementComplete();
-      }
-    }
-  };
+  // Listen for diceRollingStarted event from server to trigger dice animation for all players
+  React.useEffect(() => {
+    const handleDiceRollingStarted = () => {
+      setLocalDiceRolling(true);
+    };
+    socket.on('diceRollingStarted', handleDiceRollingStarted);
+    return () => {
+      socket.off('diceRollingStarted', handleDiceRollingStarted);
+    };
+  }, []);
 
   const handleEndTurn = () => {
-    // If player ended turn after rolling doubles, mark that they can roll again
-    if (canRollAgain && dice && dice.dice1 === dice.dice2) {
-      setHasEndedTurnAfterDoubles(true);
-      setCanRollAgain(false); // Hide the end turn button
-    } else {
-      // Reset states for normal turn end
+    // Check if player rolled doubles and landed on a special space
+    const currentPlayer = getCurrentPlayer();
+    const currentPosition = syncedPositions[currentPlayer.id];
+    const isSpecialSpace = [0, 2, 4, 7, 10, 17, 20, 22, 30, 33, 36, 38].includes(currentPosition);
+
+    if (syncedLastDiceRoll && syncedLastDiceRoll.dice1 === syncedLastDiceRoll.dice2 && isSpecialSpace) {
+      // Player rolled doubles but landed on special space - end turn completely
       setCanRollAgain(false);
       setHasRolledBefore(false);
       setHasEndedTurnAfterDoubles(false);
+      setIsInDoublesSequence(false); // Exit doubles sequence
+      setMovementComplete(true); // Ensure movement is complete for next turn
+    } else if (syncedLastDiceRoll && syncedLastDiceRoll.dice1 === syncedLastDiceRoll.dice2) {
+      // Player rolled doubles - they get another roll
+      setHasEndedTurnAfterDoubles(true);
+      setIsInDoublesSequence(true); // Mark that we're in a doubles sequence
+      setCanRollAgain(false);
+      setMovementComplete(false); // Reset movement state for next roll
+    } else {
+      // Normal turn end - reset states
+      setCanRollAgain(false);
+      setHasRolledBefore(false);
+      setHasEndedTurnAfterDoubles(false);
+      setIsInDoublesSequence(false); // Exit doubles sequence
+      setMovementComplete(true); // Ensure movement is complete for next turn
     }
-
+    if (propertyLandingState && typeof onClearPropertyLandingState === 'function') {
+      onClearPropertyLandingState(); // <-- Reset propertyLandingState after end turn
+    }
+    // Reset the last emitted landing ref to allow new landings
+    lastEmittedLanding.current = null;
     if (onEndTurn) {
       onEndTurn();
     }
   };
 
-  const getCurrentPlayer = () => {
+  const getCurrentPlayer = React.useCallback(() => {
     return players && players.length > 0 ? players[currentPlayerIndex] : null;
-  };
+  }, [players, currentPlayerIndex]);
 
   // Helper function to get space index from position arrays
   const getSpaceIndex = (position) => {
@@ -714,7 +663,7 @@ const MonopolyBoard = ({
     const playerIdsOnSpace = spaceArrivalOrder[spaceIndex] || [];
     const playersOnSpace = playerIdsOnSpace
       .map(playerId => players.find(player => player.id === playerId))
-      .filter(player => player && playerPositions[player.id] === spaceIndex);
+      .filter(player => player && syncedPositions[player.id] === spaceIndex);
 
     if (playersOnSpace.length === 0) return null;
 
@@ -1026,58 +975,63 @@ const MonopolyBoard = ({
     'New York': 'US' // USA
   };
 
+  // Helper function to get property data from classic map
+  const getPropertyData = (propertyName) => {
+    return classicMap.find(prop => prop.name === propertyName);
+  };
+
   // Top row properties (left to right)
   const topRow = [
     { name: 'START', type: 'corner', color: 'green', className: 'start' },
-    { name: 'Salvador', type: 'property', flag: propertyFlags['Salvador'], price: '60$' },
+    { name: 'Salvador', type: 'property', flag: propertyFlags['Salvador'], price: getPropertyData('Salvador')?.price || 60 },
     { name: 'Treasure', type: 'treasure', color: 'orange' },
-    { name: 'Rio', type: 'property', flag: propertyFlags['Rio'], price: '60$' },
+    { name: 'Rio', type: 'property', flag: propertyFlags['Rio'], price: getPropertyData('Rio')?.price || 60 },
     { name: 'Income Tax', type: 'tax', color: 'white' },
-    { name: 'TLV Airport', type: 'airport', color: 'gray', price: '200$' },
-    { name: 'Tel Aviv', type: 'property', flag: propertyFlags['Tel Aviv'], price: '100$' },
+    { name: 'TLV Airport', type: 'airport', color: 'gray', price: getPropertyData('TLV Airport')?.price || 200 },
+    { name: 'Tel Aviv', type: 'property', flag: propertyFlags['Tel Aviv'], price: getPropertyData('Tel Aviv')?.price || 100 },
     { name: 'Surprise', type: 'surprise', color: 'pink' },
-    { name: 'Haifa', type: 'property', flag: propertyFlags['Haifa'], price: '100$' },
-    { name: 'Jerusalem', type: 'property', flag: propertyFlags['Jerusalem'], price: '120$' },
+    { name: 'Haifa', type: 'property', flag: propertyFlags['Haifa'], price: getPropertyData('Haifa')?.price || 100 },
+    { name: 'Jerusalem', type: 'property', flag: propertyFlags['Jerusalem'], price: getPropertyData('Jerusalem')?.price || 120 },
     { name: 'In Prison / Just Visiting', type: 'corner', color: 'orange', className: 'prison' }
   ];
 
   // Right row properties (top to bottom)
   const rightRow = [
-    { name: 'Venice', type: 'property', flag: propertyFlags['Venice'], price: '140$' },
-    { name: 'Electric Company', type: 'utility', utilityType: 'electric', color: 'lightblue', price: '150$' },
-    { name: 'Milan', type: 'property', flag: propertyFlags['Milan'], price: '140$' },
-    { name: 'Rome', type: 'property', flag: propertyFlags['Rome'], price: '160$' },
-    { name: 'MUC Airport', type: 'airport', color: 'gray', price: '200$' },
-    { name: 'Frankfurt', type: 'property', flag: propertyFlags['Frankfurt'], price: '180$' },
+    { name: 'Venice', type: 'property', flag: propertyFlags['Venice'], price: getPropertyData('Venice')?.price || 140 },
+    { name: 'Electric Company', type: 'utility', utilityType: 'electric', color: 'lightblue', price: getPropertyData('Electric Company')?.price || 150 },
+    { name: 'Milan', type: 'property', flag: propertyFlags['Milan'], price: getPropertyData('Milan')?.price || 140 },
+    { name: 'Rome', type: 'property', flag: propertyFlags['Rome'], price: getPropertyData('Rome')?.price || 160 },
+    { name: 'MUC Airport', type: 'airport', color: 'gray', price: getPropertyData('MUC Airport')?.price || 200 },
+    { name: 'Frankfurt', type: 'property', flag: propertyFlags['Frankfurt'], price: getPropertyData('Frankfurt')?.price || 180 },
     { name: 'Treasure', type: 'treasure', color: 'orange' },
-    { name: 'Munich', type: 'property', flag: propertyFlags['Munich'], price: '180$' },
-    { name: 'Berlin', type: 'property', flag: propertyFlags['Berlin'], price: '200$' }
+    { name: 'Munich', type: 'property', flag: propertyFlags['Munich'], price: getPropertyData('Munich')?.price || 180 },
+    { name: 'Berlin', type: 'property', flag: propertyFlags['Berlin'], price: getPropertyData('Berlin')?.price || 200 }
   ];
 
   // Bottom row properties (right to left)
   const bottomRow = [
-    { name: 'Shenzhen', type: 'property', flag: propertyFlags['Shenzhen'], price: '220$' },
+    { name: 'Shenzhen', type: 'property', flag: propertyFlags['Shenzhen'], price: getPropertyData('Shenzhen')?.price || 220 },
     { name: 'Surprise', type: 'surprise', color: 'pink' },
-    { name: 'Beijing', type: 'property', flag: propertyFlags['Beijing'], price: '220$' },
-    { name: 'Shanghai', type: 'property', flag: propertyFlags['Shanghai'], price: '240$' },
-    { name: 'CDG Airport', type: 'airport', color: 'gray', price: '200$' },
-    { name: 'Lyon', type: 'property', flag: propertyFlags['Lyon'], price: '260$' },
-    { name: 'Toulouse', type: 'property', flag: propertyFlags['Toulouse'], price: '260$' },
-    { name: 'Water Company', type: 'utility', color: 'lightblue', price: '150$' },
-    { name: 'Paris', type: 'property', flag: propertyFlags['Paris'], price: '280$' }
+    { name: 'Beijing', type: 'property', flag: propertyFlags['Beijing'], price: getPropertyData('Beijing')?.price || 220 },
+    { name: 'Shanghai', type: 'property', flag: propertyFlags['Shanghai'], price: getPropertyData('Shanghai')?.price || 240 },
+    { name: 'CDG Airport', type: 'airport', color: 'gray', price: getPropertyData('CDG Airport')?.price || 200 },
+    { name: 'Lyon', type: 'property', flag: propertyFlags['Lyon'], price: getPropertyData('Lyon')?.price || 260 },
+    { name: 'Toulouse', type: 'property', flag: propertyFlags['Toulouse'], price: getPropertyData('Toulouse')?.price || 260 },
+    { name: 'Water Company', type: 'utility', color: 'lightblue', price: getPropertyData('Water Company')?.price || 150 },
+    { name: 'Paris', type: 'property', flag: propertyFlags['Paris'], price: getPropertyData('Paris')?.price || 280 }
   ];
 
   // Left row properties (bottom to top)
   const leftRow = [
-    { name: 'Liverpool', type: 'property', flag: propertyFlags['Liverpool'], price: '300$' },
-    { name: 'Manchester', type: 'property', flag: propertyFlags['Manchester'], price: '300$' },
+    { name: 'Liverpool', type: 'property', flag: propertyFlags['Liverpool'], price: getPropertyData('Liverpool')?.price || 300 },
+    { name: 'Manchester', type: 'property', flag: propertyFlags['Manchester'], price: getPropertyData('Manchester')?.price || 300 },
     { name: 'Treasure', type: 'treasure', color: 'orange' },
-    { name: 'London', type: 'property', flag: propertyFlags['London'], price: '320$' },
-    { name: 'JFK Airport', type: 'airport', color: 'gray', price: '200$' },
+    { name: 'London', type: 'property', flag: propertyFlags['London'], price: getPropertyData('London')?.price || 320 },
+    { name: 'JFK Airport', type: 'airport', color: 'gray', price: getPropertyData('JFK Airport')?.price || 200 },
     { name: 'Surprise', type: 'surprise', color: 'pink' },
-    { name: 'California', type: 'property', flag: propertyFlags['California'], price: '350$' },
+    { name: 'California', type: 'property', flag: propertyFlags['California'], price: getPropertyData('California')?.price || 350 },
     { name: 'Luxury Tax', type: 'tax', color: 'white' },
-    { name: 'New York', type: 'property', flag: propertyFlags['New York'], price: '400$' }
+    { name: 'New York', type: 'property', flag: propertyFlags['New York'], price: getPropertyData('New York')?.price || 400 }
   ];
 
   // Corner spaces
@@ -1145,7 +1099,7 @@ const MonopolyBoard = ({
                       ? propertyOwnership[space.name].ownerColor
                       : 'rgba(251, 191, 36, 0.3)',
                     color: propertyOwnership[space.name] ? 'white' : '#fbbf24',
-                    fontWeight: propertyOwnership[space.name] ? 'bold' : 'bold',
+                    fontWeight: 'bold',
                     position: 'relative',
                     display: 'flex',
                     alignItems: 'center',
@@ -1161,25 +1115,26 @@ const MonopolyBoard = ({
                         : <div style={{ height: '90%', width: '0', borderLeft: '6px solid #ef4444' }} />}
                     </div>
                   )}
-                  {propertyOwnership[space.name] ? (
-                    <>
-                      {propertyOwnership[space.name].hotel ? (
-                        <span style={{ fontSize: '11px' }} title="Hotel">🏨</span>
-                      ) : propertyOwnership[space.name].houses > 0 ? (
-                        Array.from({ length: propertyOwnership[space.name].houses }, (_, i) => (
-                          <span
-                            key={i}
-                            style={{ fontSize: '9px' }}
-                            title={`${propertyOwnership[space.name].houses} house${propertyOwnership[space.name].houses > 1 ? 's' : ''}`}
-                          >
-                            🏠
-                          </span>
-                        ))
-                      ) : null}
-                    </>
-                  ) : (
-                    space.price
-                  )}
+                  {propertyOwnership[space.name]
+                    ? (
+                      <>
+                        {propertyOwnership[space.name].hotel ? (
+                          <span style={{ fontSize: '11px' }} title="Hotel">🏨</span>
+                        ) : propertyOwnership[space.name].houses > 0 ? (
+                          Array.from({ length: propertyOwnership[space.name].houses }, (_, i) => (
+                            <span
+                              key={i}
+                              style={{ fontSize: '9px' }}
+                              title={`${propertyOwnership[space.name].houses} house${propertyOwnership[space.name].houses > 1 ? 's' : ''}`}
+                            >
+                              🏠
+                            </span>
+                          ))
+                        ) : null}
+                      </>
+                    )
+                    : `$${space.price}`
+                  }
                 </div>
               )}
             </>
@@ -1192,7 +1147,7 @@ const MonopolyBoard = ({
                   ? propertyOwnership[space.name].ownerColor
                   : 'rgba(251, 191, 36, 0.3)',
                 color: propertyOwnership[space.name] ? 'white' : '#fbbf24',
-                fontWeight: propertyOwnership[space.name] ? 'bold' : 'bold',
+                fontWeight: 'bold',
                 position: 'relative',
                 display: 'flex',
                 alignItems: 'center',
@@ -1219,7 +1174,7 @@ const MonopolyBoard = ({
                   ? propertyOwnership[space.name].ownerColor
                   : 'rgba(251, 191, 36, 0.3)',
                 color: propertyOwnership[space.name] ? 'white' : '#fbbf24',
-                fontWeight: propertyOwnership[space.name] ? 'bold' : 'bold',
+                fontWeight: 'bold',
                 position: 'relative',
                 display: 'flex',
                 alignItems: 'center',
@@ -1315,6 +1270,172 @@ const MonopolyBoard = ({
 
   // Custom modal for property popup (top right, closes on outside click)
   // Remove the portal-based PropertyPopupModal
+
+  // Update lastValidDiceRoll whenever a new roll is received
+  React.useEffect(() => {
+    if (syncedLastDiceRoll && typeof syncedLastDiceRoll.dice1 === 'number' && typeof syncedLastDiceRoll.dice2 === 'number') {
+      // This ensures jail escape rolls are properly displayed
+      setLastValidDiceRoll(syncedLastDiceRoll);
+    }
+  }, [syncedLastDiceRoll]);
+
+  React.useEffect(() => {
+    // Add this effect to close modal and reset buying state when propertyOwnership updates
+    if (propertyLandingState && propertyLandingState.isActive) {
+      const isOwned = propertyOwnership[propertyLandingState.property];
+      if (isOwned) {
+        setShowModal(false);
+        setBuying(false);
+      }
+    }
+  }, [propertyOwnership, propertyLandingState]);
+
+  // Reset lastLoggedState when propertyLandingState is cleared
+  React.useEffect(() => {
+    if (!propertyLandingState && lastLoggedState.current === 'property-landing') {
+      lastLoggedState.current = '';
+      // Don't set hasHandledPropertyLanding here - only set it when turn actually ends
+    }
+    // Reset property landing flag when property landing state is set
+    if (propertyLandingState && propertyLandingState.isActive) {
+      hasHandledPropertyLanding.current = true;
+    }
+  }, [propertyLandingState]);
+
+  // Reset lastLoggedState when a new dice roll starts (to allow new property landings)
+  React.useEffect(() => {
+    if (syncedLastDiceRoll && lastLoggedState.current === 'end-turn') {
+      // If we have a new dice roll and we were showing end turn, reset the state
+      lastLoggedState.current = '';
+    }
+  }, [syncedLastDiceRoll]);
+
+  React.useEffect(() => {
+  }, [propertyOwnership]);
+
+  const handleBuyProperty = () => {
+    if (!propertyLandingState || !propertyLandingState.canAfford) return;
+    socket.emit('buyProperty', {
+      roomId,
+      propertyName: propertyLandingState.property,
+      price: propertyLandingState.price
+    });
+    if (typeof onBuyProperty === 'function') {
+      onBuyProperty();
+    }
+    setShowModal(false);
+    if (typeof onClearPropertyLandingState === 'function') {
+      onClearPropertyLandingState(); // <-- Reset propertyLandingState after buy
+    }
+    onEndTurn();
+  };
+
+  // Track the last logged button state to prevent duplicate logs
+  const lastLoggedState = React.useRef('');
+  // Track if we've handled property landing for the current dice roll
+  const hasHandledPropertyLanding = React.useRef(false);
+
+  // Place this useEffect near other hooks, before the return statement
+  React.useEffect(() => {
+    // Center Controls Render log
+    const landingPlayerId = propertyLandingState?.player?.id || getCurrentPlayer()?.id;
+    if (gameStarted) {
+      // Check property landing first - this should take priority
+      if (
+        propertyLandingState &&
+        propertyLandingState.isActive &&
+        landingPlayerId === getCurrentPlayer()?.id
+      ) {
+        lastLoggedState.current = 'property-landing';
+        return; // Exit early to prevent other button conditions from being checked
+      }
+
+      // Check if we should be in property landing state but propertyLandingState hasn't been set yet
+      // This happens when a player lands on a property but the state hasn't been updated yet
+      const currentPlayer = getCurrentPlayer();
+
+      // Reset property landing flag when we get a new dice roll or when turn changes
+      if (syncedLastDiceRoll) {
+        // Keep the flag as is during the turn
+      } else {
+        // Turn has changed, reset the flag
+        hasHandledPropertyLanding.current = false;
+      }
+
+      // Check if we're waiting for property landing state to be set
+      // This should only happen immediately after a dice roll, not after property actions
+      const shouldBePropertyLanding =
+        syncedLastDiceRoll &&
+        movementComplete &&
+        isMyTurn &&
+        currentPlayer &&
+        !globalDiceRolling &&
+        !localDiceRolling &&
+        gamePhase === 'rolling' &&
+        !propertyLandingState && // Only if propertyLandingState is not set yet
+        lastLoggedState.current === ''; // Only if we haven't logged any button state yet (fresh dice roll)
+
+      if (shouldBePropertyLanding) {
+        // Don't show any buttons while waiting for property landing state to be set
+        if (lastLoggedState.current !== 'waiting-for-property-landing') {
+          lastLoggedState.current = 'waiting-for-property-landing';
+        }
+        return; // Exit early to prevent other button conditions from being checked
+      }
+
+      // Only check other button conditions if not on a property landing
+      if (
+        gamePhase === 'rolling' && getCurrentPlayer() && canPlayerRoll(getCurrentPlayer().id) && !globalDiceRolling && !localDiceRolling && playerStatuses[getCurrentPlayer().id] !== 'jail' && (!playerStatuses[getCurrentPlayer().id] || typeof playerStatuses[getCurrentPlayer().id] !== 'object' || playerStatuses[getCurrentPlayer().id].status !== 'vacation') && !syncedLastDiceRoll && !isInDoublesSequence &&
+        isMyTurn
+      ) {
+        if (lastLoggedState.current !== 'roll-dice') {
+          lastLoggedState.current = 'roll-dice';
+        }
+      } else if (
+        gamePhase === 'rolling' && getCurrentPlayer() && canPlayerRoll(getCurrentPlayer().id) && hasEndedTurnAfterDoubles && !globalDiceRolling && !localDiceRolling && !syncedLastDiceRoll && isMyTurn
+      ) {
+        // Check if we landed on a special space that requires ending turn
+        const currentPlayer = getCurrentPlayer();
+        const currentPosition = syncedPositions[currentPlayer.id];
+        const isSpecialSpace = [0, 2, 4, 7, 10, 17, 20, 22, 30, 33, 36, 38].includes(currentPosition);
+
+        if (isSpecialSpace) {
+          // Show end turn log for special spaces even when rolling doubles
+          let specialSpaceMessage = null;
+          if ([2, 4, 7, 17, 22, 33, 36, 38].includes(currentPosition)) {
+            specialSpaceMessage = 'Showing End Turn button after rolling';
+          }
+          if (lastLoggedState.current !== 'end-turn') {
+            lastLoggedState.current = 'end-turn';
+          }
+        } else {
+          // Show roll again button for non-special spaces
+          if (lastLoggedState.current !== 'roll-again') {
+            lastLoggedState.current = 'roll-again';
+          }
+        }
+      } else if (
+        gamePhase === 'rolling' && getCurrentPlayer() && canPlayerRoll(getCurrentPlayer().id) && syncedLastDiceRoll && !globalDiceRolling && !localDiceRolling && movementComplete && isMyTurn
+      ) {
+        // Check if we landed on a special space
+        const currentPlayer = getCurrentPlayer();
+        const currentPosition = syncedPositions[currentPlayer.id];
+        let specialSpaceMessage = null;
+
+        specialSpaceMessage = 'Showing End Turn button after landing on Luxury Tax';
+        if ([2, 4, 7, 17, 22, 33, 36, 38].includes(currentPosition)) {
+          specialSpaceMessage = 'Showing End Turn button after rolling';
+        }
+
+        if (lastLoggedState.current !== 'end-turn') {
+          lastLoggedState.current = 'end-turn';
+        }
+      } else {
+        // Reset state if no button should be shown
+        lastLoggedState.current = '';
+      }
+    }
+  }, [gameStarted, propertyLandingState, isMyTurn, gamePhase, syncedPlayerMoney, globalDiceRolling, localDiceRolling, playerStatuses, syncedLastDiceRoll, isInDoublesSequence, hasEndedTurnAfterDoubles, movementComplete, getCurrentPlayer, canPlayerRoll]);
 
   return (
     <div className="monopoly-board">
@@ -1412,18 +1533,35 @@ const MonopolyBoard = ({
               MONOPOLY
             </Typography>
 
-            {/* Show Start Game button when there are players who have chosen colors */}
+            {/* Show Start Game button or waiting message when there are players who have chosen colors */}
             {players.length > 0 && players.some(p => p.color) && (
-              <StyledActionButton onClick={onStartGame} sx={{ mb: 2 }}>
-                Start Game
-              </StyledActionButton>
+              <Box sx={{ height: 56, display: 'flex', alignItems: 'center', mb: 2 }}>
+                {isHost ? (
+                  <StyledActionButton onClick={onStartGame} sx={{ mb: 0 }}>
+                    Start Game
+                  </StyledActionButton>
+                ) : (
+                  <Typography
+                    sx={{
+                      fontWeight: 400,
+                      fontSize: '1rem',
+                      color: '#f8fafc',
+                      textAlign: 'center',
+                      width: '100%',
+                      lineHeight: '56px', // Vertically center text to match button height
+                    }}
+                  >
+                    Waiting for host to start the game...
+                  </Typography>
+                )}
+              </Box>
             )}
 
             {/* Game Log - Show even before game starts */}
             <StyledGameLog elevation={3}>
               <List sx={{ py: 0 }}>
                 {gameLog.length > 0 ? gameLog.map((entry, index) => (
-                  <ListItem key={entry.id || index} sx={{ px: 0, py: 0.5 }}>
+                  <ListItem key={entry.id ? `log-${entry.id}-${index}` : `log-${index}-${entry.timestamp || Date.now()}-${Math.random()}`} sx={{ px: 0, py: 0.5 }}>
                     <ListItemIcon sx={{ minWidth: 'auto', mr: 1 }}>
                       {entry.type === 'join' && (
                         <FiberManualRecord sx={{ color: '#22c55e', fontSize: '8px' }} />
@@ -1514,137 +1652,159 @@ const MonopolyBoard = ({
           }}>
             {/* Dice */}
             <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
-              <StyledDice elevation={4} isRolling={isRolling}>
-                {dice?.dice1 || '?'}
+              <StyledDice elevation={4} isRolling={globalDiceRolling || localDiceRolling}>
+                {(globalDiceRolling || localDiceRolling) ? '?' : (lastValidDiceRoll?.dice1 ?? '?')}
               </StyledDice>
-              <StyledDice elevation={4} isRolling={isRolling}>
-                {dice?.dice2 || '?'}
+              <StyledDice elevation={4} isRolling={globalDiceRolling || localDiceRolling}>
+                {(globalDiceRolling || localDiceRolling) ? '?' : (lastValidDiceRoll?.dice2 ?? '?')}
               </StyledDice>
             </Box>
 
             {/* All Action Buttons - Horizontal Layout - Only show when not moving */}
             {gamePhase !== 'moving' && (
               <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap', justifyContent: 'center', width: '100%' }}>
-                {/* Property Landing Actions - Only show when it's the current player's turn and they landed on a property */}
-                {propertyLandingState &&
-                  propertyLandingState.isActive &&
-                  propertyLandingState.player &&
-                  propertyLandingState.player.id === getCurrentPlayer()?.id && (
-                    <>
-                      {/* Buy Property Button */}
+                {(() => {
+                  const landingPlayerId = propertyLandingState?.player?.id || getCurrentPlayer()?.id;
+                  if (
+                    propertyLandingState &&
+                    propertyLandingState.isActive &&
+                    landingPlayerId === getCurrentPlayer()?.id
+                  ) {
+                    if (lastButtonLogRef.current !== 'property-landing') {
+                      console.log('[DEBUG] Showing Buy and End Turn buttons for property landing');
+                      lastButtonLogRef.current = 'property-landing';
+                    }
+                    return <>
                       <UniformButton
                         variant="green"
-                        disabled={propertyLandingState.player.money < propertyLandingState.property.price}
-                        onClick={() => onBuyProperty && onBuyProperty()}
+                        disabled={syncedPlayerMoney[landingPlayerId] < propertyLandingState.price}
+                        onClick={() => {
+                          if (propertyLandingState && propertyLandingState.canAfford) {
+                            console.log('[DEBUG] Property purchased, showing End Turn button after rolling');
+                            onBuyProperty();
+                            onClearPropertyLandingState();
+                            setJustPurchasedProperty(true);
+                            // Reset button log to allow showing End Turn button
+                            lastButtonLogRef.current = '';
+                          }
+                        }}
                       >
-                        Buy for ${propertyLandingState.property.price}
+                        Buy for ${propertyLandingState.price}
                       </UniformButton>
-
-                      {/* Auction Button (only if auction is enabled in settings) */}
-                      {gameSettings.allowAuction && (
-                        <UniformButton
-                          variant="purple"
-                          onClick={() => onAuctionProperty && onAuctionProperty()}
-                        >
-                          Auction
-                        </UniformButton>
-                      )}
-
-                      {/* End Turn Button (only if auction is disabled) */}
-                      {!gameSettings.allowAuction && (
-                        <UniformButton
-                          variant="purple"
-                          onClick={handleEndTurn}
-                        >
-                          End Turn
-                        </UniformButton>
-                      )}
-                    </>
-                  )}
-
-                {/* Jail Escape Actions - Only show when not moving */}
-                {gamePhase === 'rolling' && getCurrentPlayer() && playerStatuses[getCurrentPlayer().id] === 'jail' && !isRolling && (
-                  <>
-                    {/* Pay $50 Fine Button */}
-                    <UniformButton
-                      variant="red"
-                      disabled={!getCurrentPlayer() || getCurrentPlayer().money < 50}
-                      onClick={onPayJailFine}
-                    >
-                      Pay $50 Fine
-                    </UniformButton>
-
-                    {/* Use Jail Card Button - Only show if player has cards */}
-                    {getCurrentPlayer() && playerJailCards[getCurrentPlayer().id] > 0 && (
                       <UniformButton
-                        variant="green"
-                        onClick={onUseJailCard}
+                        variant="purple"
+                        onClick={() => {
+                          console.log('[DEBUG] End Turn clicked from property landing, showing Roll Dice button');
+                          handleEndTurn();
+                        }}
                       >
-                        Use Jail Card ({playerJailCards[getCurrentPlayer().id]})
+                        End Turn
                       </UniformButton>
-                    )}
+                    </>;
+                  } else {
+                    // Check if player just purchased a property - show End Turn button
+                    if (justPurchasedProperty && syncedLastDiceRoll && !globalDiceRolling && !localDiceRolling && movementComplete && isMyTurn) {
+                      if (lastButtonLogRef.current !== 'end-turn-after-purchase') {
+                        lastButtonLogRef.current = 'end-turn-after-purchase';
+                      }
+                      return <UniformButton variant="purple" onClick={() => {
+                        console.log('[DEBUG] End Turn clicked after purchasing property, showing Roll Dice button');
+                        setJustPurchasedProperty(false);
+                        handleEndTurn();
+                      }}>End Turn</UniformButton>;
+                    }
 
-                    {/* Roll Dice to Try Doubles */}
-                    <UniformButton
-                      variant="purple"
-                      onClick={rollDice}
-                    >
-                      Roll Dice
-                    </UniformButton>
-                  </>
-                )}
+                    // Normal Rolling Actions - Only show when not in property landing
+                    if (
+                      gamePhase === 'rolling' && getCurrentPlayer() && canPlayerRoll(getCurrentPlayer().id) && !globalDiceRolling && !localDiceRolling && playerStatuses[getCurrentPlayer().id] !== 'jail' && (!playerStatuses[getCurrentPlayer().id] || typeof playerStatuses[getCurrentPlayer().id] !== 'object' || playerStatuses[getCurrentPlayer().id].status !== 'vacation') && !syncedLastDiceRoll && !isInDoublesSequence &&
+                      isMyTurn
+                    ) {
+                      if (lastButtonLogRef.current !== 'roll-dice') {
+                        console.log('[DEBUG] Showing Roll Dice button');
+                        lastButtonLogRef.current = 'roll-dice';
+                      }
+                      return <UniformButton onClick={() => {
+                        console.log('[DEBUG] Roll Dice clicked');
+                        rollDice();
+                      }}>Roll Dice</UniformButton>;
+                    }
+                    if (
+                      gamePhase === 'rolling' && getCurrentPlayer() && canPlayerRoll(getCurrentPlayer().id) && syncedLastDiceRoll && !globalDiceRolling && !localDiceRolling && movementComplete && isMyTurn && syncedLastDiceRoll.dice1 === syncedLastDiceRoll.dice2
+                    ) {
+                      // Check if we landed on a special space that requires ending turn during doubles
+                      const currentPlayer = getCurrentPlayer();
+                      const currentPosition = syncedPositions[currentPlayer.id];
 
-                {/* Normal Rolling Actions - Only show when not moving and not in jail and not in roll again state and not on vacation */}
-                {gamePhase === 'rolling' && getCurrentPlayer() && canPlayerRoll(getCurrentPlayer().id) && !canRollAgain && !hasEndedTurnAfterDoubles && !isRolling && playerStatuses[getCurrentPlayer().id] !== 'jail' && (!playerStatuses[getCurrentPlayer().id] || typeof playerStatuses[getCurrentPlayer().id] !== 'object' || playerStatuses[getCurrentPlayer().id].status !== 'vacation') && (
-                  <UniformButton
-                    onClick={rollDice}
-                  >
-                    Roll Dice
-                  </UniformButton>
-                )}
+                      // Check if this is a property space - if so, don't show doubles buttons yet
+                      const propertyName = getPropertyNameByPosition(currentPosition);
+                      if (propertyName && isPropertySpace(propertyName) && !propertyOwnership[propertyName]) {
+                        // This is an unowned property space - don't show doubles buttons yet
+                        return null;
+                      }
 
-                {/* End Turn Button - Show when player can end turn (after rolling doubles) */}
-                {gamePhase === 'rolling' && getCurrentPlayer() && canPlayerRoll(getCurrentPlayer().id) && canRollAgain && !isRolling &&
-                  // Hide End Turn if propertyLandingState is active and auction is enabled
-                  !(propertyLandingState && propertyLandingState.isActive && propertyLandingState.player && propertyLandingState.player.id === getCurrentPlayer().id && gameSettings.allowAuction) && (
-                    <UniformButton
-                      variant="purple"
-                      onClick={handleEndTurn}
-                    >
-                      End Turn
-                    </UniformButton>
-                  )}
+                      const isSpecialSpace = [0, 2, 4, 7, 10, 17, 20, 22, 30, 33, 36, 38].includes(currentPosition);
 
-                {/* Roll Again Button - Show only after player ended turn after doubles */}
-                {gamePhase === 'rolling' && getCurrentPlayer() && canPlayerRoll(getCurrentPlayer().id) && hasEndedTurnAfterDoubles && !isRolling && (
-                  <UniformButton
-                    variant="blue"
-                    onClick={rollDice}
-                  >
-                    Roll Again
-                  </UniformButton>
-                )}
+                      if (isSpecialSpace) {
+                        // Show end turn for special spaces even when rolling doubles
+                        if (lastButtonLogRef.current !== 'end-turn-doubles') {
+                          console.log('[DEBUG] Showing End Turn button after landing on special space during doubles');
+                          lastButtonLogRef.current = 'end-turn-doubles';
+                        }
+                        return <UniformButton variant="purple" onClick={() => {
+                          console.log('[DEBUG] End Turn clicked from special space during doubles, showing Roll Dice button');
+                          handleEndTurn();
+                        }}>End Turn</UniformButton>;
+                      } else {
+                        if (lastButtonLogRef.current !== 'roll-again-doubles') {
+                          console.log('[DEBUG] Showing Roll Again button for doubles');
+                          lastButtonLogRef.current = 'roll-again-doubles';
+                        }
+                        return <UniformButton variant="blue" onClick={() => {
+                          console.log('[DEBUG] Roll Again clicked');
+                          rollDice();
+                        }}>Roll Again</UniformButton>;
+                      }
+                    }
+                    if (
+                      gamePhase === 'rolling' && getCurrentPlayer() && canPlayerRoll(getCurrentPlayer().id) && syncedLastDiceRoll && !globalDiceRolling && !localDiceRolling && movementComplete && isMyTurn
+                    ) {
+                      // Check if we landed on a special space
+                      const currentPlayer = getCurrentPlayer();
+                      const currentPosition = syncedPositions[currentPlayer.id];
 
-                {/* End Turn Button for normal turn end - but not when player is in jail and not during property landing */}
-                {!propertyLandingState && gamePhase === 'turn-end' && getCurrentPlayer() && playerStatuses[getCurrentPlayer().id] !== 'jail' && (
-                  <UniformButton
-                    onClick={handleEndTurn}
-                  >
-                    End Turn
-                  </UniformButton>
-                )}
+                      // Check if this is a property space - if so, don't show End Turn button yet
+                      const propertyName = getPropertyNameByPosition(currentPosition);
+                      if (propertyName && isPropertySpace(propertyName) && !propertyOwnership[propertyName]) {
+                        // This is an unowned property space - don't show End Turn button yet
+                        return null;
+                      }
 
+                      let specialSpaceMessage = 'Showing End Turn button after rolling';
 
+                      if ([2, 4, 7, 17, 22, 33, 36, 38].includes(currentPosition)) {
+                        specialSpaceMessage = 'Showing End Turn button after rolling';
+                      }
+
+                      if (lastButtonLogRef.current !== 'end-turn-normal') {
+                        console.log(`[DEBUG] ${specialSpaceMessage}`);
+                        lastButtonLogRef.current = 'end-turn-normal';
+                      }
+                      return <UniformButton variant="purple" onClick={() => {
+                        console.log('[DEBUG] End Turn clicked from special space, showing Roll Dice button');
+                        handleEndTurn();
+                      }}>End Turn</UniformButton>;
+                    }
+                    return null;
+                  }
+                })()}
               </Box>
             )}
-
-
 
             {/* Game Log */}
             <StyledGameLog elevation={3}>
               <List sx={{ py: 0 }}>
                 {gameLog.length > 0 ? gameLog.map((entry, index) => (
-                  <ListItem key={entry.id || index} sx={{ px: 0, py: 0.5 }}>
+                  <ListItem key={entry.id ? `log-${entry.id}-${index}` : `log-${index}-${entry.timestamp || Date.now()}-${Math.random()}`} sx={{ px: 0, py: 0.5 }}>
                     <ListItemIcon sx={{ minWidth: 'auto', mr: 1 }}>
                       {entry.type === 'join' && (
                         <FiberManualRecord sx={{ color: '#22c55e', fontSize: '8px' }} />
@@ -1807,8 +1967,8 @@ const MonopolyBoard = ({
               players={players}
               currentPlayerIndex={currentPlayerIndex}
               gamePhase={gamePhase}
-              onBuildHouse={onBuildHouse}
-              onDestroyHouse={onDestroyHouse}
+              onBuildHouse={typeof onBuildHouse === 'function' ? onBuildHouse : () => { }}
+              onDestroyHouse={typeof onDestroyHouse === 'function' ? onDestroyHouse : () => { }}
               onMortgageProperty={onMortgageProperty}
               onSellProperty={onSellProperty}
               gameSettings={gameSettings}

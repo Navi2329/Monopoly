@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useLocation } from 'react-router-dom';
 import {
   Box,
   Container,
@@ -42,6 +42,16 @@ import MapPreviewModal from '../components/game/MapPreviewModal';
 import MapFullPreview from '../components/game/MapFullPreview';
 import classicMap from '../data/maps/classic';
 import AuctionModal from '../components/game/AuctionModal';
+import { useUser } from '../contexts/UserContext';
+import socket from '../socket';
+
+// Add global socket event logger (only once)
+if (!window.__SOCKET_EVENT_LOGGER_ADDED__) {
+  socket.onAny((event, ...args) => {
+    // Removed: console.log('[SOCKET EVENT]', event, ...args);
+  });
+  window.__SOCKET_EVENT_LOGGER_ADDED__ = true;
+}
 
 const StyledSidebar = styled(Paper)(({ theme }) => ({
   background: 'linear-gradient(145deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.95))',
@@ -110,30 +120,236 @@ const PropertyCard = styled(Card)(({ theme }) => ({
 
 const GamePage = () => {
   const { roomId } = useParams();
+  const location = useLocation();
+  const playerNameFromNav = location.state?.playerName;
+
+  // Log socket id and roomId for debugging
+  // Removed: console.log('[CLIENT] GamePage mount: socket.id =', socket.id || 'unknown', 'roomId =', roomId);
+
+  // Track the current room and player name globally for reconnect logic
+  window.currentRoomId = roomId;
+  window.currentPlayerName = playerNameFromNav;
+
+  useEffect(() => {
+    function handleConnect() {
+      // Removed: console.log('[CLIENT] Socket connected:', socket.id, 'roomId:', roomId);
+    }
+    socket.on('connect', handleConnect);
+    return () => {
+      socket.off('connect', handleConnect);
+    };
+  }, []);
+
+  // Multiplayer state
+  const [players, setPlayers] = useState([]);
+  const [currentPlayer, setCurrentPlayer] = useState(null);
+  const [isHost, setIsHost] = useState(false);
+  const [gameStarted, setGameStarted] = useState(false);
+  const [playerJoined, setPlayerJoined] = useState(false);
+  const [gameLog, setGameLog] = useState([]);
+
+  // Game state from server
+  const [playerPositions, setPlayerPositions] = useState({});
+
+  // Game state variables (moved to top to avoid undefined errors)
+  const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0);
+  const [gamePhase, setGamePhase] = useState('waiting');
+  const [syncedPositions, setSyncedPositions] = useState({});
+  const [syncedStatuses, setSyncedStatuses] = useState({});
+  const [syncedTurnIndex, setSyncedTurnIndex] = useState(0);
+  const [syncedRound, setSyncedRound] = useState(1);
+  const [syncedLastDiceRoll, setSyncedLastDiceRoll] = useState(null);
+  const [syncedPlayerMoney, setSyncedPlayerMoney] = useState({});
+  const [syncedSpecialAction, setSyncedSpecialAction] = useState(null);
+  const [currentTurnSocketId, setCurrentTurnSocketId] = useState(null);
+  const [globalDiceRolling, setGlobalDiceRolling] = useState(false);
+
+  // Add this near the other useState hooks at the top of GamePage
+  const [lastDiceRoll, setLastDiceRoll] = useState(null);
+
+  const prevPropertyOwnershipRef = useRef({});
+
+  useEffect(() => {
+    if (roomId) {
+      socket.emit('requestPlayerList', { roomId });
+    }
+    // Listen for player list updates
+    socket.on('playerListUpdated', (playerList) => {
+      setPlayers(playerList);
+      // Set current player by matching socket id
+      const mySocketId = socket.id;
+      const me = playerList.find(p => p.id === mySocketId);
+      setCurrentPlayer(me);
+      setIsHost(me?.isHost || false);
+      // Only set playerJoined to true if the player is in the player list
+      setPlayerJoined(!!me);
+      // Request the current game log from the server when player list updates (e.g., on join)
+      socket.emit('requestGameLog', { roomId });
+    });
+    // Listen for direct playerList response (before joining)
+    socket.on('playerList', (playerList) => {
+      setPlayers(playerList);
+    });
+    // Listen for room settings updates
+    socket.on('roomSettingsUpdated', (settings) => {
+      setGameSettings(settings);
+    });
+    // Listen for game started
+    socket.on('gameStarted', () => {
+      setGameStarted(true);
+      setGameLog(prev => [{ id: Date.now(), type: 'info', message: 'Game started!' }, ...prev]);
+      // Set gamePhase to 'rolling' immediately - will be updated when we get the game state
+      setGamePhase('rolling');
+    });
+    // Listen for game state updates from server
+    const onGameStateUpdated = (gameState) => {
+      // Removed: console.log('[CLIENT] Received gameStateUpdated:', gameState);
+      setPlayerPositions(gameState.playerPositions || {});
+      setSyncedLastDiceRoll(gameState.lastDiceRoll);
+      setPlayerStatuses(gameState.playerStatuses || {});
+      setCurrentPlayerIndex(gameState.turnIndex || 0);
+      setPlayerJailCards(gameState.playerJailCards || {});
+      setPlayerJailRounds(gameState.playerJailRounds || {});
+      setVacationCash(gameState.vacationCash || 0);
+
+      // Update player money
+      if (gameState.playerMoney) {
+        setPlayers(prev => prev.map(player => ({
+          ...player,
+          money: gameState.playerMoney[player.id] || player.money
+        })));
+      }
+
+      // Detect if the current player just bought a property (compare with previous)
+      let justBoughtProperty = false;
+      const prevPropertyOwnership = prevPropertyOwnershipRef.current;
+      if (gameState.propertyOwnership) {
+        const boughtProperty = Object.entries(gameState.propertyOwnership).find(
+          ([name, details]) =>
+            details.owner === socket.id &&
+            (!prevPropertyOwnership[name] || prevPropertyOwnership[name].owner !== socket.id)
+        );
+        if (boughtProperty) {
+          justBoughtProperty = true;
+        }
+      }
+
+      // Set game phase
+      const mySocketId = socket.id;
+      const isMyTurn = gameState.currentTurnSocketId === mySocketId;
+
+      if (justBoughtProperty) {
+        setGamePhase('turn-end');
+      } else if (isMyTurn) {
+        setGamePhase('rolling');
+      } else {
+        setGamePhase('waiting');
+      }
+
+      // Update property ownership and ref
+      setPropertyOwnership(() => {
+        prevPropertyOwnershipRef.current = gameState.propertyOwnership || {};
+        return gameState.propertyOwnership || {};
+      });
+
+      // After updating propertyOwnership:
+      if (gameState.propertyOwnership) {
+        const boughtProperty = Object.entries(gameState.propertyOwnership).find(
+          ([name, details]) => details.owner === socket.id && (!prevPropertyOwnership[name] || prevPropertyOwnership[name].owner !== socket.id)
+        );
+        if (boughtProperty) {
+          const [propertyName, details] = boughtProperty;
+          if (gameState.playerMoney && gameState.playerMoney[socket.id] >= 0 && details) {
+            // Removed: console.log('[CLIENT] Property bought:', { propertyName, details, playerId: socket.id });
+          }
+        }
+      }
+
+      // Log property purchases for all clients
+      if (gameState.propertyOwnership && typeof gameState.propertyOwnership === 'object') {
+        Object.entries(gameState.propertyOwnership).forEach(([property, details]) => {
+          if (
+            (!prevPropertyOwnership[property] || prevPropertyOwnership[property].owner !== details.owner) &&
+            details.ownerName
+          ) {
+            // Removed: console.log(`Property ${property} has been bought by ${details.ownerName}`);
+          }
+        });
+      }
+    };
+    socket.on('gameStateUpdated', onGameStateUpdated);
+    // Listen for game log updates from backend
+    socket.on('gameLogUpdated', (logEntry) => {
+      // Removed: console.log('[CLIENT] Received gameLogUpdated:', logEntry);
+      setGameLog(prev => [{ id: Date.now(), ...logEntry }, ...prev]);
+    });
+    // Listen for full game log from backend
+    socket.on('fullGameLog', (logArray) => {
+      setGameLog(logArray.map(entry => ({ id: Date.now() + Math.random(), ...entry })).reverse());
+    });
+    // Listen for color taken error from backend
+    socket.on('colorTakenError', ({ message }) => {
+      alert(message || 'Color already taken. Please choose another color.');
+      setPlayerJoined(false); // Re-open the PlayerSelection overlay
+    });
+    // Listen for property landing events from server
+    socket.on('propertyLanding', (landingData) => {
+      console.log('[DEBUG] Received propertyLanding event:', landingData);
+      // Find the player object by id if provided, else fallback to currentPlayer
+      let playerObj = currentPlayer;
+      if (landingData.playerId) {
+        playerObj = allPlayers.find(p => p.id === landingData.playerId) || currentPlayer;
+      }
+
+      // Get the property object from classicMap
+      const property = classicMap.find(p => p.name === landingData.propertyName);
+      if (!property) {
+        console.log('[DEBUG] Property not found in classicMap:', landingData.propertyName);
+        return;
+      }
+
+      setPropertyLandingState({
+        property: property,
+        player: playerObj,
+        isActive: true,
+        price: landingData.price,
+        canAfford: landingData.canAfford,
+        action: landingData.action
+      });
+    });
+    // Listen for purchase errors
+    socket.on('purchaseError', ({ message }) => {
+      alert(message || 'Purchase failed');
+    });
+
+    // Listen for dice rolling events from any player
+    socket.on('diceRollingStarted', () => {
+      setGlobalDiceRolling(true);
+      // Stop global rolling after animation duration (reduced to match roll duration)
+      setTimeout(() => {
+        setGlobalDiceRolling(false);
+      }, 800);
+    });
+
+    // Optionally: fetch initial state if needed
+    return () => {
+      socket.off('playerListUpdated');
+      socket.off('playerList');
+      socket.off('roomSettingsUpdated');
+      socket.off('gameStarted');
+      socket.off('gameStateUpdated');
+      socket.off('gameLogUpdated');
+      socket.off('fullGameLog');
+      socket.off('colorTakenError');
+      socket.off('propertyLanding');
+      socket.off('purchaseError');
+      socket.off('diceRollingStarted');
+      socket.off('gameStateUpdated', onGameStateUpdated);
+    };
+  }, []);
+
 
   // Player states
-  const [playerJoined, setPlayerJoined] = useState(false);
-  const [currentPlayer, setCurrentPlayer] = useState(null);
-
-  const [messages, setMessages] = useState([
-    { id: 1, text: "Welcome to the game! 🎲", sender: "Game", time: "12:00" }
-  ]);
-
-  // Game state
-  const [gameStarted, setGameStarted] = useState(false);
-  const [gameLog, setGameLog] = useState([]);
-  const [mapPreviewOpen, setMapPreviewOpen] = useState(false);
-  const [mapFullPreviewOpen, setMapFullPreviewOpen] = useState(false);
-  const [previewingMap, setPreviewingMap] = useState('Classic');
-  const [changeAppearanceOpen, setChangeAppearanceOpen] = useState(false);
-
-  // Game turn management
-  const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0);
-  const [gamePhase, setGamePhase] = useState('waiting'); // 'waiting', 'rolling', 'moving', 'turn-end'
-  const [lastDiceRoll, setLastDiceRoll] = useState(null);
-  const [roundNumber, setRoundNumber] = useState(1); // Track current round number
-
-  // Player status tracking - simplified
   const [playerStatuses, setPlayerStatuses] = useState({}); // { playerId: { status: 'jail' | 'vacation', vacationStartRound?: number } }
 
   // Track consecutive doubles for each player
@@ -175,9 +391,6 @@ const GamePage = () => {
   const [devDiceEnabled, setDevDiceEnabled] = useState(false);
   const [devDice1, setDevDice1] = useState(1);
   const [devDice2, setDevDice2] = useState(1);
-
-  // Players data - Initially empty, will be populated when player joins
-  const [players, setPlayers] = useState([]);
 
   // Bots state
   const [bots, setBots] = useState([]);
@@ -275,18 +488,7 @@ const GamePage = () => {
   };
 
   // Game settings
-  const [gameSettings, setGameSettings] = useState({
-    maxPlayers: 4,
-    allowBots: false,
-    startingCash: 1500,
-    allowAuction: false, // Default to false
-    doubleRentOnFullSet: false,
-    vacationCash: false,
-    noRentInPrison: false,
-    mortgage: false,
-    evenBuild: false,
-    randomizePlayerOrder: false
-  });
+  const [gameSettings, setGameSettings] = useState({});
 
   // Sync allowAuction with auction on mount/settings change
   useEffect(() => {
@@ -456,14 +658,20 @@ const GamePage = () => {
 
   // Handle property landing
   const handlePropertyLanding = (playerIndex, spaceIndex) => {
+    console.log('[DEBUG] handlePropertyLanding called with playerIndex:', playerIndex, 'spaceIndex:', spaceIndex);
     const currentPlayer = allPlayers[playerIndex];
 
-    if (!currentPlayer) return;
+    if (!currentPlayer) {
+      console.log('[DEBUG] No current player found');
+      return;
+    }
 
     // Prevent duplicate processing
     if (isProcessingLanding.current) {
+      console.log('[DEBUG] Already processing landing, skipping');
       return;
     }
+    console.log('[DEBUG] Setting isProcessingLanding to true');
     isProcessingLanding.current = true;
 
     // Safety timeout to reset flag
@@ -668,11 +876,14 @@ const GamePage = () => {
         // Human player - show purchase options as horizontal buttons
         // Only set property landing state if it's not already set for this property
         if (!propertyLandingState || propertyLandingState.property.name !== property.name) {
+          console.log('[DEBUG] Setting propertyLandingState for property:', property.name);
           setPropertyLandingState({
             property: property,
             player: currentPlayer,
             isActive: true
           });
+        } else {
+          console.log('[DEBUG] Property landing state already set for property:', property.name);
         }
       }
     }
@@ -710,51 +921,11 @@ const GamePage = () => {
     const currentPlayer = allPlayers[currentPlayerIndex];
     if (!currentPlayer || currentPlayer.money < 50) return;
 
-    // Deduct $50 from player
-    if (currentPlayer.isBot) {
-      setBots(prev => prev.map(bot =>
-        bot.id === currentPlayer.id
-          ? { ...bot, money: bot.money - 50 }
-          : bot
-      ));
-    } else {
-      setPlayers(prev => prev.map(p =>
-        p.id === currentPlayer.id
-          ? { ...p, money: p.money - 50 }
-          : p
-      ));
-      if (currentPlayer.id === currentPlayer?.id) {
-        setCurrentPlayer(prev => ({ ...prev, money: prev.money - 50 }));
-      }
-    }
+    // Send pay jail fine request to server
+    socket.emit('payJailFine', { roomId });
 
-    // Remove from jail
-    setPlayerStatuses(prev => {
-      const newStatuses = { ...prev };
-      delete newStatuses[currentPlayer.id];
-      return newStatuses;
-    });
-
-    // Clear jail rounds when paying fine
-    setPlayerJailRounds(prev => {
-      const newRounds = { ...prev };
-      delete newRounds[currentPlayer.id];
-      return newRounds;
-    });
-
-    // Log the action
-    setGameLog(prev => [{
-      id: generateLogId(),
-      type: 'special',
-      player: currentPlayer.name,
-      message: `paid $50 to get out of jail`
-    }, ...prev]);
-
-    // Clear property landing state and immediately end turn
+    // Clear property landing state
     setPropertyLandingState(null);
-
-    // Immediately end turn without showing any buttons
-    handleEndTurn(true); // <-- force next player
   };
 
   // Handle jail escape with card
@@ -762,71 +933,14 @@ const GamePage = () => {
     const currentPlayer = allPlayers[currentPlayerIndex];
     if (!currentPlayer || !playerJailCards[currentPlayer.id] || playerJailCards[currentPlayer.id] <= 0) return;
 
-    // Use jail card
-    setPlayerJailCards(prev => ({
-      ...prev,
-      [currentPlayer.id]: prev[currentPlayer.id] - 1
-    }));
+    // Send use jail card request to server
+    socket.emit('useJailCard', { roomId });
 
-    // Remove from jail
-    setPlayerStatuses(prev => {
-      const newStatuses = { ...prev };
-      delete newStatuses[currentPlayer.id];
-      return newStatuses;
-    });
-
-    // Clear jail rounds when using jail card
-    setPlayerJailRounds(prev => {
-      const newRounds = { ...prev };
-      delete newRounds[currentPlayer.id];
-      return newRounds;
-    });
-
-    // Log the action
-    setGameLog(prev => [{
-      id: generateLogId(),
-      type: 'special',
-      player: currentPlayer.name,
-      message: `used "Get out of jail free" card`
-    }, ...prev]);
-
-    // Clear property landing state and immediately end turn
+    // Clear property landing state
     setPropertyLandingState(null);
-
-    // Immediately end turn without showing any buttons
-    handleEndTurn(true); // <-- force next player
   };
 
   const gameUrl = `http://localhost:5173/game/${roomId}`;
-
-  const handlePlayerJoin = (selectedColor) => {
-    const newPlayer = {
-      id: 1,
-      name: 'GODWILDBEAST',
-      color: selectedColor,
-      money: 1500,
-      avatar: null, // Set to actual avatar if logged in
-      isOnline: true,
-      isBot: false,
-      isHost: true
-    };
-
-    setCurrentPlayer(newPlayer);
-    setPlayers([newPlayer]);
-    setPlayerJoined(true);
-
-    // Initialize jail cards for new player
-    setPlayerJailCards(prev => ({
-      ...prev,
-      [newPlayer.id]: 1 // Give 1 jail card for testing - in real game this would be 0
-    }));
-
-    // Add join message to game log
-    setGameLog([
-      { id: generateLogId(), type: 'join', player: 'GODWILDBEAST', message: ' joined the game' },
-      { id: generateLogId(), type: 'info', message: `Joined room ${roomId}` }
-    ]);
-  };
 
   const handleSendMessage = (messageText) => {
     if (!playerJoined) return; // Don't allow messages until joined
@@ -842,195 +956,7 @@ const GamePage = () => {
 
   const handleStartGame = () => {
     if (!playerJoined) return; // Don't allow game start until player joined
-
-    // Immediately set the ref to stop bot adding
-    gameStartedRef.current = true;
-
-    // Stop any ongoing bot adding process
-    setIsAddingBots(false);
-
-    // Randomize player order if setting is enabled
-    if (gameSettings.randomizePlayerOrder) {
-      setIsShufflingPlayers(true);
-      setWasRandomized(true);
-
-      // Capture current players and bots to avoid recreation issues
-      const currentPlayers = [...players];
-      const currentBots = [...bots];
-      const allCurrentPlayers = [...currentPlayers, ...currentBots];
-
-      // Safety check - ensure we have players to shuffle
-      if (allCurrentPlayers.length === 0) {
-        setIsShufflingPlayers(false);
-        setGameStarted(true);
-        setGamePhase('rolling');
-        setCurrentPlayerIndex(0);
-        setRoundNumber(1);
-        return;
-      }
-
-      // Create a quick shuffling animation
-      const shuffleSteps = 3; // Fewer steps for faster animation
-      let currentStep = 0;
-
-      const shuffleInterval = setInterval(() => {
-        try {
-          // Quick shuffle animation
-          const shuffledPlayers = [...allCurrentPlayers];
-          for (let i = shuffledPlayers.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [shuffledPlayers[i], shuffledPlayers[j]] = [shuffledPlayers[j], shuffledPlayers[i]];
-          }
-
-          setPlayers(shuffledPlayers.filter(p => !p.isBot));
-          setBots(shuffledPlayers.filter(p => p.isBot));
-
-          currentStep++;
-          if (currentStep >= shuffleSteps) {
-            clearInterval(shuffleInterval);
-            setIsShufflingPlayers(false);
-
-            // Set the final shuffled order and store it in ref
-            // Fisher-Yates shuffle with retry to ensure order changes
-            let finalShuffledPlayers = [...allCurrentPlayers];
-            let attempts = 0;
-            const maxAttempts = 10;
-
-            try {
-              do {
-                finalShuffledPlayers = [...allCurrentPlayers];
-                for (let i = finalShuffledPlayers.length - 1; i > 0; i--) {
-                  const j = Math.floor(Math.random() * (i + 1));
-                  [finalShuffledPlayers[i], finalShuffledPlayers[j]] = [finalShuffledPlayers[j], finalShuffledPlayers[i]];
-                }
-                attempts++;
-              } while (
-                attempts < maxAttempts &&
-                finalShuffledPlayers.map(p => p.name).join(',') === allCurrentPlayers.map(p => p.name).join(',')
-              );
-
-              // Set the final shuffled order in ref
-              shuffledOrderRef.current = finalShuffledPlayers;
-
-              // Update players and bots arrays with the shuffled order
-              setPlayers(finalShuffledPlayers.filter(p => !p.isBot));
-              setBots(finalShuffledPlayers.filter(p => p.isBot));
-
-              // Force re-render by incrementing version
-              setShuffleVersion(prev => prev + 1);
-
-              // Check if the order actually changed
-              const originalOrder = allCurrentPlayers.map(p => p.name).join(',');
-              const newOrder = finalShuffledPlayers.map(p => p.name).join(',');
-              const orderChanged = originalOrder !== newOrder;
-
-              // Log the final player order
-              const playerOrderText = finalShuffledPlayers.map((player, index) =>
-                `${index + 1}. ${player.name}${player.isBot ? ' 🤖' : ''}`
-              ).join(', ');
-
-              setGameLog(prev => [
-                {
-                  id: generateLogId(),
-                  type: 'info',
-                  message: orderChanged ? '🎲 Player order randomized!' : '🎲 Shuffling completed (same order)'
-                },
-                {
-                  id: generateLogId(),
-                  type: 'info',
-                  message: `📋 Final order: ${playerOrderText}`
-                },
-                ...prev
-              ]);
-
-            } catch (error) {
-              console.error('Error during player randomization:', error);
-              setGameLog(prev => [{
-                id: generateLogId(),
-                type: 'info',
-                message: '⚠️ Error during randomization, using original order'
-              }, ...prev]);
-            }
-
-            // Start the game after a short delay to ensure state is updated
-            setTimeout(() => {
-              setGameStarted(true);
-              gameStartedRef.current = true; // Keep ref in sync
-              setGamePhase('rolling'); // Start with first player's turn
-              setCurrentPlayerIndex(0);
-              setRoundNumber(1); // Initialize round number
-
-              // Log game start with player count information
-              const humanCount = finalShuffledPlayers.filter(p => !p.isBot).length;
-              const botCount = finalShuffledPlayers.filter(p => p.isBot).length;
-              const totalCount = finalShuffledPlayers.length;
-
-              setGameLog(prev => [{
-                id: generateLogId(),
-                type: 'info',
-                message: `🚀 Game started with ${totalCount} players (${humanCount} human${humanCount !== 1 ? 's' : ''}, ${botCount} bot${botCount !== 1 ? 's' : ''})! All players placed on START.`
-              }, ...prev]);
-
-              // Show initial vacation cash if enabled
-              if (gameSettings.vacationCash) {
-                setGameLog(prev => [{
-                  id: generateLogId(),
-                  type: 'info',
-                  message: 'Vacation cash collection enabled - Cash: $0'
-                }, ...prev]);
-              }
-            }, 300); // Quick delay to show the final order
-          }
-        } catch (error) {
-          console.error('Error during shuffle animation:', error);
-          clearInterval(shuffleInterval);
-          setIsShufflingPlayers(false);
-          // Fallback to immediate game start
-          setGameStarted(true);
-          setGamePhase('rolling');
-          setCurrentPlayerIndex(0);
-          setRoundNumber(1);
-        }
-      }, 100); // Very fast shuffling animation
-    } else {
-      // No randomization - start game immediately
-      setGameStarted(true);
-      gameStartedRef.current = true; // Keep ref in sync
-      setGamePhase('rolling'); // Start with first player's turn
-      setCurrentPlayerIndex(0);
-      setRoundNumber(1); // Initialize round number
-
-      // Log game start with player count information
-      const allCurrentPlayers = [...players, ...bots];
-      const humanCount = allCurrentPlayers.filter(p => !p.isBot).length;
-      const botCount = allCurrentPlayers.filter(p => p.isBot).length;
-      const totalCount = allCurrentPlayers.length;
-
-      setGameLog(prev => [{
-        id: generateLogId(),
-        type: 'info',
-        message: `🚀 Game started with ${totalCount} players (${humanCount} human${humanCount !== 1 ? 's' : ''}, ${botCount} bot${botCount !== 1 ? 's' : ''})! All players placed on START.`
-      }, ...prev]);
-
-      // Show initial vacation cash if enabled
-      if (gameSettings.vacationCash) {
-        setGameLog(prev => [{
-          id: generateLogId(),
-          type: 'info',
-          message: 'Vacation cash collection enabled - Cash: $0'
-        }, ...prev]);
-      }
-    }
-  };
-
-  // Function to move a player to a specific position (used for jail, etc.)
-  const handleMovePlayerToPosition = (playerId, position) => {
-    // This will be passed to MonopolyBoard as a callback
-    // MonopolyBoard will handle the actual position update
-    return new Promise((resolve) => {
-      // Set a flag or trigger that MonopolyBoard can use
-      setPlayerMoveRequest({ playerId, position, resolve });
-    });
+    socket.emit('startGame', { roomId });
   };
 
   const handleRollDice = (dice1, dice2, total, isDoubles, specialAction, landedSpaceIndex, currentPos) => {
@@ -1320,7 +1246,10 @@ const GamePage = () => {
 
     // Check if player landed on a purchasable property
     if (landedSpaceIndex !== undefined && !specialAction) {
+      console.log('[DEBUG] Calling handlePropertyLanding for spaceIndex:', landedSpaceIndex);
       handlePropertyLanding(currentPlayerIndex, landedSpaceIndex);
+    } else {
+      console.log('[DEBUG] Not calling handlePropertyLanding - landedSpaceIndex:', landedSpaceIndex, 'specialAction:', specialAction);
     }
 
     // Handle doubles logic
@@ -1345,182 +1274,26 @@ const GamePage = () => {
     setPropertyLandingState(null);
     isProcessingLanding.current = false; // Reset processing flag
 
-    const currentPlayer = allPlayers[currentPlayerIndex];
-    const lastRoll = lastDiceRoll;
-    const isEndTurnAfterDoubles = lastRoll && lastRoll.dice1 === lastRoll.dice2 &&
-      (playerDoublesCount[currentPlayer?.id] || 0) < 3;
-
-    // If forcing next player (like when going to jail), skip doubles logic
-    if (forceNextPlayer) {
-      // Clear any remaining dice roll state
-      setLastDiceRoll(null);
-    } else if (isEndTurnAfterDoubles) {
-      setGamePhase('rolling');
-      return;
-    }
-
-    // Find the next player who can take their turn (not on vacation)
-    let nextPlayerIndex = (currentPlayerIndex + 1) % allPlayers.length;
-    let roundsIncremented = 0;
-
-    // First, check if all players are on vacation
-    // Use pending vacation status if provided, otherwise use current state
-    const effectivePlayerStatuses = pendingVacationStatus ? { ...playerStatuses, ...pendingVacationStatus } : playerStatuses;
-
-    const allPlayersOnVacation = allPlayers.every(player => {
-      const status = effectivePlayerStatuses[player.id];
-      return status && (status === 'vacation' || status.status === 'vacation');
-    });
-
-
-    if (allPlayersOnVacation && allPlayers.length > 0) {
-      // All players are on vacation - advance the round and clear all vacation statuses
-      roundsIncremented += 2;
-      setRoundNumber(prev => prev + 2);
-      setGameLog(prev => [{
-        id: generateLogId(),
-        type: 'info',
-        message: `All players on vacation - advancing to Round ${roundNumber + 2} to get everyone out!`
-      }, ...prev]);
-
-      // Remove vacation status from all players
-      setPlayerStatuses(prev => {
-        const newStatuses = { ...prev };
-        allPlayers.forEach(player => {
-          if (newStatuses[player.id] &&
-            (newStatuses[player.id] === 'vacation' || newStatuses[player.id].status === 'vacation')) {
-            delete newStatuses[player.id];
-          }
-        });
-        return newStatuses;
-      });
-
-      // Log that all players are back from vacation
-      setGameLog(prev => [{
-        id: generateLogId(),
-        type: 'info',
-        message: `All players returned from vacation!`
-      }, ...prev]);
-
-      // Start with the first player
-      nextPlayerIndex = 0;
-    } else {
-      // Normal vacation handling - loop through players until we find one who can take their turn
-      let playersChecked = 0;
-      while (true) {
-        // Check if we're starting a new round
-        if (nextPlayerIndex === 0) {
-          roundsIncremented++;
-          setRoundNumber(prev => prev + 1);
-          setGameLog(prev => [{
-            id: generateLogId(),
-            type: 'info',
-            message: `New round started (Round ${roundNumber + roundsIncremented})`
-          }, ...prev]);
-        }
-
-        // Check vacation status for the current next player
-        const nextPlayerStatus = effectivePlayerStatuses[allPlayers[nextPlayerIndex]?.id];
-
-        if (!nextPlayerStatus ||
-          (nextPlayerStatus !== 'vacation' && nextPlayerStatus.status !== 'vacation')) {
-          // Increment jail rounds for players in jail (release happens when they roll dice)
-          if (nextPlayerStatus === 'jail') {
-            const currentJailRounds = playerJailRounds[allPlayers[nextPlayerIndex].id] || 0;
-            const newJailRounds = currentJailRounds + 1;
-
-            setPlayerJailRounds(prev => ({
-              ...prev,
-              [allPlayers[nextPlayerIndex].id]: newJailRounds
-            }));
-          }
-
-          // This player can take their turn
-          break;
-        }
-
-        // Player is on vacation - check if vacation should end
-        const vacationStartRound = nextPlayerStatus.vacationStartRound || 1;
-        const currentRoundForCheck = roundNumber + roundsIncremented;
-        const roundsSinceVacation = currentRoundForCheck - vacationStartRound;
-
-        if (roundsSinceVacation >= 2) {
-          // Vacation is over after spending 1 full round in vacation - remove status and let player take their turn
-          setPlayerStatuses(prev => {
-            const newStatuses = { ...prev };
-            delete newStatuses[allPlayers[nextPlayerIndex].id];
-            return newStatuses;
-          });
-
-          setGameLog(prev => [{
-            id: generateLogId(),
-            type: 'info',
-            player: allPlayers[nextPlayerIndex].name,
-            message: `vacation is over! Back to the game.`
-          }, ...prev]);
-          break;
-        } else {
-          // Still on vacation - skip this player
-          setGameLog(prev => [{
-            id: generateLogId(),
-            type: 'info',
-            player: allPlayers[nextPlayerIndex].name,
-            message: `is on vacation - turn skipped!`
-          }, ...prev]);
-
-          // Move to next player
-          nextPlayerIndex = (nextPlayerIndex + 1) % allPlayers.length;
-          playersChecked++;
-
-          // If we've checked all players and they're all still on vacation, advance round and clear all vacation statuses
-          if (playersChecked >= allPlayers.length) {
-            // Advance the round and clear all vacation statuses
-            roundsIncremented += 2;
-            setRoundNumber(prev => prev + 2);
-            setGameLog(prev => [{
-              id: generateLogId(),
-              type: 'info',
-              message: `All players on vacation - advancing to Round ${roundNumber + 2} to get everyone out!`
-            }, ...prev]);
-
-            // Remove vacation status from all players
-            setPlayerStatuses(prev => {
-              const newStatuses = { ...prev };
-              allPlayers.forEach(player => {
-                if (newStatuses[player.id] &&
-                  (newStatuses[player.id] === 'vacation' || newStatuses[player.id].status === 'vacation')) {
-                  delete newStatuses[player.id];
-                }
-              });
-              return newStatuses;
-            });
-
-            // Log that all players are back from vacation
-            setGameLog(prev => [{
-              id: generateLogId(),
-              type: 'info',
-              message: `All players returned from vacation!`
-            }, ...prev]);
-
-            // Start with the first player
-            nextPlayerIndex = 0;
-            break;
-          }
-        }
-      }
-    }
-
-    setCurrentPlayerIndex(nextPlayerIndex);
-    setGamePhase('rolling');
+    // Send end turn request to server
+    socket.emit('endTurn', { roomId });
   };
 
+  // Reset processing flag when property landing state is cleared
+  React.useEffect(() => {
+    if (!propertyLandingState) {
+      isProcessingLanding.current = false;
+    }
+  }, [propertyLandingState]);
+
   const handleSettingsChange = (newSettings) => {
-    // Map 'auction' to 'allowAuction' for internal use
     setGameSettings(prev => ({
       ...prev,
       ...newSettings,
       allowAuction: newSettings.auction !== undefined ? newSettings.auction : prev.allowAuction
     }));
+    if (isHost && roomId) {
+      socket.emit('updateRoomSettings', { roomId, newSettings });
+    }
   };
 
   const handleMapPreviewOpen = () => {
@@ -1635,98 +1408,37 @@ const GamePage = () => {
 
   // Handle property purchase from horizontal buttons
   const handleBuyProperty = () => {
-    const { property, player } = propertyLandingState;
-
-    if (player.money >= property.price) {
-      // Update property ownership
-      setPropertyOwnership(prev => ({
-        ...prev,
-        [property.name]: {
-          owner: player.id,
-          ownerName: player.name,
-          ownerColor: player.color,
-          houses: 0,
-          hotel: false,
-          mortgaged: false
-        }
-      }));
-
-      // Deduct money from player
-      if (player.isBot) {
-        setBots(prev => prev.map(bot =>
-          bot.id === player.id
-            ? { ...bot, money: bot.money - property.price }
-            : bot
-        ));
-      } else {
-        setPlayers(prev => prev.map(p =>
-          p.id === player.id
-            ? { ...p, money: p.money - property.price }
-            : p
-        ));
-        if (player.id === currentPlayer?.id) {
-          setCurrentPlayer(prev => ({ ...prev, money: prev.money - property.price }));
-        }
-      }
-
-      // Log the purchase
-      handlePropertyPurchase(player.name, property.name, property.price);
-
-      // Clear property landing state
-      setPropertyLandingState(null);
-
-      // Check if last roll was doubles before ending turn
-      const wasDoubles = lastDiceRoll && lastDiceRoll.dice1 === lastDiceRoll.dice2;
-      if (wasDoubles) {
-        // Player gets another turn for rolling doubles
-        setGamePhase('rolling');
-      } else {
-        // Normal turn end
-        setGamePhase('turn-end');
-      }
+    if (propertyLandingState && propertyLandingState.isActive) {
+      // Removed: console.log(`[DEBUG] Emitting buyProperty for room: ${roomId}, socket connected: ${socket.connected}, socket.id: ${socket.id}`);
+      // Removed: console.log('[SOCKET INSTANCE BEFORE BUY]', socket, 'socket.id =', socket.id);
+      socket.emit('buyProperty', {
+        roomId,
+        propertyName: propertyLandingState.property.name,
+        price: propertyLandingState.price
+      });
+      // Removed: console.log('[SOCKET INSTANCE AFTER BUY]', socket, 'socket.id =', socket.id);
     }
-
-    // Reset processing flag
-    isProcessingLanding.current = false;
   };
 
   // Handle auction from horizontal buttons
   const handleAuctionProperty = () => {
-    if (!gameSettings.allowAuction) return;
-    const { property, player } = propertyLandingState;
-    setGameLog(prev => [{ id: generateLogId(), type: 'info', player: player.name, message: `started auction for ${property.name}` }, ...prev]);
-    startAuction(property, player);
+    if (propertyLandingState && propertyLandingState.isActive) {
+      socket.emit('auctionProperty', {
+        roomId,
+        propertyName: propertyLandingState.property.name
+      });
+      // Do NOT clear propertyLandingState here; let the board handle it after turn end
+    }
   };
 
   // Handle skipping to buy property
   const handleSkipProperty = () => {
-    const { property, player } = propertyLandingState;
-
-    setGameLog(prev => [{
-      id: generateLogId(),
-      type: 'info',
-      player: player.name,
-      message: `declined to buy ${property.name}`
-    }, ...prev]);
-
-    // Clear property landing state
-    setPropertyLandingState(null);
-
-    if (gameSettings.allowAuction) {
-      // Start auction and do not end turn yet
-      handleAuctionProperty();
-      // The auction logic should handle setting the game phase after auction ends
-      return;
-    }
-
-    // Check if last roll was doubles before ending turn
-    const wasDoubles = lastDiceRoll && lastDiceRoll.dice1 === lastDiceRoll.dice2;
-    if (wasDoubles) {
-      // Player gets another turn for rolling doubles
-      setGamePhase('rolling');
-    } else {
-      // Normal turn end
-      setGamePhase('turn-end');
+    if (propertyLandingState && propertyLandingState.isActive) {
+      socket.emit('skipProperty', {
+        roomId,
+        propertyName: propertyLandingState.property.name
+      });
+      // Do NOT clear propertyLandingState here; let the board handle it after turn end
     }
   };
 
@@ -2552,6 +2264,157 @@ const GamePage = () => {
     onEndTurn={handleEndTurn}
   />
 
+  const [messages, setMessages] = useState([]);
+  const [mapPreviewOpen, setMapPreviewOpen] = useState(false);
+  const [changeAppearanceOpen, setChangeAppearanceOpen] = useState(false);
+  const [mapFullPreviewOpen, setMapFullPreviewOpen] = useState(false);
+  const [previewingMap, setPreviewingMap] = useState('Classic');
+
+  const handleJoinGame = (selectedColor) => {
+    // If not in the room, join as a new player
+    if (!players.some(p => p.id === socket.id)) {
+      const playerName = playerNameFromNav || user?.name || 'Guest';
+      socket.emit('joinRoom', { roomId, playerName, color: selectedColor });
+    }
+  };
+
+  const updatePlayerColor = ({ roomId, color }) => {
+    const room = roomService.getRoomById(roomId);
+    if (!room) return;
+    const player = room.players.find(p => p.id === socket.id);
+    if (player) {
+      player.color = color;
+      io.to(roomId).emit('playerListUpdated', room.getPlayerList());
+    }
+  };
+
+  socket.on('updatePlayerColor', updatePlayerColor);
+
+  const { user } = useUser();
+
+  // Request current settings when joining the room or when playerJoined becomes true
+  useEffect(() => {
+    if (roomId && playerJoined) {
+      socket.emit('requestRoomSettings', { roomId });
+    }
+  }, [roomId, playerJoined]);
+
+  // --- Multiplayer game state sync ---
+
+  useEffect(() => {
+    socket.on('gameStateUpdated', (state) => {
+      setSyncedPositions(state.playerPositions || {});
+      setSyncedStatuses(state.playerStatuses || {});
+      setSyncedTurnIndex(state.turnIndex || 0);
+      setSyncedRound(state.roundNumber || 1);
+      setSyncedLastDiceRoll(state.lastDiceRoll || null);
+      setSyncedPlayerMoney(state.playerMoney || {});
+      setSyncedSpecialAction(state.specialAction || null);
+      setCurrentTurnSocketId(state.currentTurnSocketId || null);
+
+      // Set game phase to 'rolling' when game starts and it's the current player's turn
+      if (gameStarted && state.currentTurnSocketId === socket.id) {
+        setGamePhase('rolling');
+      }
+    });
+    return () => {
+      socket.off('gameStateUpdated');
+    };
+  }, [gameStarted, socket.id]);
+
+  // Helper: is it my turn?
+  const isMyTurn = socket.id === currentTurnSocketId;
+
+  // Update game phase when turn changes
+  useEffect(() => {
+    if (gameStarted && isMyTurn) {
+      setGamePhase('rolling');
+    }
+  }, [gameStarted, isMyTurn]);
+
+  // Handler for rolling dice (only if my turn)
+  const handleRollDiceMultiplayer = (...args) => {
+    // Emit rollDice event to server (required for animation to stop)
+    if (isMyTurn && gameStarted && playerJoined) {
+      const rollData = { roomId };
+      if (devDiceEnabled) {
+        rollData.devDice1 = devDice1;
+        rollData.devDice2 = devDice2;
+      }
+      socket.emit('rollDice', rollData);
+    }
+  };
+
+
+  <MonopolyBoard
+    gameStarted={gameStarted}
+    gameLog={gameLog}
+    onStartGame={handleStartGame}
+    players={allPlayers}
+    currentPlayerIndex={syncedTurnIndex}
+    onRollDice={handleRollDiceMultiplayer}
+    onEndTurn={handleEndTurn}
+    gamePhase={gamePhase}
+    onPlayerStatusChange={handlePlayerStatusChange}
+    propertyOwnership={propertyOwnership}
+    gameSettings={gameSettings}
+    playerJailCards={playerJailCards}
+    onPayJailFine={handlePayJailFine}
+    onUseJailCard={handleUseJailCard}
+    onJailExit={() => { }}
+    playerStatuses={syncedStatuses}
+    playerJailRounds={playerJailRounds}
+    playerMoveRequest={playerMoveRequest}
+    onPlayerMoveComplete={() => setPlayerMoveRequest(null)}
+    propertyLandingState={propertyLandingState}
+    onBuildHouse={handleBuildHouse}
+    onDestroyHouse={handleDestroyHouse}
+    onMortgageProperty={handleMortgageProperty}
+    onSellProperty={handleSellProperty}
+    devDiceEnabled={devDiceEnabled}
+    devDice1={devDice1}
+    devDice2={devDice2}
+    vacationCash={gameSettings.vacationCash ? vacationCash : 0}
+    isHost={isHost}
+    syncedPositions={syncedPositions}
+    syncedLastDiceRoll={syncedLastDiceRoll}
+    syncedPlayerMoney={syncedPlayerMoney}
+    syncedSpecialAction={syncedSpecialAction}
+    isMyTurn={isMyTurn}
+    roomId={roomId}
+    globalDiceRolling={globalDiceRolling}
+    onBuyProperty={handleBuyProperty}
+    onAuctionProperty={handleAuctionProperty}
+    onSkipProperty={handleSkipProperty}
+    onClearPropertyLandingState={() => {
+      setPropertyLandingState(null);
+      if (gamePhase !== 'rolling') setGamePhase('rolling');
+    }}
+  />
+
+
+  // --- Add this effect to clear propertyLandingState after purchase ---
+  React.useEffect(() => {
+    if (
+      propertyLandingState &&
+      propertyLandingState.isActive &&
+      propertyOwnership[propertyLandingState.property] &&
+      propertyOwnership[propertyLandingState.property].owner === currentPlayer?.id
+    ) {
+      setPropertyLandingState(null);
+    }
+  }, [propertyOwnership, propertyLandingState, currentPlayer]);
+
+
+  useEffect(() => {
+    if (!socket) return;
+    // ... existing code ...
+    socket.on('gameStateUpdated', (gameState) => {
+      // ... existing code ...
+    });
+    // ... existing code ...
+  }, [socket, roomId]);
+
   return (
     <Box sx={{
       height: '100dvh',
@@ -2621,13 +2484,15 @@ const GamePage = () => {
             messages={messages}
             onSendMessage={handleSendMessage}
             disabled={!playerJoined}
+            currentPlayer={currentPlayer}
           />
         </Box>
       </StyledSidebar>
 
       {/* Main Game Area */}
       <StyledMainArea>
-        {/* Always render the Monopoly Board */}        <Box sx={{
+        {/* Always render the Monopoly Board */}
+        <Box sx={{
           position: 'absolute',
           inset: 0,
           transition: 'all 0.5s ease',
@@ -2646,31 +2511,22 @@ const GamePage = () => {
             gameLog={gameLog}
             onStartGame={handleStartGame}
             players={allPlayers}
-            currentPlayerIndex={currentPlayerIndex}
-            onRollDice={handleRollDice}
+            currentPlayerIndex={syncedTurnIndex}
+            onRollDice={handleRollDiceMultiplayer}
             onEndTurn={handleEndTurn}
             gamePhase={gamePhase}
             onPlayerStatusChange={handlePlayerStatusChange}
-            onPropertyPurchase={handlePropertyPurchase}
-            onPropertyRent={handlePropertyRent}
-            onSpecialSpace={handleSpecialSpace}
-            onPlayerBankruptcy={handlePlayerBankruptcy}
-            onTradeCompletion={handleTradeCompletion}
-            onBotAction={handleBotAction}
             propertyOwnership={propertyOwnership}
             gameSettings={gameSettings}
             playerJailCards={playerJailCards}
             onPayJailFine={handlePayJailFine}
             onUseJailCard={handleUseJailCard}
-            onJailExit={() => { }} // Empty callback for now, animations handled internally
-            playerStatuses={playerStatuses}
+            onJailExit={() => { }}
+            playerStatuses={syncedStatuses}
             playerJailRounds={playerJailRounds}
             playerMoveRequest={playerMoveRequest}
             onPlayerMoveComplete={() => setPlayerMoveRequest(null)}
             propertyLandingState={propertyLandingState}
-            onBuyProperty={handleBuyProperty}
-            onAuctionProperty={handleAuctionProperty}
-            onSkipProperty={handleSkipProperty}
             onBuildHouse={handleBuildHouse}
             onDestroyHouse={handleDestroyHouse}
             onMortgageProperty={handleMortgageProperty}
@@ -2679,6 +2535,21 @@ const GamePage = () => {
             devDice1={devDice1}
             devDice2={devDice2}
             vacationCash={gameSettings.vacationCash ? vacationCash : 0}
+            isHost={isHost}
+            syncedPositions={syncedPositions}
+            syncedLastDiceRoll={syncedLastDiceRoll}
+            syncedPlayerMoney={syncedPlayerMoney}
+            syncedSpecialAction={syncedSpecialAction}
+            isMyTurn={isMyTurn}
+            roomId={roomId}
+            globalDiceRolling={globalDiceRolling}
+            onBuyProperty={handleBuyProperty}
+            onAuctionProperty={handleAuctionProperty}
+            onSkipProperty={handleSkipProperty}
+            onClearPropertyLandingState={() => {
+              setPropertyLandingState(null);
+              if (gamePhase !== 'rolling') setGamePhase('rolling');
+            }}
           />
         </Box>
 
@@ -2694,7 +2565,7 @@ const GamePage = () => {
           />
         )}
 
-        {/* Player Selection Overlay */}
+        {/* Only show PlayerSelection if the current socket id is not in the players list */}
         {!playerJoined && (
           <Box sx={{
             position: 'absolute',
@@ -2707,14 +2578,16 @@ const GamePage = () => {
             backdropFilter: 'blur(1px)'
           }}>
             <PlayerSelection
-              onJoinGame={handlePlayerJoin}
-              usedColors={allPlayers.map(p => p.color)}
+              key={players.map(p => p.color).join(',')}
+              onJoinGame={handleJoinGame}
+              usedColors={players.length === 0 ? [] : players.map(p => p.color).filter(Boolean)}
+              isChangingAppearance={false}
             />
           </Box>
         )}
 
         {/* Change Appearance Overlay */}
-        {changeAppearanceOpen && (
+        {changeAppearanceOpen && currentPlayer && (
           <Box sx={{
             position: 'absolute',
             inset: 0,
@@ -2729,7 +2602,7 @@ const GamePage = () => {
               onChangeAppearance={handleAppearanceUpdate}
               onClose={handleChangeAppearanceClose}
               currentPlayerColor={currentPlayer?.color}
-              usedColors={getUsedColors()}
+              usedColors={players.map(p => p.color)}
               isChangingAppearance={true}
             />
           </Box>
@@ -2938,7 +2811,6 @@ const GamePage = () => {
                         onClick={() => {
                           // You can add property click functionality here
                           // For example, open property details modal
-                          console.log('Property clicked:', prop.name);
                         }}
                         sx={{
                           px: 1,
@@ -3096,12 +2968,15 @@ const GamePage = () => {
               settings={gameSettings}
               onSettingsChange={handleSettingsChange}
               onMapPreviewOpen={handleMapPreviewOpen}
-              isHost={true}
-              players={players}
+              isHost={isHost}
+              players={allPlayers}
               maxPlayers={gameSettings.maxPlayers}
               gameStarted={gameStarted}
               playerJoined={playerJoined}
+              // Debug log
+              debugLog={(() => { return null; })()}
             />
+            {/* Removed Start Game Button and Waiting Message from sidebar */}
           </Box>
         )}
       </StyledSidebar>

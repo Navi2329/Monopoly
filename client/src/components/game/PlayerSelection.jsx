@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 const PlayerSelection = ({
   onJoinGame,
@@ -10,6 +10,15 @@ const PlayerSelection = ({
 }) => {
   const [selectedColor, setSelectedColor] = useState(currentPlayerColor || '#a3e635'); // Default lime green
   const [showExtendedColors, setShowExtendedColors] = useState(false);
+
+  // If the selected color becomes disabled, auto-select the first available color
+  useEffect(() => {
+    if (usedColors.includes(selectedColor)) {
+      const colorOptions = showExtendedColors ? extendedColorOptions : basicColorOptions;
+      const firstAvailable = colorOptions.find(opt => !usedColors.includes(opt.color));
+      if (firstAvailable) setSelectedColor(firstAvailable.color);
+    }
+  }, [usedColors]);
 
   const basicColorOptions = [
     { color: '#a3e635', name: 'Lime' },       // Row 1
@@ -52,6 +61,7 @@ const PlayerSelection = ({
   const colorOptions = showExtendedColors ? extendedColorOptions : basicColorOptions;
 
   const handleConfirm = () => {
+    if (isColorDisabled(selectedColor)) return;
     if (isChangingAppearance) {
       onChangeAppearance(selectedColor);
     } else {
@@ -60,11 +70,7 @@ const PlayerSelection = ({
   };
 
   const isColorDisabled = (color) => {
-    // Don't disable current player's color when changing appearance
-    if (isChangingAppearance && color === currentPlayerColor) {
-      return false;
-    }
-    // Disable colors used by other players/bots
+    // Always disable colors in usedColors, even for host
     return usedColors.includes(color);
   };
 
@@ -91,8 +97,8 @@ const PlayerSelection = ({
                 onClick={() => !disabled && setSelectedColor(option.color)}
                 disabled={disabled}
                 className={`relative w-16 h-16 rounded-full transition-all duration-300 focus:outline-none ${disabled
-                    ? 'opacity-40 cursor-not-allowed'
-                    : 'hover:scale-110 focus:ring-4 focus:ring-white/50 cursor-pointer'
+                  ? 'opacity-40 cursor-not-allowed'
+                  : 'hover:scale-110 focus:ring-4 focus:ring-white/50 cursor-pointer'
                   } ${selectedColor === option.color
                     ? 'scale-125 shadow-2xl ring-4 ring-white/60'
                     : 'shadow-lg hover:shadow-xl'
@@ -110,11 +116,13 @@ const PlayerSelection = ({
                 {selectedColor === option.color && !disabled && (
                   <div className="absolute inset-0 rounded-full border-3 border-white animate-pulse" />
                 )}
-                {disabled && (
-                  <div className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center">
-                    <span className="text-white text-xs">✕</span>
-                  </div>
-                )}
+                {disabled && (() => {
+                  return (
+                    <div className="absolute inset-0 rounded-full bg-black/60 flex items-center justify-center pointer-events-none">
+                      <span className="text-white text-2xl font-bold">✕</span>
+                    </div>
+                  );
+                })()}
               </button>
             );
           })}
@@ -141,7 +149,8 @@ const PlayerSelection = ({
         <div className="space-y-4">
           <button
             onClick={handleConfirm}
-            className="w-full bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white font-bold py-4 px-8 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-[1.02] text-lg backdrop-blur-sm border border-purple-500/30"
+            disabled={isColorDisabled(selectedColor)}
+            className={`w-full bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white font-bold py-4 px-8 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-[1.02] text-lg backdrop-blur-sm border border-purple-500/30 ${isColorDisabled(selectedColor) ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             {isChangingAppearance ? 'Update appearance' : 'Join game'}
           </button>
@@ -166,7 +175,7 @@ const PlayerSelection = ({
           </button>
         </div>
       </div>
-    </div>
+    </div >
   );
 };
 

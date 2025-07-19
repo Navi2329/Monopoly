@@ -1,7 +1,15 @@
 // server/server.js
+const express = require('express');
 const http = require('http');
-const app = require('./src/app');
+const cors = require('cors');
+const app = express();
 const socketManager = require('./src/socket/socketManager');
+
+// Enable CORS for all routes and allow frontend origin
+app.use(cors({
+    origin: 'http://localhost:5173',
+    credentials: true
+}));
 
 const server = http.createServer(app);
 
@@ -10,5 +18,4 @@ socketManager.init(server);
 
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
 });

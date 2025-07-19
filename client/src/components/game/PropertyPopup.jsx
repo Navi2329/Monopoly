@@ -360,8 +360,8 @@ const PropertyPopup = ({
             {/* Owner and Details at bottom */}
             <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', margin: '3px 0 0 0', padding: '3px 0 0 0', fontSize: 12 }}>
                 {ownership && (
-                    <div style={{ color: ownership.ownerColor || '#22d3ee', fontWeight: 600, marginBottom: 2 }}>
-                        Owner: {players?.find(p => p.id === ownership.owner)?.name || 'Unowned'}
+                    <div style={{ color: '#fbbf24', fontWeight: 'bold', marginBottom: 4 }}>
+                        Owner: {ownership.ownerName}
                     </div>
                 )}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', justifyContent: 'space-between' }}>
@@ -378,9 +378,11 @@ const PropertyPopup = ({
                 <button style={actionBtn(canDestroy)} disabled={!canDestroy} onClick={handleDestroyHouse} title="Destroy House">
                     <Delete sx={{ fontSize: 16, verticalAlign: 'middle', color: canDestroy ? '#fff' : '#a78bfa', opacity: canDestroy ? 1 : 0.5 }} />
                 </button>
-                <button style={actionBtn(canSell)} disabled={!canSell} onClick={handleSellProperty} title="Sell Property">
-                    <MonetizationOn sx={{ fontSize: 16, verticalAlign: 'middle', color: canSell ? '#fff' : '#a78bfa', opacity: canSell ? 1 : 0.5 }} />
-                </button>
+                {isOwner && canSell && (
+                    <button style={actionBtn(true)} onClick={handleSellProperty}>
+                        <Gavel sx={{ fontSize: 16, mr: 0.5 }} /> Sell Property
+                    </button>
+                )}
             </div>
         </div>
     );

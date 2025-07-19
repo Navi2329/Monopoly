@@ -59,6 +59,9 @@ const ShareGame = ({ gameUrl, devDiceEnabled, devDice1, devDice2, onDevDiceChang
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [toastOpen, setToastOpen] = useState(false);
 
+  // Extract room ID from the URL (assume /game/:roomId)
+  const roomId = gameUrl?.split('/').pop() || '';
+
   const showJoinToast = () => {
     setToastOpen(true);
   };
@@ -70,11 +73,11 @@ const ShareGame = ({ gameUrl, devDiceEnabled, devDice1, devDice2, onDevDiceChang
 
   const copyToClipboard = async () => {
     try {
-      await navigator.clipboard.writeText(gameUrl);
+      await navigator.clipboard.writeText(roomId);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      console.error('Failed to copy: ', err);
+      //
     }
   };
 
@@ -123,9 +126,9 @@ const ShareGame = ({ gameUrl, devDiceEnabled, devDice1, devDice2, onDevDiceChang
       {/* URL Input and Copy Button */}
       <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
         <TextField
-          value={shareUrl}
-          size="small"
           fullWidth
+          value={roomId}
+          size="small"
           InputProps={{
             readOnly: true,
             sx: {
@@ -523,88 +526,88 @@ const ShareGame = ({ gameUrl, devDiceEnabled, devDice1, devDice2, onDevDiceChang
               </Box>
             )}
 
-                         {/* Cash Sliders for Players */}
-             {players && players.length > 0 && (
-               <>
-                 <Typography variant="body2" sx={{ color: 'white', fontWeight: 500, mt: 4, mb: 2 }}>
-                   Player Cash
-                 </Typography>
-                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                   {players.map((player, index) => (
-                     <Box key={player.id} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
-                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: '120px' }}>
-                         <Box
-                           sx={{
-                             width: 20,
-                             height: 20,
-                             borderRadius: '50%',
-                             backgroundColor: player.color,
-                             border: '2px solid rgba(255, 255, 255, 0.3)',
-                             display: 'flex',
-                             alignItems: 'center',
-                             justifyContent: 'center',
-                             fontSize: '12px',
-                             fontWeight: 'bold',
-                             color: 'white',
-                             textShadow: '1px 1px 2px rgba(0,0,0,0.5)'
-                           }}
-                         >
-                           {player.name.charAt(0).toUpperCase()}
-                         </Box>
-                         <Typography variant="body2" sx={{ color: 'white', fontWeight: 500, fontSize: '13px' }}>
-                           {player.name}
-                         </Typography>
-                       </Box>
-                       <Slider
-                         value={player.money || 0}
-                         onChange={(event, newValue) => handlePlayerCashChange(player.id, newValue)}
-                         valueLabelDisplay="auto"
-                         min={0}
-                         max={10000}
-                         step={10}
-                         sx={{
-                           flex: 1,
-                           mx: 2,
-                           color: 'rgba(139, 92, 246, 0.8)',
-                           '& .MuiSlider-thumb': {
-                             '&:hover, &.Mui-focusVisible': {
-                               boxShadow: '0px 0px 0px 8px rgba(139, 92, 246, 0.16)',
-                             },
-                             '&.Mui-active': {
-                               boxShadow: '0px 0px 0px 14px rgba(139, 92, 246, 0.16)',
-                             },
-                           },
-                           '& .MuiSlider-track': {
-                             backgroundColor: 'rgba(139, 92, 246, 0.3)',
-                           },
-                           '& .MuiSlider-rail': {
-                             backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                           },
-                           '& .MuiSlider-valueLabel': {
-                             backgroundColor: 'rgba(139, 92, 246, 0.9)',
-                             color: 'white',
-                             fontSize: '12px',
-                             '&::before': {
-                               borderTop: '6px solid rgba(139, 92, 246, 0.9)',
-                               borderLeft: '6px solid transparent',
-                               borderRight: '6px solid transparent',
-                               content: '""',
-                               position: 'absolute',
-                               top: '50%',
-                               left: '50%',
-                               transform: 'translate(-50%, -50%)',
-                             },
-                           },
-                         }}
-                       />
-                       <Typography variant="body2" sx={{ color: 'white', fontWeight: 500, minWidth: '60px', textAlign: 'right' }}>
-                         ${player.money || 0}
-                       </Typography>
-                     </Box>
-                   ))}
-                 </Box>
-               </>
-             )}
+            {/* Cash Sliders for Players */}
+            {players && players.length > 0 && (
+              <>
+                <Typography variant="body2" sx={{ color: 'white', fontWeight: 500, mt: 4, mb: 2 }}>
+                  Player Cash
+                </Typography>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  {players.map((player, index) => (
+                    <Box key={player.id} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: '120px' }}>
+                        <Box
+                          sx={{
+                            width: 20,
+                            height: 20,
+                            borderRadius: '50%',
+                            backgroundColor: player.color,
+                            border: '2px solid rgba(255, 255, 255, 0.3)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '12px',
+                            fontWeight: 'bold',
+                            color: 'white',
+                            textShadow: '1px 1px 2px rgba(0,0,0,0.5)'
+                          }}
+                        >
+                          {player.name.charAt(0).toUpperCase()}
+                        </Box>
+                        <Typography variant="body2" sx={{ color: 'white', fontWeight: 500, fontSize: '13px' }}>
+                          {player.name}
+                        </Typography>
+                      </Box>
+                      <Slider
+                        value={player.money || 0}
+                        onChange={(event, newValue) => handlePlayerCashChange(player.id, newValue)}
+                        valueLabelDisplay="auto"
+                        min={0}
+                        max={10000}
+                        step={10}
+                        sx={{
+                          flex: 1,
+                          mx: 2,
+                          color: 'rgba(139, 92, 246, 0.8)',
+                          '& .MuiSlider-thumb': {
+                            '&:hover, &.Mui-focusVisible': {
+                              boxShadow: '0px 0px 0px 8px rgba(139, 92, 246, 0.16)',
+                            },
+                            '&.Mui-active': {
+                              boxShadow: '0px 0px 0px 14px rgba(139, 92, 246, 0.16)',
+                            },
+                          },
+                          '& .MuiSlider-track': {
+                            backgroundColor: 'rgba(139, 92, 246, 0.3)',
+                          },
+                          '& .MuiSlider-rail': {
+                            backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                          },
+                          '& .MuiSlider-valueLabel': {
+                            backgroundColor: 'rgba(139, 92, 246, 0.9)',
+                            color: 'white',
+                            fontSize: '12px',
+                            '&::before': {
+                              borderTop: '6px solid rgba(139, 92, 246, 0.9)',
+                              borderLeft: '6px solid transparent',
+                              borderRight: '6px solid transparent',
+                              content: '""',
+                              position: 'absolute',
+                              top: '50%',
+                              left: '50%',
+                              transform: 'translate(-50%, -50%)',
+                            },
+                          },
+                        }}
+                      />
+                      <Typography variant="body2" sx={{ color: 'white', fontWeight: 500, minWidth: '60px', textAlign: 'right' }}>
+                        ${player.money || 0}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Box>
+              </>
+            )}
           </CardContent>
         </StyledCard>
       </StyledModal>

@@ -108,7 +108,7 @@ const StyledInputContainer = styled(Box)(({ theme }) => ({
   alignItems: 'flex-end'
 }));
 
-const Chat = ({ messages, onSendMessage, disabled = false }) => {
+const Chat = ({ messages, onSendMessage, disabled = false, currentPlayer }) => {
   const [message, setMessage] = useState('');
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
@@ -133,7 +133,7 @@ const Chat = ({ messages, onSendMessage, disabled = false }) => {
   };
 
   const isOwnMessage = (sender) => {
-    return sender === 'You' || sender === 'GODWILDBEAST';
+    return sender === 'You' || sender === (currentPlayer?.name || '');
   };
 
   return (

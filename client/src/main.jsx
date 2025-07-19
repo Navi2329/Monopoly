@@ -82,16 +82,14 @@ const theme = createTheme({
 });
 
 ReactDOM.createRoot(document.getElementById('root')).render(
-  <React.StrictMode>
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <UserProvider>
-        <BrowserRouter> {/* Wrap App with BrowserRouter */}
-          <GoogleOAuthProvider clientId={googleClientId}>
-            <App />
-          </GoogleOAuthProvider>
-        </BrowserRouter>
-      </UserProvider>
-    </ThemeProvider>
-  </React.StrictMode>,
+  <ThemeProvider theme={theme}>
+    <CssBaseline />
+    <UserProvider>
+      <BrowserRouter> {/* Wrap App with BrowserRouter */}
+        <GoogleOAuthProvider clientId={googleClientId}>
+          <App />
+        </GoogleOAuthProvider>
+      </BrowserRouter>
+    </UserProvider>
+  </ThemeProvider>
 );

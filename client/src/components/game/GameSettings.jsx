@@ -106,16 +106,27 @@ const GameSettings = ({
     allowBots: false,
     onlyLoggedUsers: false,
     boardMap: 'Classic',
-    doubleRentFullSet: true,
-    vacationCash: true,
+    doubleRentFullSet: false,
+    vacationCash: false,
     auction: false,
     noRentInPrison: false,
-    mortgage: true,
-    evenBuild: true,
+    mortgage: false,
+    evenBuild: false,
     startingCash: 1500,
-    randomizePlayerOrder: true,
+    randomizePlayerOrder: false,
     ...settings
   });
+
+  useEffect(() => {
+    // Only update localSettings if settings prop changes and is different
+    if (settings && Object.keys(settings).length > 0) {
+      setLocalSettings(prev => {
+        // Only update if something actually changed
+        const changed = Object.keys(settings).some(key => prev[key] !== settings[key]);
+        return changed ? { ...prev, ...settings } : prev;
+      });
+    }
+  }, [settings]);
 
   const totalPlayers = players.length;
 
@@ -129,7 +140,12 @@ const GameSettings = ({
       return;
     }
 
-    const newSettings = { ...localSettings, [key]: value };
+    let newSettings = { ...localSettings, [key]: value };
+    // Ensure both doubleRentOnFullSet and doubleRentFullSet are always in sync
+    if (key === 'doubleRentOnFullSet' || key === 'doubleRentFullSet') {
+      newSettings.doubleRentOnFullSet = value;
+      newSettings.doubleRentFullSet = value;
+    }
     setLocalSettings(newSettings);
     onSettingsChange(newSettings);
   };
@@ -175,7 +191,7 @@ const GameSettings = ({
           </Box>
         </StyledSettingInfo>
         <StyledSelect
-          value={localSettings.maxPlayers}
+          value={localSettings.maxPlayers ?? 4}
           onChange={(e) => handleChange('maxPlayers', e.target.value)}
           disabled={isDisabled}
           size="small"
@@ -213,7 +229,7 @@ const GameSettings = ({
           </Box>
         </StyledSettingInfo>
         <StyledSwitch
-          checked={localSettings.privateRoom}
+          checked={!!localSettings.privateRoom}
           onChange={(e) => handleChange('privateRoom', e.target.checked)}
           disabled={isDisabled}
         />
@@ -235,7 +251,7 @@ const GameSettings = ({
           </Box>
         </StyledSettingInfo>
         <StyledSwitch
-          checked={localSettings.allowBots}
+          checked={!!localSettings.allowBots}
           onChange={(e) => handleChange('allowBots', e.target.checked)}
           disabled={isDisabled}
         />
@@ -257,7 +273,7 @@ const GameSettings = ({
           </Box>
         </StyledSettingInfo>
         <StyledSwitch
-          checked={localSettings.onlyLoggedUsers}
+          checked={!!localSettings.onlyLoggedUsers}
           onChange={(e) => handleChange('onlyLoggedUsers', e.target.checked)}
           disabled={isDisabled}
         />
@@ -280,7 +296,7 @@ const GameSettings = ({
         </StyledSettingInfo>
         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 0.5 }}>
           <Typography variant="body2" sx={{ color: 'white' }}>
-            {localSettings.boardMap}
+            {localSettings.boardMap ?? 'Classic'}
           </Typography>
           <Button
             variant="outlined"
@@ -340,7 +356,7 @@ const GameSettings = ({
           </Box>
         </StyledSettingInfo>
         <StyledSwitch
-          checked={localSettings.doubleRentOnFullSet}
+          checked={!!localSettings.doubleRentOnFullSet}
           onChange={(e) => handleChange('doubleRentOnFullSet', e.target.checked)}
           disabled={isDisabled}
         />
@@ -362,7 +378,7 @@ const GameSettings = ({
           </Box>
         </StyledSettingInfo>
         <StyledSwitch
-          checked={localSettings.vacationCash}
+          checked={!!localSettings.vacationCash}
           onChange={(e) => handleChange('vacationCash', e.target.checked)}
           disabled={isDisabled}
         />
@@ -384,7 +400,7 @@ const GameSettings = ({
           </Box>
         </StyledSettingInfo>
         <StyledSwitch
-          checked={localSettings.auction}
+          checked={!!localSettings.auction}
           onChange={(e) => handleChange('auction', e.target.checked)}
           disabled={isDisabled}
         />
@@ -406,7 +422,7 @@ const GameSettings = ({
           </Box>
         </StyledSettingInfo>
         <StyledSwitch
-          checked={localSettings.noRentInPrison}
+          checked={!!localSettings.noRentInPrison}
           onChange={(e) => handleChange('noRentInPrison', e.target.checked)}
           disabled={isDisabled}
         />
@@ -428,7 +444,7 @@ const GameSettings = ({
           </Box>
         </StyledSettingInfo>
         <StyledSwitch
-          checked={localSettings.mortgage}
+          checked={!!localSettings.mortgage}
           onChange={(e) => handleChange('mortgage', e.target.checked)}
           disabled={isDisabled}
         />
@@ -450,7 +466,7 @@ const GameSettings = ({
           </Box>
         </StyledSettingInfo>
         <StyledSwitch
-          checked={localSettings.evenBuild}
+          checked={!!localSettings.evenBuild}
           onChange={(e) => handleChange('evenBuild', e.target.checked)}
           disabled={isDisabled}
         />
@@ -472,7 +488,7 @@ const GameSettings = ({
           </Box>
         </StyledSettingInfo>
         <StyledSelect
-          value={localSettings.startingCash}
+          value={localSettings.startingCash ?? 1500}
           onChange={(e) => handleChange('startingCash', e.target.value)}
           disabled={isDisabled}
           size="small"
@@ -509,7 +525,7 @@ const GameSettings = ({
           </Box>
         </StyledSettingInfo>
         <StyledSwitch
-          checked={localSettings.randomizePlayerOrder}
+          checked={!!localSettings.randomizePlayerOrder}
           onChange={(e) => handleChange('randomizePlayerOrder', e.target.checked)}
           disabled={isDisabled}
         />

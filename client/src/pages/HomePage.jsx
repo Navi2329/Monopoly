@@ -6,7 +6,7 @@ import Lobby from '../components/lobby/Lobby';
 import Modal from '../components/common/Modal';
 import { FaTimes } from 'react-icons/fa';
 
-const HomePage = ({ onLoginSuccess, onCreatePrivateGame }) => {
+const HomePage = ({ onLoginSuccess, onCreatePrivateGame, onJoinGame }) => {
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const { user, logoutUser } = useUser();
 
@@ -29,6 +29,7 @@ const HomePage = ({ onLoginSuccess, onCreatePrivateGame }) => {
       <main className="min-h-screen flex flex-col justify-center items-center px-4">
         <Lobby
           onCreatePrivateGame={onCreatePrivateGame}
+          onJoinGame={onJoinGame}
         />
       </main>
 

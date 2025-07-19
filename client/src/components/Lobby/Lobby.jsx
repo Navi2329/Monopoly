@@ -27,11 +27,13 @@ const diceSpin = keyframes`
   100% { transform: rotate(360deg) scale(1); }
 `;
 
-const Lobby = ({ onCreatePrivateGame }) => {
+const Lobby = ({ onCreatePrivateGame, onJoinGame }) => {
   const [playerName, setPlayerName] = useState('');
   const [showDice, setShowDice] = useState(false);
   const [diceAnim, setDiceAnim] = useState(false);
   const [gameModesOpen, setGameModesOpen] = useState(false);
+  const [joinGameDialogOpen, setJoinGameDialogOpen] = useState(false);
+  const [joinRoomId, setJoinRoomId] = useState('');
   const { user } = useUser();
   const inputRef = useRef();
 
@@ -51,15 +53,32 @@ const Lobby = ({ onCreatePrivateGame }) => {
   };
 
   const handleGameModeSelect = (mode) => {
+    const finalName = user ? user.name : playerName;
+    if (!finalName || !finalName.trim()) {
+      alert('Please enter a name or log in to play.');
+      return;
+    }
     if (mode === 'private') {
-      const finalName = user ? user.name : playerName;
-      if (!finalName || !finalName.trim()) {
-        alert('Please enter a name or log in to play.');
-        return;
-      }
       setGameModesOpen(false);
       onCreatePrivateGame(finalName);
+    } else if (mode === 'join') {
+      setGameModesOpen(false);
+      setJoinGameDialogOpen(true);
     }
+  };
+
+  const handleJoinGame = () => {
+    if (!joinRoomId.trim()) {
+      alert('Please enter a Room ID.');
+      return;
+    }
+    const finalName = user ? user.name : playerName;
+    if (!finalName || !finalName.trim()) {
+      alert('Please enter a name or log in to play.');
+      return;
+    }
+    setJoinGameDialogOpen(false);
+    onJoinGame(finalName, joinRoomId.trim());
   };
 
   // Only show dice when input is hovered or focused
@@ -236,11 +255,7 @@ const Lobby = ({ onCreatePrivateGame }) => {
           }
         }}
       >
-        <DialogTitle sx={{ textAlign: 'center', color: 'white', borderBottom: '1px solid rgba(167, 139, 250, 0.2)', pb: 3 }}>
-          <Typography variant="h5" sx={{ fontWeight: 700, mb: 1 }}>
-            Select Game Mode
-          </Typography>
-        </DialogTitle>
+        <DialogTitle sx={{ textAlign: 'center', color: 'white', borderBottom: '1px solid rgba(167, 139, 250, 0.2)', pb: 3 }}>Select Game Mode</DialogTitle>
         <DialogContent sx={{ pt: 4, pb: 2 }}>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             {/* Private Mode */}
@@ -351,6 +366,39 @@ const Lobby = ({ onCreatePrivateGame }) => {
                 />
               </Box>
             </Button>
+
+            {/* Join Game Option */}
+            <Button
+              fullWidth
+              variant="outlined"
+              onClick={() => handleGameModeSelect('join')}
+              startIcon={<LockIcon />}
+              sx={{
+                py: 3,
+                borderColor: 'primary.main',
+                color: 'white',
+                '&:hover': {
+                  borderColor: 'primary.light',
+                  backgroundColor: 'rgba(167, 139, 250, 0.1)',
+                  transform: 'translateY(-2px)',
+                },
+                justifyContent: 'flex-start',
+                textTransform: 'none',
+                fontSize: '1.1rem',
+                borderRadius: 3,
+                borderWidth: '2px',
+                transition: 'all 0.2s ease-in-out'
+              }}
+            >
+              <Box sx={{ textAlign: 'left' }}>
+                <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.5 }}>
+                  Join Game
+                </Typography>
+                <Typography variant="body2" sx={{ opacity: 0.8 }}>
+                  Enter Room ID to join a game
+                </Typography>
+              </Box>
+            </Button>
           </Box>
         </DialogContent>
         <DialogActions sx={{ p: 3, pt: 1 }}>
@@ -366,6 +414,101 @@ const Lobby = ({ onCreatePrivateGame }) => {
             }}
           >
             Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Join Game Dialog */}
+      <Dialog
+        open={joinGameDialogOpen}
+        onClose={() => setJoinGameDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 4,
+            background: 'linear-gradient(135deg, rgba(50, 41, 74, 0.98) 0%, rgba(30, 19, 50, 0.98) 100%)',
+            border: '2px solid',
+            borderColor: 'rgba(167, 139, 250, 0.2)',
+            boxShadow: '0 24px 64px rgba(0, 0, 0, 0.5)',
+          }
+        }}
+      >
+        <DialogTitle sx={{ textAlign: 'center', color: 'white', borderBottom: '1px solid rgba(167, 139, 250, 0.2)', pb: 3 }}>Join Game</DialogTitle>
+        <DialogContent sx={{ pt: 4, pb: 2 }}>
+          <TextField
+            fullWidth
+            label="Room ID"
+            value={joinRoomId}
+            onChange={e => setJoinRoomId(e.target.value)}
+            variant="outlined"
+            size="large"
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                color: 'white',
+                fontSize: '1.2rem',
+                fontWeight: 500,
+                borderRadius: 2,
+                backgroundColor: 'rgba(255,255,255,0.04)',
+                '& fieldset': {
+                  borderColor: 'primary.main',
+                  borderWidth: '2px',
+                },
+                '&:hover fieldset': {
+                  borderColor: 'primary.light',
+                },
+                '&.Mui-focused fieldset': {
+                  borderColor: 'primary.main',
+                },
+                '& input': {
+                  textAlign: 'center',
+                },
+              },
+              input: {
+                textAlign: 'center',
+              },
+              '& .MuiInputBase-input': {
+                textAlign: 'center',
+              },
+              '& .MuiInputBase-input::placeholder': {
+                textAlign: 'center',
+                width: '100%',
+                display: 'block',
+              },
+            }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ p: 3, pt: 1 }}>
+          <Button
+            onClick={() => setJoinGameDialogOpen(false)}
+            startIcon={<CloseIcon />}
+            sx={{
+              color: 'rgba(255, 255, 255, 0.7)',
+              fontWeight: 600,
+              '&:hover': {
+                color: 'white',
+              }
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleJoinGame}
+            variant="contained"
+            startIcon={<LockIcon />}
+            sx={{
+              background: 'linear-gradient(135deg, #a78bfa 0%, #c084fc 100%)',
+              '&:hover': {
+                background: 'linear-gradient(135deg, #c084fc 0%, #a78bfa 100%)',
+              },
+              borderRadius: 3,
+              fontWeight: 700,
+              fontSize: '1.1rem',
+              textTransform: 'none',
+              boxShadow: '0 4px 16px rgba(167, 139, 250, 0.15)',
+            }}
+          >
+            Join
           </Button>
         </DialogActions>
       </Dialog>
