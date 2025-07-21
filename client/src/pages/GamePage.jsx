@@ -48,7 +48,7 @@ import socket from '../socket';
 // Add global socket event logger (only once)
 if (!window.__SOCKET_EVENT_LOGGER_ADDED__) {
   socket.onAny((event, ...args) => {
-    // Removed: console.log('[SOCKET EVENT]', event, ...args);
+    // console.log('[SOCKET EVENT]', event, ...args);
   });
   window.__SOCKET_EVENT_LOGGER_ADDED__ = true;
 }
@@ -124,7 +124,7 @@ const GamePage = () => {
   const playerNameFromNav = location.state?.playerName;
 
   // Log socket id and roomId for debugging
-  // Removed: console.log('[CLIENT] GamePage mount: socket.id =', socket.id || 'unknown', 'roomId =', roomId);
+  // console.log('[CLIENT] GamePage mount: socket.id =', socket.id || 'unknown', 'roomId =', roomId);
 
   // Track the current room and player name globally for reconnect logic
   window.currentRoomId = roomId;
@@ -132,7 +132,7 @@ const GamePage = () => {
 
   useEffect(() => {
     function handleConnect() {
-      // Removed: console.log('[CLIENT] Socket connected:', socket.id, 'roomId:', roomId);
+      // console.log('[CLIENT] Socket connected:', socket.id, 'roomId:', roomId);
     }
     socket.on('connect', handleConnect);
     return () => {
@@ -169,6 +169,95 @@ const GamePage = () => {
 
   const prevPropertyOwnershipRef = useRef({});
 
+  // Move onGameStateUpdated outside useEffect for stable reference
+  const onGameStateUpdated = React.useCallback((gameState) => {
+    // Debug: Log received game state
+    console.log('[DEBUG] [CLIENT] Received gameStateUpdated:', {
+      propertyOwnership: gameState.propertyOwnership,
+      playerMoney: gameState.playerMoney
+    });
+    if (gameState.playerStatuses) {
+      // console.log('[CLIENT] Player statuses:', JSON.stringify(gameState.playerStatuses));
+    }
+    setPlayerPositions(gameState.playerPositions || {});
+    setSyncedPositions(gameState.playerPositions || {});
+    setSyncedLastDiceRoll(gameState.lastDiceRoll);
+    setSyncedPlayerMoney(gameState.playerMoney || {});
+    setSyncedSpecialAction(gameState.specialAction || null);
+    setPlayerStatuses(gameState.playerStatuses || {});
+    setSyncedStatuses(gameState.playerStatuses || {});
+    setCurrentPlayerIndex(gameState.turnIndex || 0);
+    setSyncedTurnIndex(gameState.turnIndex || 0);
+    setSyncedRound(gameState.roundNumber || 1);
+    setPlayerJailCards(gameState.playerJailCards || {});
+    setPlayerJailRounds(gameState.playerJailRounds || {});
+    setVacationCash(gameState.vacationCash || 0);
+    setCurrentTurnSocketId(gameState.currentTurnSocketId || null);
+    setSyncedPropertyOwnership(gameState.propertyOwnership || {});
+
+    // Update player money
+    if (gameState.playerMoney) {
+      setPlayers(prev => prev.map(player => ({
+        ...player,
+        money: gameState.playerMoney[player.id] || player.money
+      })));
+    }
+
+    // Detect if the current player just bought a property (compare with previous)
+    let justBoughtProperty = false;
+    const prevPropertyOwnership = prevPropertyOwnershipRef.current;
+    if (gameState.propertyOwnership) {
+      const boughtProperty = Object.entries(gameState.propertyOwnership).find(
+        ([name, details]) =>
+          details.owner === socket.id &&
+          (!prevPropertyOwnership[name] || prevPropertyOwnership[name].owner !== socket.id)
+      );
+      if (boughtProperty) {
+        justBoughtProperty = true;
+      }
+    }
+
+    // Set game phase
+    const mySocketId = socket.id;
+    const isMyTurn = gameState.currentTurnSocketId === mySocketId;
+
+    if (justBoughtProperty) {
+      setGamePhase('turn-end');
+    } else if (isMyTurn) {
+      setGamePhase('rolling');
+    } else {
+      setGamePhase('waiting');
+    }
+
+    // Update property ownership and ref
+    prevPropertyOwnershipRef.current = gameState.propertyOwnership || {};
+
+    // After updating propertyOwnership:
+    if (gameState.propertyOwnership) {
+      const boughtProperty = Object.entries(gameState.propertyOwnership).find(
+        ([name, details]) => details.owner === socket.id && (!prevPropertyOwnership[name] || prevPropertyOwnership[name].owner !== socket.id)
+      );
+      if (boughtProperty) {
+        const [propertyName, details] = boughtProperty;
+        if (gameState.playerMoney && gameState.playerMoney[socket.id] >= 0 && details) {
+          // console.log('[CLIENT] Property bought:', { propertyName, details, playerId: socket.id });
+        }
+      }
+    }
+
+    // Log property purchases for all clients
+    if (gameState.propertyOwnership && typeof gameState.propertyOwnership === 'object') {
+      Object.entries(gameState.propertyOwnership).forEach(([property, details]) => {
+        if (
+          (!prevPropertyOwnership[property] || prevPropertyOwnership[property].owner !== details.owner) &&
+          details.ownerName
+        ) {
+          // console.log(`Property ${property} has been bought by ${details.ownerName}`);
+        }
+      });
+    }
+  }, []); // No dependencies, stable reference
+
   useEffect(() => {
     if (roomId) {
       socket.emit('requestPlayerList', { roomId });
@@ -197,90 +286,14 @@ const GamePage = () => {
     // Listen for game started
     socket.on('gameStarted', () => {
       setGameStarted(true);
-      setGameLog(prev => [{ id: Date.now(), type: 'info', message: 'Game started!' }, ...prev]);
       // Set gamePhase to 'rolling' immediately - will be updated when we get the game state
       setGamePhase('rolling');
     });
     // Listen for game state updates from server
-    const onGameStateUpdated = (gameState) => {
-      // Removed: console.log('[CLIENT] Received gameStateUpdated:', gameState);
-      setPlayerPositions(gameState.playerPositions || {});
-      setSyncedLastDiceRoll(gameState.lastDiceRoll);
-      setPlayerStatuses(gameState.playerStatuses || {});
-      setCurrentPlayerIndex(gameState.turnIndex || 0);
-      setPlayerJailCards(gameState.playerJailCards || {});
-      setPlayerJailRounds(gameState.playerJailRounds || {});
-      setVacationCash(gameState.vacationCash || 0);
-
-      // Update player money
-      if (gameState.playerMoney) {
-        setPlayers(prev => prev.map(player => ({
-          ...player,
-          money: gameState.playerMoney[player.id] || player.money
-        })));
-      }
-
-      // Detect if the current player just bought a property (compare with previous)
-      let justBoughtProperty = false;
-      const prevPropertyOwnership = prevPropertyOwnershipRef.current;
-      if (gameState.propertyOwnership) {
-        const boughtProperty = Object.entries(gameState.propertyOwnership).find(
-          ([name, details]) =>
-            details.owner === socket.id &&
-            (!prevPropertyOwnership[name] || prevPropertyOwnership[name].owner !== socket.id)
-        );
-        if (boughtProperty) {
-          justBoughtProperty = true;
-        }
-      }
-
-      // Set game phase
-      const mySocketId = socket.id;
-      const isMyTurn = gameState.currentTurnSocketId === mySocketId;
-
-      if (justBoughtProperty) {
-        setGamePhase('turn-end');
-      } else if (isMyTurn) {
-        setGamePhase('rolling');
-      } else {
-        setGamePhase('waiting');
-      }
-
-      // Update property ownership and ref
-      setPropertyOwnership(() => {
-        prevPropertyOwnershipRef.current = gameState.propertyOwnership || {};
-        return gameState.propertyOwnership || {};
-      });
-
-      // After updating propertyOwnership:
-      if (gameState.propertyOwnership) {
-        const boughtProperty = Object.entries(gameState.propertyOwnership).find(
-          ([name, details]) => details.owner === socket.id && (!prevPropertyOwnership[name] || prevPropertyOwnership[name].owner !== socket.id)
-        );
-        if (boughtProperty) {
-          const [propertyName, details] = boughtProperty;
-          if (gameState.playerMoney && gameState.playerMoney[socket.id] >= 0 && details) {
-            // Removed: console.log('[CLIENT] Property bought:', { propertyName, details, playerId: socket.id });
-          }
-        }
-      }
-
-      // Log property purchases for all clients
-      if (gameState.propertyOwnership && typeof gameState.propertyOwnership === 'object') {
-        Object.entries(gameState.propertyOwnership).forEach(([property, details]) => {
-          if (
-            (!prevPropertyOwnership[property] || prevPropertyOwnership[property].owner !== details.owner) &&
-            details.ownerName
-          ) {
-            // Removed: console.log(`Property ${property} has been bought by ${details.ownerName}`);
-          }
-        });
-      }
-    };
     socket.on('gameStateUpdated', onGameStateUpdated);
     // Listen for game log updates from backend
     socket.on('gameLogUpdated', (logEntry) => {
-      // Removed: console.log('[CLIENT] Received gameLogUpdated:', logEntry);
+      // console.log('[CLIENT] Received gameLogUpdated:', logEntry);
       setGameLog(prev => [{ id: Date.now(), ...logEntry }, ...prev]);
     });
     // Listen for full game log from backend
@@ -294,7 +307,7 @@ const GamePage = () => {
     });
     // Listen for property landing events from server
     socket.on('propertyLanding', (landingData) => {
-      console.log('[DEBUG] Received propertyLanding event:', landingData);
+      // console.log('[DEBUG] Received propertyLanding event:', landingData);
       // Find the player object by id if provided, else fallback to currentPlayer
       let playerObj = currentPlayer;
       if (landingData.playerId) {
@@ -304,7 +317,7 @@ const GamePage = () => {
       // Get the property object from classicMap
       const property = classicMap.find(p => p.name === landingData.propertyName);
       if (!property) {
-        console.log('[DEBUG] Property not found in classicMap:', landingData.propertyName);
+        // console.log('[DEBUG] Property not found in classicMap:', landingData.propertyName);
         return;
       }
 
@@ -337,17 +350,15 @@ const GamePage = () => {
       socket.off('playerList');
       socket.off('roomSettingsUpdated');
       socket.off('gameStarted');
-      socket.off('gameStateUpdated');
+      socket.off('gameStateUpdated', onGameStateUpdated);
       socket.off('gameLogUpdated');
       socket.off('fullGameLog');
       socket.off('colorTakenError');
       socket.off('propertyLanding');
       socket.off('purchaseError');
       socket.off('diceRollingStarted');
-      socket.off('gameStateUpdated', onGameStateUpdated);
     };
-  }, []);
-
+  }, [roomId, onGameStateUpdated]);
 
   // Player states
   const [playerStatuses, setPlayerStatuses] = useState({}); // { playerId: { status: 'jail' | 'vacation', vacationStartRound?: number } }
@@ -380,7 +391,6 @@ const GamePage = () => {
   };
 
   // Property ownership and landing
-  const [propertyOwnership, setPropertyOwnership] = useState({}); // { propertyName: { owner: playerId, ownerName: string, ownerColor: string, houses: number, hotel: boolean, mortgaged: boolean } }
   const [propertyLandingState, setPropertyLandingState] = useState(null); // { property, player, isActive } - null when no property landing
 
   // State to handle player move requests from GamePage to MonopolyBoard
@@ -658,20 +668,20 @@ const GamePage = () => {
 
   // Handle property landing
   const handlePropertyLanding = (playerIndex, spaceIndex) => {
-    console.log('[DEBUG] handlePropertyLanding called with playerIndex:', playerIndex, 'spaceIndex:', spaceIndex);
+    // console.log('[DEBUG] handlePropertyLanding called with playerIndex:', playerIndex, 'spaceIndex:', spaceIndex);
     const currentPlayer = allPlayers[playerIndex];
 
     if (!currentPlayer) {
-      console.log('[DEBUG] No current player found');
+      // console.log('[DEBUG] No current player found');
       return;
     }
 
     // Prevent duplicate processing
     if (isProcessingLanding.current) {
-      console.log('[DEBUG] Already processing landing, skipping');
+      // console.log('[DEBUG] Already processing landing, skipping');
       return;
     }
-    console.log('[DEBUG] Setting isProcessingLanding to true');
+    // console.log('[DEBUG] Setting isProcessingLanding to true');
     isProcessingLanding.current = true;
 
     // Safety timeout to reset flag
@@ -784,7 +794,7 @@ const GamePage = () => {
     }
 
     // Check if property is already owned
-    const ownership = propertyOwnership[property.name];
+    const ownership = syncedPropertyOwnership[property.name];
 
     if (ownership && ownership.owner !== currentPlayer.id) {
       // Property is owned by someone else - pay rent
@@ -813,14 +823,14 @@ const GamePage = () => {
         }
       } else if (property.type === 'airport' && property.rent && Array.isArray(property.rent)) {
         // Airport rent based on number of airports owned by the same player
-        const ownerAirports = Object.values(propertyOwnership).filter(
+        const ownerAirports = Object.values(syncedPropertyOwnership).filter(
           p => p.owner === ownership.owner && classicMap.find(prop => prop.name === p.name)?.type === 'airport'
         ).length;
         const rentIndex = Math.min(ownerAirports - 1, 3); // 0-3 index for 1-4 airports
         rentAmount = property.rent[rentIndex] || property.rent[0]; // Use base rent as fallback
       } else if (property.type === 'company' && property.rent && Array.isArray(property.rent)) {
         // Company rent based on number of companies owned by the same player
-        const ownerCompanies = Object.values(propertyOwnership).filter(
+        const ownerCompanies = Object.values(syncedPropertyOwnership).filter(
           p => p.owner === ownership.owner && classicMap.find(prop => prop.name === p.name)?.type === 'company'
         ).length;
         const multiplier = property.rent[Math.min(ownerCompanies - 1, 1)] || property.rent[0]; // 0-1 index for 1-2 companies
@@ -835,7 +845,7 @@ const GamePage = () => {
       // Apply double rent if owner has full set and setting is enabled
       if (gameSettings.doubleRentOnFullSet && property.type === 'property') {
         const setProperties = classicMap.filter(p => p.set === property.set && p.type === 'property');
-        const ownedFullSet = setProperties.every(p => propertyOwnership[p.name] && propertyOwnership[p.name].owner === ownership.owner);
+        const ownedFullSet = setProperties.every(p => syncedPropertyOwnership[p.name] && syncedPropertyOwnership[p.name].owner === ownership.owner);
         if (ownedFullSet) {
           rentAmount *= 2;
         }
@@ -876,14 +886,14 @@ const GamePage = () => {
         // Human player - show purchase options as horizontal buttons
         // Only set property landing state if it's not already set for this property
         if (!propertyLandingState || propertyLandingState.property.name !== property.name) {
-          console.log('[DEBUG] Setting propertyLandingState for property:', property.name);
+          // console.log('[DEBUG] Setting propertyLandingState for property:', property.name);
           setPropertyLandingState({
             property: property,
             player: currentPlayer,
             isActive: true
           });
         } else {
-          console.log('[DEBUG] Property landing state already set for property:', property.name);
+          // console.log('[DEBUG] Property landing state already set for property:', property.name);
         }
       }
     }
@@ -893,7 +903,7 @@ const GamePage = () => {
   // Handle bot property purchase
   const handleBotPropertyPurchase = (bot, property) => {
     // Update property ownership
-    setPropertyOwnership(prev => ({
+    setSyncedPropertyOwnership(prev => ({
       ...prev,
       [property.name]: {
         owner: bot.id,
@@ -1158,6 +1168,8 @@ const GamePage = () => {
         return newStatuses;
       });
 
+      setLastDiceRoll(null); // <-- Clear dice after vacation
+
       // End turn immediately after setting vacation status
       setTimeout(() => {
         handleEndTurn(true, { [currentPlayer.id]: { status: 'vacation', vacationStartRound: roundNumber } });
@@ -1246,10 +1258,10 @@ const GamePage = () => {
 
     // Check if player landed on a purchasable property
     if (landedSpaceIndex !== undefined && !specialAction) {
-      console.log('[DEBUG] Calling handlePropertyLanding for spaceIndex:', landedSpaceIndex);
+      // console.log('[DEBUG] Calling handlePropertyLanding for spaceIndex:', landedSpaceIndex);
       handlePropertyLanding(currentPlayerIndex, landedSpaceIndex);
     } else {
-      console.log('[DEBUG] Not calling handlePropertyLanding - landedSpaceIndex:', landedSpaceIndex, 'specialAction:', specialAction);
+      // console.log('[DEBUG] Not calling handlePropertyLanding - landedSpaceIndex:', landedSpaceIndex, 'specialAction:', specialAction);
     }
 
     // Handle doubles logic
@@ -1409,14 +1421,14 @@ const GamePage = () => {
   // Handle property purchase from horizontal buttons
   const handleBuyProperty = () => {
     if (propertyLandingState && propertyLandingState.isActive) {
-      // Removed: console.log(`[DEBUG] Emitting buyProperty for room: ${roomId}, socket connected: ${socket.connected}, socket.id: ${socket.id}`);
-      // Removed: console.log('[SOCKET INSTANCE BEFORE BUY]', socket, 'socket.id =', socket.id);
+      // console.log(`[DEBUG] Emitting buyProperty for room: ${roomId}, socket connected: ${socket.connected}, socket.id: ${socket.id}`);
+      // console.log('[SOCKET INSTANCE BEFORE BUY]', socket, 'socket.id =', socket.id);
       socket.emit('buyProperty', {
         roomId,
         propertyName: propertyLandingState.property.name,
         price: propertyLandingState.price
       });
-      // Removed: console.log('[SOCKET INSTANCE AFTER BUY]', socket, 'socket.id =', socket.id);
+      // console.log('[SOCKET INSTANCE AFTER BUY]', socket, 'socket.id =', socket.id);
     }
   };
 
@@ -1450,13 +1462,13 @@ const GamePage = () => {
     const property = classicMap.find(p => p.name === propertyName);
     if (!property || property.type !== 'property') return;
 
-    const ownership = propertyOwnership[propertyName];
+    const ownership = syncedPropertyOwnership[propertyName];
     if (!ownership || ownership.owner !== currentPlayer.id) return;
 
     // Check if player can build (owns full set, no mortgaged properties in set, has money)
     const setProperties = classicMap.filter(p => p.set === property.set && p.type === 'property');
-    const ownedSet = setProperties.every(p => propertyOwnership[p.name] && propertyOwnership[p.name].owner === currentPlayer.id);
-    const anyMortgaged = setProperties.some(p => propertyOwnership[p.name]?.mortgaged);
+    const ownedSet = setProperties.every(p => syncedPropertyOwnership[p.name] && syncedPropertyOwnership[p.name].owner === currentPlayer.id);
+    const anyMortgaged = setProperties.some(p => syncedPropertyOwnership[p.name]?.mortgaged);
 
     if (!ownedSet || anyMortgaged) {
       setGameLog(prev => [{
@@ -1475,8 +1487,8 @@ const GamePage = () => {
     if (gameSettings.evenBuild) {
       // For even build calculation, treat hotels as 4 houses
       const setHouseCounts = setProperties.map(p => {
-        const propHouses = propertyOwnership[p.name]?.houses || 0;
-        const propHotel = propertyOwnership[p.name]?.hotel || false;
+        const propHouses = syncedPropertyOwnership[p.name]?.houses || 0;
+        const propHotel = syncedPropertyOwnership[p.name]?.hotel || false;
         return propHotel ? 4 : propHouses;
       });
       const minHouses = Math.min(...setHouseCounts);
@@ -1512,8 +1524,8 @@ const GamePage = () => {
       if (gameSettings.evenBuild) {
         // For hotels, we need to check if all properties have either 4 houses or a hotel
         const allReadyForHotel = setProperties.every(p => {
-          const propHouses = propertyOwnership[p.name]?.houses || 0;
-          const propHotel = propertyOwnership[p.name]?.hotel || false;
+          const propHouses = syncedPropertyOwnership[p.name]?.houses || 0;
+          const propHotel = syncedPropertyOwnership[p.name]?.hotel || false;
           return propHouses >= 4 || propHotel;
         });
         if (!allReadyForHotel) {
@@ -1539,7 +1551,7 @@ const GamePage = () => {
       }
 
       // Update property ownership
-      setPropertyOwnership(prev => ({
+      setSyncedPropertyOwnership(prev => ({
         ...prev,
         [propertyName]: {
           ...prev[propertyName],
@@ -1585,7 +1597,7 @@ const GamePage = () => {
       }
 
       // Update property ownership
-      setPropertyOwnership(prev => ({
+      setSyncedPropertyOwnership(prev => ({
         ...prev,
         [propertyName]: {
           ...prev[propertyName],
@@ -1627,7 +1639,7 @@ const GamePage = () => {
     const property = classicMap.find(p => p.name === propertyName);
     if (!property || property.type !== 'property') return;
 
-    const ownership = propertyOwnership[propertyName];
+    const ownership = syncedPropertyOwnership[propertyName];
     if (!ownership || ownership.owner !== currentPlayer.id) return;
 
     const currentHouses = ownership.houses || 0;
@@ -1646,7 +1658,7 @@ const GamePage = () => {
     // Check if houses are destroyed evenly across the set (only if even build rule is enabled)
     if (gameSettings.evenBuild && !hasHotel) {
       const setProperties = classicMap.filter(p => p.set === property.set && p.type === 'property');
-      const setHouses = setProperties.map(p => propertyOwnership[p.name]?.houses || 0);
+      const setHouses = setProperties.map(p => syncedPropertyOwnership[p.name]?.houses || 0);
       const maxHouses = Math.max(...setHouses);
 
       // Can only destroy from properties that have the maximum number of houses
@@ -1665,7 +1677,7 @@ const GamePage = () => {
       // Check if all properties in the set have hotels before destroying (only if even build is enabled)
       if (gameSettings.evenBuild) {
         const setProperties = classicMap.filter(p => p.set === property.set && p.type === 'property');
-        const allHaveHotels = setProperties.every(p => propertyOwnership[p.name]?.hotel);
+        const allHaveHotels = setProperties.every(p => syncedPropertyOwnership[p.name]?.hotel);
         if (!allHaveHotels) {
           setGameLog(prev => [{
             id: generateLogId(),
@@ -1680,7 +1692,7 @@ const GamePage = () => {
       // Destroy hotel and get 4 houses back
       const refundAmount = property.hotelCost / 2; // Half price when selling back
 
-      setPropertyOwnership(prev => ({
+      setSyncedPropertyOwnership(prev => ({
         ...prev,
         [propertyName]: {
           ...prev[propertyName],
@@ -1717,7 +1729,7 @@ const GamePage = () => {
       // Destroy house
       const refundAmount = property.buildCost / 2; // Half price when selling back
 
-      setPropertyOwnership(prev => ({
+      setSyncedPropertyOwnership(prev => ({
         ...prev,
         [propertyName]: {
           ...prev[propertyName],
@@ -1759,13 +1771,13 @@ const GamePage = () => {
     const property = classicMap.find(p => p.name === propertyName);
     if (!property) return;
 
-    const ownership = propertyOwnership[propertyName];
+    const ownership = syncedPropertyOwnership[propertyName];
     if (!ownership || ownership.owner !== currentPlayer.id) return;
 
     // Check if property can be mortgaged/unmortgaged
     if (property.type === 'property') {
       const setProperties = classicMap.filter(p => p.set === property.set && p.type === 'property');
-      const anyHousesOrHotels = setProperties.some(p => propertyOwnership[p.name]?.houses > 0 || propertyOwnership[p.name]?.hotel);
+      const anyHousesOrHotels = setProperties.some(p => syncedPropertyOwnership[p.name]?.houses > 0 || syncedPropertyOwnership[p.name]?.hotel);
       const currentHouses = ownership.houses || 0;
       const hasHotel = ownership.hotel || false;
 
@@ -1798,7 +1810,7 @@ const GamePage = () => {
       // Mortgage property
       const mortgageAmount = property.price / 2;
 
-      setPropertyOwnership(prev => ({
+      setSyncedPropertyOwnership(prev => ({
         ...prev,
         [propertyName]: {
           ...prev[propertyName],
@@ -1844,7 +1856,7 @@ const GamePage = () => {
         return;
       }
 
-      setPropertyOwnership(prev => ({
+      setSyncedPropertyOwnership(prev => ({
         ...prev,
         [propertyName]: {
           ...prev[propertyName],
@@ -1886,13 +1898,13 @@ const GamePage = () => {
     const property = classicMap.find(p => p.name === propertyName);
     if (!property) return;
 
-    const ownership = propertyOwnership[propertyName];
+    const ownership = syncedPropertyOwnership[propertyName];
     if (!ownership || ownership.owner !== currentPlayer.id) return;
 
     // Check if property can be sold (no houses/hotels, not mortgaged)
     if (property.type === 'property') {
       const setProperties = classicMap.filter(p => p.set === property.set && p.type === 'property');
-      const anyHousesOrHotels = setProperties.some(p => propertyOwnership[p.name]?.houses > 0 || propertyOwnership[p.name]?.hotel);
+      const anyHousesOrHotels = setProperties.some(p => syncedPropertyOwnership[p.name]?.houses > 0 || syncedPropertyOwnership[p.name]?.hotel);
 
       if (anyHousesOrHotels) {
         setGameLog(prev => [{
@@ -1919,7 +1931,7 @@ const GamePage = () => {
     const sellAmount = property.price / 2; // Half price when selling back
 
     // Remove property ownership
-    setPropertyOwnership(prev => {
+    setSyncedPropertyOwnership(prev => {
       const newOwnership = { ...prev };
       delete newOwnership[propertyName];
       return newOwnership;
@@ -2014,7 +2026,7 @@ const GamePage = () => {
 
     // Get property details for better logging
     const property = classicMap.find(p => p.name === propertyName);
-    const ownership = propertyOwnership[propertyName];
+    const ownership = syncedPropertyOwnership[propertyName];
     let rentDetails = '';
 
     if (property && ownership) {
@@ -2032,18 +2044,18 @@ const GamePage = () => {
         // Add double rent indicator if applicable
         if (gameSettings.doubleRentOnFullSet) {
           const setProperties = classicMap.filter(p => p.set === property.set && p.type === 'property');
-          const ownedFullSet = setProperties.every(p => propertyOwnership[p.name] && propertyOwnership[p.name].owner === ownership.owner);
+          const ownedFullSet = setProperties.every(p => syncedPropertyOwnership[p.name] && syncedPropertyOwnership[p.name].owner === ownership.owner);
           if (ownedFullSet) {
             rentDetails += ` (double rent - full set)`;
           }
         }
       } else if (property.type === 'airport') {
-        const ownerAirports = Object.values(propertyOwnership).filter(
+        const ownerAirports = Object.values(syncedPropertyOwnership).filter(
           p => p.owner === ownership.owner && classicMap.find(prop => prop.name === p.name)?.type === 'airport'
         ).length;
         rentDetails = ` (${ownerAirports} airport${ownerAirports > 1 ? 's' : ''} owned)`;
       } else if (property.type === 'company') {
-        const ownerCompanies = Object.values(propertyOwnership).filter(
+        const ownerCompanies = Object.values(syncedPropertyOwnership).filter(
           p => p.owner === ownership.owner && classicMap.find(prop => prop.name === p.name)?.type === 'company'
         ).length;
         const diceTotal = lastDiceRoll ? lastDiceRoll.dice1 + lastDiceRoll.dice2 : 7;
@@ -2216,7 +2228,7 @@ const GamePage = () => {
     }
     setAuctionWinner({ ...winner, amount: auctionCurrentBid });
     // Deduct money and assign property
-    setPropertyOwnership(prev => ({
+    setSyncedPropertyOwnership(prev => ({
       ...prev,
       [auctionProperty.name]: {
         owner: winner.id,
@@ -2301,8 +2313,15 @@ const GamePage = () => {
 
   // --- Multiplayer game state sync ---
 
+  // Add syncedPropertyOwnership state to store the latest property ownership from the server
+  const [syncedPropertyOwnership, setSyncedPropertyOwnership] = useState({});
+
+  // Update syncedPropertyOwnership in the multiplayer sync useEffect
   useEffect(() => {
     socket.on('gameStateUpdated', (state) => {
+      // Print the updated game state after every turn (multiplayer sync)
+      // console.log('[CLIENT] [SYNC] Updated game state:', state);
+      // console.log('[CLIENT] [SYNC] Player statuses:', JSON.stringify(state.playerStatuses || {}));
       setSyncedPositions(state.playerPositions || {});
       setSyncedStatuses(state.playerStatuses || {});
       setSyncedTurnIndex(state.turnIndex || 0);
@@ -2311,7 +2330,7 @@ const GamePage = () => {
       setSyncedPlayerMoney(state.playerMoney || {});
       setSyncedSpecialAction(state.specialAction || null);
       setCurrentTurnSocketId(state.currentTurnSocketId || null);
-
+      setSyncedPropertyOwnership(state.propertyOwnership || {});
       // Set game phase to 'rolling' when game starts and it's the current player's turn
       if (gameStarted && state.currentTurnSocketId === socket.id) {
         setGamePhase('rolling');
@@ -2356,7 +2375,7 @@ const GamePage = () => {
     onEndTurn={handleEndTurn}
     gamePhase={gamePhase}
     onPlayerStatusChange={handlePlayerStatusChange}
-    propertyOwnership={propertyOwnership}
+    propertyOwnership={syncedPropertyOwnership}
     gameSettings={gameSettings}
     playerJailCards={playerJailCards}
     onPayJailFine={handlePayJailFine}
@@ -2390,6 +2409,7 @@ const GamePage = () => {
       setPropertyLandingState(null);
       if (gamePhase !== 'rolling') setGamePhase('rolling');
     }}
+    currentUserId={currentPlayer?.id}
   />
 
 
@@ -2398,12 +2418,12 @@ const GamePage = () => {
     if (
       propertyLandingState &&
       propertyLandingState.isActive &&
-      propertyOwnership[propertyLandingState.property] &&
-      propertyOwnership[propertyLandingState.property].owner === currentPlayer?.id
+      syncedPropertyOwnership[propertyLandingState.property] &&
+      syncedPropertyOwnership[propertyLandingState.property].owner === currentPlayer?.id
     ) {
       setPropertyLandingState(null);
     }
-  }, [propertyOwnership, propertyLandingState, currentPlayer]);
+  }, [syncedPropertyOwnership, propertyLandingState, currentPlayer]);
 
 
   useEffect(() => {
@@ -2516,7 +2536,7 @@ const GamePage = () => {
             onEndTurn={handleEndTurn}
             gamePhase={gamePhase}
             onPlayerStatusChange={handlePlayerStatusChange}
-            propertyOwnership={propertyOwnership}
+            propertyOwnership={syncedPropertyOwnership}
             gameSettings={gameSettings}
             playerJailCards={playerJailCards}
             onPayJailFine={handlePayJailFine}
@@ -2550,6 +2570,7 @@ const GamePage = () => {
               setPropertyLandingState(null);
               if (gamePhase !== 'rolling') setGamePhase('rolling');
             }}
+            currentUserId={currentPlayer?.id}
           />
         </Box>
 
@@ -2628,8 +2649,9 @@ const GamePage = () => {
             onKickPlayer={handleKickPlayer}
             onChangeAppearance={handleChangeAppearance}
             playerJoined={playerJoined}
-            playerStatuses={playerStatuses}
+            playerStatuses={syncedStatuses}
             isShuffling={isShufflingPlayers}
+            syncedPlayerMoney={syncedPlayerMoney}
           />
         </Box>
 
@@ -2751,7 +2773,7 @@ const GamePage = () => {
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
                 <Typography variant="subtitle2" sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
                   My properties ({classicMap.filter(
-                    (prop) => ['property', 'airport', 'utility', 'company'].includes(prop.type) && propertyOwnership[prop.name]?.owner === currentPlayer?.id
+                    (prop) => ['property', 'airport', 'utility', 'company'].includes(prop.type) && syncedPropertyOwnership[prop.name]?.owner === currentPlayer?.id
                   ).length})
                 </Typography>
               </Box>
@@ -2791,9 +2813,9 @@ const GamePage = () => {
               >
                 <List sx={{ py: 0 }}>
                   {classicMap.filter(
-                    (prop) => ['property', 'airport', 'utility', 'company'].includes(prop.type) && propertyOwnership[prop.name]?.owner === currentPlayer?.id
+                    (prop) => ['property', 'airport', 'utility', 'company'].includes(prop.type) && syncedPropertyOwnership[prop.name]?.owner === currentPlayer?.id
                   ).map((prop) => {
-                    const ownership = propertyOwnership[prop.name];
+                    const ownership = syncedPropertyOwnership[prop.name];
                     const propertyFlags = {
                       'Salvador': '🇧🇷', 'Rio': '🇧🇷', 'Tel Aviv': '🇮🇱', 'Haifa': '🇮🇱', 'Jerusalem': '🇮🇱',
                       'Venice': '🇮🇹', 'Milan': '🇮🇹', 'Rome': '🇮🇹', 'Frankfurt': '🇩🇪', 'Munich': '🇩🇪', 'Berlin': '🇩🇪',
@@ -2937,7 +2959,7 @@ const GamePage = () => {
                     );
                   })}
                   {classicMap.filter(
-                    (prop) => ['property', 'airport', 'utility', 'company'].includes(prop.type) && propertyOwnership[prop.name]?.owner === currentPlayer?.id
+                    (prop) => ['property', 'airport', 'utility', 'company'].includes(prop.type) && syncedPropertyOwnership[prop.name]?.owner === currentPlayer?.id
                   ).length === 0 && (
                       <ListItem>
                         <ListItemText

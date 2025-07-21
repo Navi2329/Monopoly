@@ -28,7 +28,8 @@ import {
   Build,
   AttachMoney,
   Shuffle,
-  Visibility
+  Visibility,
+  Person
 } from '@mui/icons-material';
 import { styled } from '@mui/material/styles';
 
@@ -106,13 +107,13 @@ const GameSettings = ({
     allowBots: false,
     onlyLoggedUsers: false,
     boardMap: 'Classic',
-    doubleRentFullSet: false,
+    doubleRentOnFullSet: false,
     vacationCash: false,
-    auction: false,
+    allowAuction: false,
     noRentInPrison: false,
     mortgage: false,
     evenBuild: false,
-    startingCash: 1500,
+    startingMoney: 1500,
     randomizePlayerOrder: false,
     ...settings
   });
@@ -340,15 +341,15 @@ const GameSettings = ({
         </Typography>
       </Box>
 
-      {/* Double Rent */}
+      {/* Double Rent on Full Set */}
       <StyledSettingRow>
         <StyledSettingInfo>
-          <StyledIcon sx={{ backgroundColor: 'rgba(34, 197, 94, 0.1)', color: '#10b981' }}>
+          <StyledIcon sx={{ backgroundColor: 'rgba(251, 191, 36, 0.1)', color: '#fbbf24' }}>
             <MonetizationOn fontSize="small" />
           </StyledIcon>
           <Box>
             <Typography variant="body1" sx={{ color: 'white', fontWeight: 500 }}>
-              x2 rent on full-set properties
+              Double rent on full set
             </Typography>
             <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.6)' }}>
               If a player owns a full property set, the base rent payment will be doubled
@@ -357,16 +358,16 @@ const GameSettings = ({
         </StyledSettingInfo>
         <StyledSwitch
           checked={!!localSettings.doubleRentOnFullSet}
-          onChange={(e) => handleChange('doubleRentOnFullSet', e.target.checked)}
+          onChange={e => handleChange('doubleRentOnFullSet', e.target.checked)}
           disabled={isDisabled}
         />
       </StyledSettingRow>
 
-      {/* Vacation Cash */}
+      {/* Vacation cash */}
       <StyledSettingRow>
         <StyledSettingInfo>
           <StyledIcon sx={{ backgroundColor: 'rgba(34, 197, 94, 0.1)', color: '#10b981' }}>
-            <AttachMoney fontSize="small" />
+            <MonetizationOn fontSize="small" />
           </StyledIcon>
           <Box>
             <Typography variant="body1" sx={{ color: 'white', fontWeight: 500 }}>
@@ -379,7 +380,7 @@ const GameSettings = ({
         </StyledSettingInfo>
         <StyledSwitch
           checked={!!localSettings.vacationCash}
-          onChange={(e) => handleChange('vacationCash', e.target.checked)}
+          onChange={e => handleChange('vacationCash', e.target.checked)}
           disabled={isDisabled}
         />
       </StyledSettingRow>
@@ -400,8 +401,8 @@ const GameSettings = ({
           </Box>
         </StyledSettingInfo>
         <StyledSwitch
-          checked={!!localSettings.auction}
-          onChange={(e) => handleChange('auction', e.target.checked)}
+          checked={!!localSettings.allowAuction}
+          onChange={e => handleChange('allowAuction', e.target.checked)}
           disabled={isDisabled}
         />
       </StyledSettingRow>
@@ -423,7 +424,7 @@ const GameSettings = ({
         </StyledSettingInfo>
         <StyledSwitch
           checked={!!localSettings.noRentInPrison}
-          onChange={(e) => handleChange('noRentInPrison', e.target.checked)}
+          onChange={e => handleChange('noRentInPrison', e.target.checked)}
           disabled={isDisabled}
         />
       </StyledSettingRow>
@@ -445,7 +446,7 @@ const GameSettings = ({
         </StyledSettingInfo>
         <StyledSwitch
           checked={!!localSettings.mortgage}
-          onChange={(e) => handleChange('mortgage', e.target.checked)}
+          onChange={e => handleChange('mortgage', e.target.checked)}
           disabled={isDisabled}
         />
       </StyledSettingRow>
@@ -467,16 +468,16 @@ const GameSettings = ({
         </StyledSettingInfo>
         <StyledSwitch
           checked={!!localSettings.evenBuild}
-          onChange={(e) => handleChange('evenBuild', e.target.checked)}
+          onChange={e => handleChange('evenBuild', e.target.checked)}
           disabled={isDisabled}
         />
       </StyledSettingRow>
 
-      {/* Starting Cash */}
+      {/* Starting cash */}
       <StyledSettingRow>
         <StyledSettingInfo>
-          <StyledIcon sx={{ backgroundColor: 'rgba(34, 197, 94, 0.1)', color: '#10b981' }}>
-            <AttachMoney fontSize="small" />
+          <StyledIcon sx={{ backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}>
+            <MonetizationOn fontSize="small" />
           </StyledIcon>
           <Box>
             <Typography variant="body1" sx={{ color: 'white', fontWeight: 500 }}>
@@ -487,33 +488,23 @@ const GameSettings = ({
             </Typography>
           </Box>
         </StyledSettingInfo>
-        <StyledSelect
-          value={localSettings.startingCash ?? 1500}
-          onChange={(e) => handleChange('startingCash', e.target.value)}
+        <select
+          value={localSettings.startingMoney}
+          onChange={e => handleChange('startingMoney', parseInt(e.target.value, 10))}
           disabled={isDisabled}
-          size="small"
-          sx={{ minWidth: 100 }}
+          style={{ minWidth: 80, borderRadius: 6, padding: '4px 8px', fontWeight: 600 }}
         >
-          {startingCashOptions.map(amount => (
-            <MenuItem
-              key={amount}
-              value={amount}
-              sx={{
-                color: 'white',
-                backgroundColor: 'rgba(30, 41, 59, 0.9)'
-              }}
-            >
-              ${amount.toLocaleString()}
-            </MenuItem>
+          {[500, 750, 1000, 1200, 1500, 2000, 2500, 3000, 3500, 4000].map(val => (
+            <option key={val} value={val}>${val}</option>
           ))}
-        </StyledSelect>
+        </select>
       </StyledSettingRow>
 
-      {/* Randomize Order */}
+      {/* Randomize player order */}
       <StyledSettingRow>
         <StyledSettingInfo>
-          <StyledIcon sx={{ backgroundColor: 'rgba(139, 92, 246, 0.1)', color: '#a78bfa' }}>
-            <Shuffle fontSize="small" />
+          <StyledIcon sx={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6' }}>
+            <Person fontSize="small" />
           </StyledIcon>
           <Box>
             <Typography variant="body1" sx={{ color: 'white', fontWeight: 500 }}>
@@ -526,7 +517,7 @@ const GameSettings = ({
         </StyledSettingInfo>
         <StyledSwitch
           checked={!!localSettings.randomizePlayerOrder}
-          onChange={(e) => handleChange('randomizePlayerOrder', e.target.checked)}
+          onChange={e => handleChange('randomizePlayerOrder', e.target.checked)}
           disabled={isDisabled}
         />
       </StyledSettingRow>

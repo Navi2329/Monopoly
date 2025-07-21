@@ -7,6 +7,41 @@ function pushGameLog(room, logEntry, io) {
   io.to(room.id).emit('gameLogUpdated', logEntry);
 }
 
+// Helper to emit all logs after advanceTurn
+function emitAdvanceTurnLogs(room, turnResult, io) {
+  if (turnResult && turnResult.orderedEvents) {
+    turnResult.orderedEvents.forEach(event => {
+      if (event.type === 'round-start') {
+        pushGameLog(room, {
+          type: 'system',
+          message: event.message
+        }, io);
+      } else if (event.type === 'vacation-skip') {
+        const player = room.players.find(p => p.id === event.playerId);
+        if (player) {
+          pushGameLog(room, {
+            type: 'info',
+            player: player.name,
+            message: `skipped turn - still on vacation`
+          }, io);
+        }
+      }
+    });
+  }
+  if (turnResult && turnResult.vacationReturnEvents) {
+    turnResult.vacationReturnEvents.forEach(event => {
+      const player = room.players.find(p => p.id === event.playerId);
+      if (player) {
+        pushGameLog(room, {
+          type: 'special',
+          player: player.name,
+          message: event.message
+        }, io);
+      }
+    });
+  }
+}
+
 module.exports = (io, socket) => {
   // Remove all listeners for this socket to prevent duplicates
   socket.removeAllListeners();
@@ -97,23 +132,9 @@ module.exports = (io, socket) => {
   const startGame = ({ roomId }) => {
     const room = roomService.getRoomById(roomId);
     if (room && room.hostId === socket.id) {
-      roomService.startGame(roomId);
-      room.turnIndex = 0;
-      room.gameState = 'in-progress';
-
-      // Ensure all players start at position 0 (START space)
-      room.players.forEach(player => {
-        room.playerPositions[player.id] = 0;
-        room.playerStatuses[player.id] = null;
-        room.playerJailCards[player.id] = 0;
-        room.playerJailRounds[player.id] = 0;
-        room.playerDoublesCount[player.id] = 0;
-      });
-
+      room.startGame(); // Use Room.startGame() to handle random order and starting cash
       io.to(roomId).emit('gameStarted');
       // Emit initial game state for turn sync
-      const timestamp = new Date().toISOString();
-      console.log(`[SERVER] ${timestamp} - startGame emit gameStateUpdated:`, { propertyOwnership: room.propertyOwnership || {} });
       io.to(roomId).emit('gameStateUpdated', {
         playerPositions: room.playerPositions || {},
         lastDiceRoll: room.lastDiceRoll || null,
@@ -130,6 +151,7 @@ module.exports = (io, socket) => {
         roomId: roomId
       });
       pushGameLog(room, { type: 'info', message: 'Game started.' }, io);
+      pushGameLog(room, { type: 'system', message: 'Round 1 started.' }, io);
     }
   };
 
@@ -218,11 +240,47 @@ module.exports = (io, socket) => {
           player: currentPlayer.name,
           message: `passed START and collected $300`
         }, io);
+      } else if (result.action === 'vacation' || result.action === 'jail' || result.action === 'go-to-jail') {
+        pushGameLog(room, {
+          type: 'special',
+          player: currentPlayer.name,
+          message:
+            result.action === 'vacation'
+              ? `went on vacation!`
+              : result.action === 'go-to-jail'
+                ? `landed on Go to Jail!`
+                : `went to jail!`
+        }, io);
+        // Store pending special action in the room
+        room.pendingSpecialAction = { type: result.action, playerId: currentPlayer.id, dice: { dice1: result.dice1, dice2: result.dice2, total: result.total } };
+        // Emit dice result and new position, but do NOT advance turn yet
+        io.to(roomId).emit('gameStateUpdated', {
+          playerPositions: room.playerPositions,
+          lastDiceRoll: { dice1: result.dice1, dice2: result.dice2, total: result.total, playerId: currentPlayer.id },
+          playerStatuses: room.playerStatuses,
+          turnIndex: room.turnIndex,
+          roundNumber: room.roundNumber,
+          specialAction: result.action,
+          playerMoney: room.playerMoney,
+          currentTurnSocketId: room.players[room.turnIndex]?.id || null,
+          propertyOwnership: room.propertyOwnership,
+          playerJailCards: room.playerJailCards,
+          playerJailRounds: room.playerJailRounds,
+          vacationCash: room.vacationCash,
+          roomId: roomId
+        });
+        return;
+      }
+
+      // Emit logs if advanceTurn was called (for jail, vacation, or 3 doubles)
+      if (result.turnResult) {
+        emitAdvanceTurnLogs(room, result.turnResult, io);
       }
 
       // Broadcast updated state
       const timestamp = new Date().toISOString();
-      console.log(`[SERVER] ${timestamp} - rollDice emit gameStateUpdated:`, { propertyOwnership: room.propertyOwnership });
+      // console.log(`[SERVER] ${timestamp} - rollDice emit gameStateUpdated:`, { propertyOwnership: room.propertyOwnership });
+      // console.log(`[SERVER] ${timestamp} - rollDice playerStatuses:`, JSON.stringify(room.playerStatuses));
       io.to(roomId).emit('gameStateUpdated', {
         playerPositions: room.playerPositions,
         lastDiceRoll: room.lastDiceRoll,
@@ -266,15 +324,14 @@ module.exports = (io, socket) => {
     } else {
       // Normal turn end or 3rd double - advance to next player
       room.playerDoublesCount[socket.id] = 0;
-      room.advanceTurn();
-      // Reset dice roll for the new player's turn
-      room.lastDiceRoll = null;
-
       pushGameLog(room, {
         type: 'info',
         player: currentPlayer.name,
         message: `ended turn`
       }, io);
+      const turnResult = room.advanceTurn();
+      room.lastDiceRoll = null;
+      emitAdvanceTurnLogs(room, turnResult, io);
     }
 
     // Broadcast updated state
@@ -299,24 +356,20 @@ module.exports = (io, socket) => {
   const handlePropertyLanding = ({ roomId, propertyName }) => {
     const room = roomService.getRoomById(roomId);
     if (!room || room.gameState !== 'in-progress') return;
-
     const currentPlayer = room.players[room.turnIndex];
     if (!currentPlayer || socket.id !== currentPlayer.id) return;
-
     const propertyData = room.getPropertyData(propertyName);
     if (!propertyData) return;
-
-    const property = room.propertyOwnership[propertyName];
-
-    if (!property) {
-      // Property is available for purchase
+    // Debug: Log property landing
+    console.log(`[DEBUG] handlePropertyLanding: Player ${currentPlayer.name} (${socket.id}) landed on ${propertyName}`);
+    // If property is unowned
+    if (!room.propertyOwnership[propertyName]) {
       if (room.playerMoney[socket.id] >= propertyData.price) {
-        // Player can afford it - send purchase option
         socket.emit('propertyLanding', {
           propertyName,
           price: propertyData.price,
           canAfford: true,
-          action: 'purchase'
+          action: 'buy'
         });
       } else {
         // Player cannot afford it - auction or skip
@@ -336,23 +389,20 @@ module.exports = (io, socket) => {
           });
         }
       }
-    } else if (property.owner !== socket.id) {
-      // Property is owned by another player - pay rent
-      const rent = room.calculateRent(propertyName);
+    } else if (room.propertyOwnership[propertyName].owner !== socket.id) {
+      // Debug: Log property ownership and rent attempt
+      console.log(`[DEBUG] handlePropertyLanding: Property ${propertyName} is owned by ${room.propertyOwnership[propertyName].ownerName} (${room.propertyOwnership[propertyName].owner})`);
+      const rent = room.payRent(socket.id, propertyName);
       if (rent > 0) {
-        const actualRent = Math.min(rent, room.playerMoney[socket.id]);
-        room.playerMoney[socket.id] -= actualRent;
-        room.playerMoney[property.owner] += actualRent;
-
+        console.log(`[DEBUG] handlePropertyLanding: Rent of $${rent} paid by ${currentPlayer.name} to ${room.propertyOwnership[propertyName].ownerName}`);
         pushGameLog(room, {
           type: 'rent',
           player: currentPlayer.name,
-          owner: property.ownerName,
+          owner: room.propertyOwnership[propertyName].ownerName,
           property: propertyName,
-          amount: actualRent,
-          message: `paid $${actualRent} rent to ${property.ownerName} for ${propertyName}`
+          amount: rent,
+          message: `paid $${rent} rent to ${room.propertyOwnership[propertyName].ownerName} for ${propertyName}`
         }, io);
-
         // Check if player went bankrupt
         if (room.playerMoney[socket.id] <= 0) {
           pushGameLog(room, {
@@ -361,8 +411,36 @@ module.exports = (io, socket) => {
             message: `went bankrupt!`
           }, io);
         }
-
-        // Broadcast updated state
+        io.to(roomId).emit('gameStateUpdated', {
+          playerPositions: room.playerPositions,
+          lastDiceRoll: room.lastDiceRoll,
+          playerStatuses: room.playerStatuses,
+          turnIndex: room.turnIndex,
+          roundNumber: room.roundNumber,
+          specialAction: null,
+          playerMoney: room.playerMoney,
+          currentTurnSocketId: room.players[room.turnIndex]?.id || null,
+          propertyOwnership: room.propertyOwnership,
+          playerJailCards: room.playerJailCards,
+          playerJailRounds: room.playerJailRounds,
+          vacationCash: room.vacationCash,
+          roomId: roomId
+        });
+      } else {
+        console.log(`[DEBUG] handlePropertyLanding: No rent paid for ${propertyName} (rent=$${rent})`);
+      }
+    }
+    // Vacation cash: if player lands on Vacation (position 20)
+    if (propertyName === 'Vacation' && room.settings.vacationCash) {
+      const cash = room.vacationCash;
+      if (cash > 0) {
+        room.playerMoney[socket.id] += cash;
+        room.vacationCash = 0;
+        pushGameLog(room, {
+          type: 'special',
+          player: currentPlayer.name,
+          message: `collected $${cash} vacation cash!`
+        }, io);
         io.to(roomId).emit('gameStateUpdated', {
           playerPositions: room.playerPositions,
           lastDiceRoll: room.lastDiceRoll,
@@ -435,6 +513,7 @@ module.exports = (io, socket) => {
         const gameState = room.getGameState();
         gameState.roomId = roomId; // Add roomId to the game state
         gameState.debug = 'SERVER-UNIQUE-123';
+        console.log('[DEBUG] Emitting gameStateUpdated after buyProperty:', gameState.propertyOwnership);
         io.to(roomId).emit('gameStateUpdated', gameState);
       } catch (err) {
       }
@@ -461,6 +540,10 @@ module.exports = (io, socket) => {
       player: currentPlayer.name,
       message: `paid $50 to get out of jail`
     }, io);
+
+    // End turn immediately after paying fine
+    const turnResult = room.advanceTurn();
+    emitAdvanceTurnLogs(room, turnResult, io);
 
     // Broadcast updated state
     io.to(roomId).emit('gameStateUpdated', {
@@ -498,6 +581,10 @@ module.exports = (io, socket) => {
       player: currentPlayer.name,
       message: `used a jail card to get out of jail`
     }, io);
+
+    // End turn immediately after using jail card
+    const turnResult = room.advanceTurn();
+    emitAdvanceTurnLogs(room, turnResult, io);
 
     // Broadcast updated state
     io.to(roomId).emit('gameStateUpdated', {
@@ -541,5 +628,61 @@ module.exports = (io, socket) => {
   });
   socket.on('gameStateUpdated', (gameState) => {
     // ... rest of your state update logic
+  });
+  socket.on('diceAnimationComplete', ({ roomId }) => {
+    const room = roomService.getRoomById(roomId);
+    if (room && room.pendingSpecialAction) {
+      const { type, playerId } = room.pendingSpecialAction;
+      // Process the pending special action and advance the turn
+      if (type === 'vacation') {
+        // Vacation logic: advance turn, set player status, etc.
+        room.playerStatuses[playerId] = { status: 'vacation', vacationStartRound: room.roundNumber };
+        room.playerDoublesCount[playerId] = 0;
+        const turnResult = room.advanceTurn();
+        room.lastDiceRoll = null;
+        room.pendingSpecialAction = null;
+        emitAdvanceTurnLogs(room, turnResult, io);
+        io.to(roomId).emit('gameStateUpdated', {
+          playerPositions: room.playerPositions,
+          lastDiceRoll: room.lastDiceRoll,
+          playerStatuses: room.playerStatuses,
+          turnIndex: room.turnIndex,
+          roundNumber: room.roundNumber,
+          specialAction: 'vacation',
+          playerMoney: room.playerMoney,
+          currentTurnSocketId: room.players[room.turnIndex]?.id || null,
+          propertyOwnership: room.propertyOwnership,
+          playerJailCards: room.playerJailCards,
+          playerJailRounds: room.playerJailRounds,
+          vacationCash: room.vacationCash,
+          roomId: roomId
+        });
+      } else if (type === 'jail' || type === 'go-to-jail') {
+        // Jail logic: move player to jail, set status, advance turn
+        room.playerPositions[playerId] = 10;
+        room.playerStatuses[playerId] = 'jail';
+        room.playerJailRounds[playerId] = 0;
+        room.playerDoublesCount[playerId] = 0;
+        const turnResult = room.advanceTurn();
+        room.lastDiceRoll = null;
+        room.pendingSpecialAction = null;
+        emitAdvanceTurnLogs(room, turnResult, io);
+        io.to(roomId).emit('gameStateUpdated', {
+          playerPositions: room.playerPositions,
+          lastDiceRoll: room.lastDiceRoll,
+          playerStatuses: room.playerStatuses,
+          turnIndex: room.turnIndex,
+          roundNumber: room.roundNumber,
+          specialAction: 'jail',
+          playerMoney: room.playerMoney,
+          currentTurnSocketId: room.players[room.turnIndex]?.id || null,
+          propertyOwnership: room.propertyOwnership,
+          playerJailCards: room.playerJailCards,
+          playerJailRounds: room.playerJailRounds,
+          vacationCash: room.vacationCash,
+          roomId: roomId
+        });
+      }
+    }
   });
 };

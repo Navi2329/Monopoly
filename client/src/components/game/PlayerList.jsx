@@ -58,7 +58,7 @@ const StyledAvatar = styled(Avatar)(({ playercolor }) => ({
   }
 }));
 
-const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = false, onKickPlayer, onChangeAppearance, playerJoined = true, playerStatuses = {}, isShuffling = false }) => {
+const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = false, onKickPlayer, onChangeAppearance, playerJoined = true, playerStatuses = {}, isShuffling = false, syncedPlayerMoney = {} }) => {
   const hasPlayers = players.length > 0;
 
   return (
@@ -114,28 +114,32 @@ const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = fa
                     </Badge>
 
                     {/* Vacation indicator */}
-                    {playerStatuses[player.id] && typeof playerStatuses[player.id] === 'object' && playerStatuses[player.id].status === 'vacation' && (
-                      <Box
-                        sx={{
-                          position: 'absolute',
-                          top: '-6px',
-                          left: '-6px',
-                          width: '18px',
-                          height: '18px',
-                          backgroundColor: '#22c55e',
-                          borderRadius: '50%',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontSize: '8px',
-                          border: '2px solid white',
-                          boxShadow: '0 2px 4px rgba(0, 0, 0, 0.4)',
-                          zIndex: 2
-                        }}
-                      >
-                        🏖️
-                      </Box>
-                    )}
+                    {(() => {
+                      const status = playerStatuses[player.id];
+                      const isVacation = status && typeof status === 'object' && status.status === 'vacation';
+                      return isVacation ? (
+                        <Box
+                          sx={{
+                            position: 'absolute',
+                            top: '-6px',
+                            left: '-6px',
+                            width: '18px',
+                            height: '18px',
+                            backgroundColor: '#22c55e',
+                            borderRadius: '50%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '8px',
+                            border: '2px solid white',
+                            boxShadow: '0 2px 4px rgba(0, 0, 0, 0.4)',
+                            zIndex: 2
+                          }}
+                        >
+                          🏖️
+                        </Box>
+                      ) : null;
+                    })()}
                   </Box>
 
                   {/* Player name and icons */}
@@ -271,7 +275,7 @@ const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = fa
                         textAlign: 'right'
                       }}
                     >
-                      ${player.money?.toLocaleString() || '1,500'}
+                      ${typeof syncedPlayerMoney[player.id] === 'number' ? syncedPlayerMoney[player.id].toLocaleString() : (player.money?.toLocaleString() || '1,500')}
                     </Typography>
                   )}
                 </Box>

@@ -60,7 +60,7 @@ const updateRoomSettings = (roomId, newSettings) => {
 const startGame = (roomId) => {
   const room = gameRooms[roomId];
   if (!room) return null;
-  room.gameState = 'in-progress';
+  room.startGame();
   return room;
 };
 

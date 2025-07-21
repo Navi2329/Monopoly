@@ -126,14 +126,17 @@ const PropertyPopup = ({
     onDestroyHouse,
     onMortgageProperty,
     onSellProperty,
-    gameSettings
+    gameSettings,
+    currentUserId,
+    popupWidth
 }) => {
     const property = classicMap.find(p => p.name === propertyName);
     if (!property) return null;
 
     const ownership = propertyOwnership[propertyName];
     const currentPlayer = players && players[currentPlayerIndex];
-    const isOwner = ownership && currentPlayer && ownership.owner === currentPlayer.id;
+    const isOwner = ownership && ownership.owner === currentUserId;
+    const isOwnerTurn = isOwner && currentPlayer && currentPlayer.id === currentUserId;
 
     // Get current property state from ownership data
     const currentHouses = ownership?.houses || 0;
@@ -276,12 +279,15 @@ const PropertyPopup = ({
     ] : [];
 
     // Check if double rent applies for this property
-    const hasDoubleRent = gameSettings?.doubleRentOnFullSet && property.type === 'property' && ownedSet;
+    const hasDoubleRent = gameSettings?.doubleRentOnFullSet && property.type === 'property' && ownedSet && !hasHotel && currentHouses === 0;
 
     return (
-        <div style={glassStyle}>
-            {/* Mortgage Button at Top */}
-            {gameSettings?.mortgage && (
+        <div style={{
+            ...glassStyle,
+            ...(popupWidth ? { minWidth: popupWidth, maxWidth: popupWidth } : {})
+        }}>
+            {/* Mortgage Button at Top - Only for owner */}
+            {gameSettings?.mortgage && isOwner && (
                 <Tooltip
                     title={canMortgage ? (
                         <span>
@@ -299,31 +305,29 @@ const PropertyPopup = ({
                                 background: canMortgage ? 'linear-gradient(90deg,#eab308,#fbbf24)' : 'linear-gradient(90deg,#fef3c7,#fde68a)',
                                 color: canMortgage ? '#fff' : '#b45309',
                                 border: 'none',
-                                borderRadius: 8,
+                                borderRadius: 7,
                                 fontWeight: 700,
-                                fontSize: '1.05rem',
-                                padding: '6px 0',
-                                marginBottom: 10,
-                                marginTop: 2,
+                                fontSize: '1rem',
+                                padding: '7px 0',
+                                marginBottom: 7,
                                 cursor: canMortgage ? 'pointer' : 'not-allowed',
-                                boxShadow: canMortgage ? '0 1px 6px rgba(251,191,36,0.13)' : 'none',
-                                opacity: canMortgage ? 1 : 0.7,
-                                transition: 'background 0.2s, color 0.2s, opacity 0.2s',
-                                letterSpacing: 0.2,
-                                outline: 'none',
-                                borderWidth: 0,
-                                borderStyle: 'solid',
-                                borderColor: 'transparent',
-                                textAlign: 'center',
-                                fontFamily: 'inherit',
+                                boxShadow: canMortgage ? '0 1px 4px rgba(251,191,36,0.10)' : 'none',
+                                opacity: canMortgage ? 1 : 0.7
                             }}
-                            onClick={handleMortgage}
+                            onClick={canMortgage ? handleMortgage : undefined}
                             disabled={!canMortgage}
                         >
-                            {isMortgaged ? `Unmortgage for $${Math.ceil(property.price * 0.6)}` : `Mortgage for $${Math.floor(property.price / 2)}`}
+                            {isMortgaged ? 'Unmortgage' : 'Mortgage'}
                         </button>
                     </span>
                 </Tooltip>
+            )}
+            {/* Double rent indicator */}
+            {hasDoubleRent && (
+                <div style={{ color: '#fbbf24', fontWeight: 700, fontSize: '0.95rem', marginBottom: 4 }}>
+                    <MonetizationOn style={{ fontSize: 18, verticalAlign: 'middle', marginRight: 4 }} />
+                    Double rent (full set owned)
+                </div>
             )}
             {/* Header: Property Name */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', marginBottom: 2 }}>
@@ -338,22 +342,10 @@ const PropertyPopup = ({
                     <span style={{ color: '#a5b4fc' }}>when</span>
                     <span style={{ color: '#a5b4fc' }}>get</span>
                 </div>
-                {property.type === 'property' && property.rent.map((r, i) => (
+                {rentRows.map((row, i) => (
                     <div key={i} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 1 }}>
-                        <span>{['with rent', 'with one house', 'with two houses', 'with three houses', 'with four houses', 'with hotel'][i]}</span>
-                        <span style={{ fontWeight: 600 }}>${r}</span>
-                    </div>
-                ))}
-                {property.type === 'airport' && property.rent.map((r, i) => (
-                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 1 }}>
-                        <span>{['1 airport owned', '2 airports owned', '3 airports owned', '4 airports owned'][i]}</span>
-                        <span style={{ fontWeight: 600 }}>${r}</span>
-                    </div>
-                ))}
-                {property.type === 'company' && property.rent.map((r, i) => (
-                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 1 }}>
-                        <span>{['If one company is owned', 'If two companies are owned'][i]}</span>
-                        <span style={{ fontWeight: 600 }}>{r}</span>
+                        <span>{row.label}</span>
+                        <span style={{ fontWeight: 600 }}>{row.value}</span>
                     </div>
                 ))}
             </div>
@@ -370,20 +362,22 @@ const PropertyPopup = ({
                     {property.type === 'property' && <span><Hotel sx={{ fontSize: 13, color: 'white', verticalAlign: 'middle' }} /> <b style={{ color: '#fbbf24' }}>${property.hotelCost}</b></span>}
                 </div>
             </div>
-            {/* Action Buttons Row: Always show all three, disabled if not available */}
-            <div style={{ display: 'flex', gap: 4, marginTop: 6, justifyContent: 'center' }}>
-                <button style={actionBtn(canBuild)} disabled={!canBuild} onClick={handleBuildHouse} title="Build House">
-                    <Home sx={{ fontSize: 16, verticalAlign: 'middle', color: canBuild ? '#fff' : '#a78bfa', opacity: canBuild ? 1 : 0.5 }} />
-                </button>
-                <button style={actionBtn(canDestroy)} disabled={!canDestroy} onClick={handleDestroyHouse} title="Destroy House">
-                    <Delete sx={{ fontSize: 16, verticalAlign: 'middle', color: canDestroy ? '#fff' : '#a78bfa', opacity: canDestroy ? 1 : 0.5 }} />
-                </button>
-                {isOwner && canSell && (
-                    <button style={actionBtn(true)} onClick={handleSellProperty}>
-                        <Gavel sx={{ fontSize: 16, mr: 0.5 }} /> Sell Property
+            {/* Action Buttons Row: Only show for owner */}
+            {isOwner ? (
+                <div style={{ display: 'flex', gap: 4, marginTop: 6, justifyContent: 'center' }}>
+                    <button style={actionBtn(isOwnerTurn && canBuild)} disabled={!isOwnerTurn || !canBuild} onClick={handleBuildHouse} title="Build House">
+                        <Home sx={{ fontSize: 16, verticalAlign: 'middle', color: isOwnerTurn && canBuild ? '#fff' : '#a78bfa', opacity: isOwnerTurn && canBuild ? 1 : 0.5 }} />
                     </button>
-                )}
-            </div>
+                    <button style={actionBtn(isOwnerTurn && canDestroy)} disabled={!isOwnerTurn || !canDestroy} onClick={handleDestroyHouse} title="Destroy House">
+                        <Delete sx={{ fontSize: 16, verticalAlign: 'middle', color: isOwnerTurn && canDestroy ? '#fff' : '#a78bfa', opacity: isOwnerTurn && canDestroy ? 1 : 0.5 }} />
+                    </button>
+                    {canSell && (
+                        <button style={actionBtn(isOwnerTurn)} disabled={!isOwnerTurn} onClick={handleSellProperty} title="Sell Property">
+                            <Gavel sx={{ fontSize: 16, mr: 0.5 }} />
+                        </button>
+                    )}
+                </div>
+            ) : null}
         </div>
     );
 };
