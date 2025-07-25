@@ -68,10 +68,9 @@ class Room {
       'Water Company': { type: 'company', set: 'Company', price: 150, rent: [4, 10] }
     };
 
-    // Initialize default settings
     this.settings = {
-      allowAuction: true,
-      vacationCash: true,
+      allowAuction: false,
+      vacationCash: false,
       doubleRentOnFullSet: false, // x2 rent for full set
       noRentInPrison: false,      // don't collect rent if owner is in jail
       mortgage: false,            // allow mortgaging
