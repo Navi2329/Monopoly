@@ -1493,7 +1493,7 @@ const GamePage = () => {
   const handleBuildHouse = (propertyName) => {
     // Multiplayer: emit socket event
     if (gameStarted) {
-      console.log('[DEBUG] Emitting buildHouse', propertyName, roomId);
+      // console.log('[DEBUG] Emitting buildHouse', propertyName, roomId);
       socket.emit('buildHouse', { roomId, propertyName });
       return;
     }
@@ -2391,13 +2391,13 @@ const GamePage = () => {
   // Update syncedPropertyOwnership in the multiplayer sync useEffect
   useEffect(() => {
     socket.on('gameStateUpdated', (state) => {
-      console.log('[DEBUG][CLIENT] gameStateUpdated:', state);
-      console.log('[DEBUG][CLIENT] playerStatuses:', state.playerStatuses);
-      console.log('[DEBUG][CLIENT] turnIndex:', state.turnIndex);
-      console.log('[DEBUG][CLIENT] roundNumber:', state.roundNumber);
-      console.log('[DEBUG][CLIENT] currentTurnSocketId:', state.currentTurnSocketId);
-      console.log('[DEBUG][CLIENT] specialAction:', state.specialAction);
-      console.log('[DEBUG][CLIENT] gameLog:', state.gameLog);
+      // console.log('[DEBUG][CLIENT] gameStateUpdated:', state);
+      // console.log('[DEBUG][CLIENT] playerStatuses:', state.playerStatuses);
+      // console.log('[DEBUG][CLIENT] turnIndex:', state.turnIndex);
+      // console.log('[DEBUG][CLIENT] roundNumber:', state.roundNumber);
+      // console.log('[DEBUG][CLIENT] currentTurnSocketId:', state.currentTurnSocketId);
+      // console.log('[DEBUG][CLIENT] specialAction:', state.specialAction);
+      // console.log('[DEBUG][CLIENT] gameLog:', state.gameLog);
       setSyncedPositions(state.playerPositions || {});
       setSyncedStatuses(state.playerStatuses || {});
       setSyncedTurnIndex(state.turnIndex || 0);

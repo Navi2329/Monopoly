@@ -268,7 +268,7 @@ const PropertyPopup = ({
 
     // Handle build house
     const handleBuildHouse = () => {
-        console.log('[DEBUG] Build button clicked', propertyName);
+        // console.log('[DEBUG] Build button clicked', propertyName);
         if (onBuildHouse) {
             onBuildHouse(propertyName);
         }
@@ -350,32 +350,32 @@ const PropertyPopup = ({
             // canBuildEvenly is set above
         } else {
             // Log which sub-condition failed
-            console.log('[DEBUG][PropertyPopup][canBuild sub-conditions]', {
-                ownedSet,
-                anyMortgaged,
-                currentHouses,
-                hasHotel,
-                currentPlayerMoney,
-                buildCost: property.buildCost,
-                notMaxHousesAndHotel: !(currentHouses === 4 && hasHotel),
-                currentPlayerExists: !!currentPlayer,
-                moneyEnough: currentPlayerMoney >= property.buildCost
-            });
+            // console.log('[DEBUG][PropertyPopup][canBuild sub-conditions]', {
+            //     ownedSet,
+            //     anyMortgaged,
+            //     currentHouses,
+            //     hasHotel,
+            //     currentPlayerMoney,
+            //     buildCost: property.buildCost,
+            //     notMaxHousesAndHotel: !(currentHouses === 4 && hasHotel),
+            //     currentPlayerExists: !!currentPlayer,
+            //     moneyEnough: currentPlayerMoney >= property.buildCost
+            // });
         }
     }
 
-    console.log('[DEBUG][PropertyPopup]', {
-        propertyName,
-        isOwner,
-        ownedSet,
-        isOwnerTurn,
-        canBuild,
-        propertyOwnership,
-        currentUserId,
-        currentPlayerIndex,
-        players,
-        currentPlayer,
-    });
+    // console.log('[DEBUG][PropertyPopup]', {
+    //     propertyName,
+    //     isOwner,
+    //     ownedSet,
+    //     isOwnerTurn,
+    //     canBuild,
+    //     propertyOwnership,
+    //     currentUserId,
+    //     currentPlayerIndex,
+    //     players,
+    //     currentPlayer,
+    // });
 
     return (
         <div style={{

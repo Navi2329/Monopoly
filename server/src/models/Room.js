@@ -150,7 +150,7 @@ class Room {
       }
     }
     this.turnIndex = 0;
-    console.log('[DEBUG][ROUND] startGame setting roundNumber to 1, call stack:', new Error().stack);
+    // console.log('[DEBUG][ROUND] startGame setting roundNumber to 1, call stack:', new Error().stack);
     this.roundNumber = 1;
     this.gameState = 'in-progress';
     // Set all player states
@@ -214,7 +214,7 @@ class Room {
     // Handle doubles
     if (isDoubles) {
       this.playerDoublesCount[currentPlayer.id]++;
-      console.log('[DEBUG][SERVER][rollDice] Doubles count for', currentPlayer.id, ':', this.playerDoublesCount[currentPlayer.id]);
+      // console.log('[DEBUG][SERVER][rollDice] Doubles count for', currentPlayer.id, ':', this.playerDoublesCount[currentPlayer.id]);
 
       if (this.playerDoublesCount[currentPlayer.id] >= 3) {
         // Go to jail for 3 doubles - move player to jail, set status, and ADVANCE TURN
@@ -229,7 +229,7 @@ class Room {
       // If doubles but less than 3, don't advance turn - player gets another roll after clicking End Turn
     } else {
       this.playerDoublesCount[currentPlayer.id] = 0;
-      console.log('[DEBUG][SERVER][rollDice] Doubles count reset for', currentPlayer.id);
+      // console.log('[DEBUG][SERVER][rollDice] Doubles count reset for', currentPlayer.id);
       // Don't advance turn automatically - player must click End Turn
     }
 
@@ -342,7 +342,7 @@ class Room {
 
   // Modify advanceTurn to set vacation status after End Turn on vacation
   advanceTurn(sessionId, vacationEndTurnPlayerId = null) {
-    console.log('[DEBUG][VACATION] advanceTurn called with sessionId:', sessionId, 'vacationEndTurnPlayerId:', vacationEndTurnPlayerId);
+    // console.log('[DEBUG][VACATION] advanceTurn called with sessionId:', sessionId, 'vacationEndTurnPlayerId:', vacationEndTurnPlayerId);
     const totalPlayers = this.players.length;
     let orderedEvents = [];
     let vacationReturnEvents = [];
@@ -410,18 +410,18 @@ class Room {
 
   buyProperty(playerId, propertyName, price) {
     if (this.propertyOwnership[propertyName]) {
-      console.log('[DEBUG] buyProperty: Property already owned:', propertyName);
+      // console.log('[DEBUG] buyProperty: Property already owned:', propertyName);
       return false; // Already owned
     }
 
     // Always get the latest player object for color
     const player = this.players.find(p => p.id === playerId);
     if (!player) {
-      console.log('[DEBUG] buyProperty: Player not found:', playerId);
+      // console.log('[DEBUG] buyProperty: Player not found:', playerId);
       return false;
     }
     if (this.playerMoney[playerId] < price) {
-      console.log('[DEBUG] buyProperty: Not enough money for player', playerId, 'to buy', propertyName);
+      // console.log('[DEBUG] buyProperty: Not enough money for player', playerId, 'to buy', propertyName);
       return false;
     }
 
@@ -434,7 +434,7 @@ class Room {
       hotel: false,
       mortgaged: false
     };
-    console.log('[DEBUG] buyProperty: Property bought:', propertyName, 'by', playerId);
+    // console.log('[DEBUG] buyProperty: Property bought:', propertyName, 'by', playerId);
     // console.log('[DEBUG] Room.buyProperty propertyOwnership:', this.propertyOwnership);
     return true;
   }
@@ -547,7 +547,7 @@ class Room {
       playersOrdered: this.players.map(p => ({ id: p.id, name: p.name, color: p.color, isBot: p.isBot, isOnline: p.isOnline })),
       // add more fields if needed
     };
-    console.log('[DEBUG] getGameState propertyOwnership:', JSON.stringify(gameState.propertyOwnership));
+    // console.log('[DEBUG] getGameState propertyOwnership:', JSON.stringify(gameState.propertyOwnership));
     return gameState;
   }
 

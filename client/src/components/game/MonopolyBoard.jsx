@@ -366,7 +366,7 @@ const MonopolyBoard = (props) => {
     const currentPlayer = getCurrentPlayer();
     // Only reset doubles state if the player actually changes
     if (prevPlayerIdRef.current !== undefined && currentPlayer && prevPlayerIdRef.current !== currentPlayer.id) {
-      console.log('[DEBUG][RESET DOUBLES][CLIENT]', {
+      // console.log('[DEBUG][RESET DOUBLES][CLIENT]', {
         prevPlayerId: prevPlayerIdRef.current,
         currentPlayerId: currentPlayer && currentPlayer.id,
         currentPlayerIndex,
@@ -760,7 +760,7 @@ const MonopolyBoard = (props) => {
     }
     setEndTurnClicked(true);
     setAwaitingRollAfterDoubles(true);
-    console.log('[DEBUG][handleEndTurn][CALL STACK]', new Error().stack);
+    // console.log('[DEBUG][handleEndTurn][CALL STACK]', new Error().stack);
     if (!hasRolledSinceLastEndTurn) {
       console.warn('[GUARD] handleEndTurn called without rolling since last end turn. Ignoring.');
       return;
@@ -781,20 +781,20 @@ const MonopolyBoard = (props) => {
       setIsInDoublesSequence(false);
     }
     // Debug log
-    console.log('[DEBUG][handleEndTurn] gamePhase:', gamePhase, 'hasEndedTurnAfterDoubles:', hasEndedTurnAfterDoubles, 'isInDoublesSequence:', isInDoublesSequence, 'syncedLastDiceRoll:', syncedLastDiceRoll, 'currentPlayerIndex:', currentPlayerIndex);
+    // console.log('[DEBUG][handleEndTurn] gamePhase:', gamePhase, 'hasEndedTurnAfterDoubles:', hasEndedTurnAfterDoubles, 'isInDoublesSequence:', isInDoublesSequence, 'syncedLastDiceRoll:', syncedLastDiceRoll, 'currentPlayerIndex:', currentPlayerIndex);
     if (
       currentPosition === 20 &&
       currentPlayer &&
       (!playerStatuses[currentPlayer.id] || (typeof playerStatuses[currentPlayer.id] === 'object' && playerStatuses[currentPlayer.id].status !== 'vacation'))
     ) {
       // eslint-disable-next-line no-console
-      console.log('[DEBUG][CLIENT] End Turn button clicked after landing on vacation (position check)');
+      // console.log('[DEBUG][CLIENT] End Turn button clicked after landing on vacation (position check)');
       socket.emit('endTurn', { roomId, vacationEndTurnPlayerId: currentPlayer.id });
     } else {
       socket.emit('endTurn', { roomId });
     }
     if (onEndTurn) {
-      console.log('[DEBUG][onEndTurn][CALL STACK][handleEndTurn]', new Error().stack);
+      // console.log('[DEBUG][onEndTurn][CALL STACK][handleEndTurn]', new Error().stack);
       onEndTurn();
     }
   };
@@ -1491,7 +1491,7 @@ const MonopolyBoard = (props) => {
       onClearPropertyLandingState(); // <-- Reset propertyLandingState after buy
     }
     if (onEndTurn) {
-      console.log('[DEBUG][onEndTurn][CALL STACK][handleBuyProperty]', new Error().stack);
+      // ('[DEBUG][onEndTurn][CALL STACK][handleBuyProperty]', new Error().stack);
       onEndTurn();
     }
   };
@@ -1677,7 +1677,7 @@ const MonopolyBoard = (props) => {
   React.useEffect(() => {
     if (syncedSpecialAction === 'vacation') {
       // eslint-disable-next-line no-console
-      console.log('[DEBUG][CLIENT] Player landed on vacation!');
+      // console.log('[DEBUG][CLIENT] Player landed on vacation!');
     }
   }, [syncedSpecialAction]);
 
@@ -1969,7 +1969,7 @@ const MonopolyBoard = (props) => {
               <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap', justifyContent: 'center', width: '100%' }}>
                 {(() => {
                   // Debug log for button rendering
-                  console.log('[DEBUG][BUTTONS] gamePhase:', gamePhase, 'hasEndedTurnAfterDoubles:', hasEndedTurnAfterDoubles, 'isInDoublesSequence:', isInDoublesSequence, 'syncedLastDiceRoll:', syncedLastDiceRoll, 'currentPlayerIndex:', currentPlayerIndex, 'isMyTurn:', currentUserId === getCurrentPlayer()?.id);
+                  // console.log('[DEBUG][BUTTONS] gamePhase:', gamePhase, 'hasEndedTurnAfterDoubles:', hasEndedTurnAfterDoubles, 'isInDoublesSequence:', isInDoublesSequence, 'syncedLastDiceRoll:', syncedLastDiceRoll, 'currentPlayerIndex:', currentPlayerIndex, 'isMyTurn:', currentUserId === getCurrentPlayer()?.id);
                   const landingPlayerId = propertyLandingState?.player?.id || getCurrentPlayer()?.id;
                   const isMyTurn = currentUserId === getCurrentPlayer()?.id;
                   const isOnVacation = playerStatuses[currentUserId] && typeof playerStatuses[currentUserId] === 'object' && playerStatuses[currentUserId].status === 'vacation';
@@ -2019,7 +2019,7 @@ const MonopolyBoard = (props) => {
                         onClick={() => {
                           if (propertyLandingState && propertyLandingState.canAfford && !buying) {
                             setBuying(true);
-                            console.log('[DEBUG] Buy button clicked: emitting buyProperty', {
+                            // console.log('[DEBUG] Buy button clicked: emitting buyProperty', {
                               roomId,
                               propertyName: propertyLandingState.property.name,
                               price: propertyLandingState.price

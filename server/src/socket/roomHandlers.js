@@ -4,14 +4,14 @@ const { v4: uuidv4 } = require('uuid');
 
 // Helper to push to room log and emit to all clients
 function pushGameLog(room, logEntry, io) {
-  console.log('[DEBUG][SERVER][pushGameLog]', logEntry);
+  // console.log('[DEBUG][SERVER][pushGameLog]', logEntry);
   room.addGameLog(logEntry);
   io.to(room.id).emit('gameLogUpdated', logEntry);
 }
 
 // Helper to emit all logs after advanceTurn
 function emitAdvanceTurnLogs(room, turnResult, io) {
-  console.log('[DEBUG] emitAdvanceTurnLogs called for round', room.roundNumber, 'at', Date.now());
+  // console.log('[DEBUG] emitAdvanceTurnLogs called for round', room.roundNumber, 'at', Date.now());
   if (turnResult && turnResult.orderedEvents) {
     let roundStartLogged = false;
     turnResult.orderedEvents.forEach(event => {
@@ -47,7 +47,7 @@ function emitGameStateUpdated(room, io, roomId, extra = {}) {
   gameState.doublesSequenceActive = room.doublesSequenceActive || false;
   // Attach any extra fields passed in
   Object.assign(gameState, extra);
-  console.log('[DEBUG] emitGameStateUpdated propertyOwnership:', JSON.stringify(gameState.propertyOwnership));
+  // console.log('[DEBUG] emitGameStateUpdated propertyOwnership:', JSON.stringify(gameState.propertyOwnership));
   io.to(roomId).emit('gameStateUpdated', gameState);
 }
 
@@ -218,14 +218,14 @@ module.exports = (io, socket) => {
       }, io);
 
       // Debug log to see what result contains
-      console.log('[DEBUG][START] rollDice result:', {
-        action: result.action,
-        position: result.position,
-        passedStart: result.passedStart,
-        dice1: result.dice1,
-        dice2: result.dice2,
-        total: result.total
-      });
+      // console.log('[DEBUG][START] rollDice result:', {
+      //   action: result.action,
+      //   position: result.position,
+      //   passedStart: result.passedStart,
+      //   dice1: result.dice1,
+      //   dice2: result.dice2,
+      //   total: result.total
+      // });
 
       // Handle special actions
       if (result.action === 'jail') {
@@ -355,30 +355,30 @@ module.exports = (io, socket) => {
 
     // GUARD: If player is supposed to roll again after doubles, ignore extra endTurn calls
     if (room.allowRollAgain && room.lastDiceRoll === null) {
-      console.log('[DEBUG][SERVER][endTurn][GUARD] Ignoring endTurn: player must roll again after doubles');
+      // console.log('[DEBUG][SERVER][endTurn][GUARD] Ignoring endTurn: player must roll again after doubles');
       return;
     }
 
     // Debug log at start
-    console.log('[DEBUG][SERVER][endTurn][START]', {
-      socketId: socket.id,
-      currentPlayerId: currentPlayer.id,
-      lastRoll: room.lastDiceRoll,
-      isDoubles: room.lastDiceRoll && room.lastDiceRoll.dice1 === room.lastDiceRoll.dice2,
-      doublesCount: room.playerDoublesCount[currentPlayer.id],
-      playerDoublesCount: room.playerDoublesCount,
-      turnIndex: room.turnIndex,
-      lastDiceRoll: room.lastDiceRoll,
-      allowRollAgain: room.allowRollAgain,
-      doublesSequenceActive: room.doublesSequenceActive
-    });
+    // console.log('[DEBUG][SERVER][endTurn][START]', {
+    //   socketId: socket.id,
+    //   currentPlayerId: currentPlayer.id,
+    //   lastRoll: room.lastDiceRoll,
+    //   isDoubles: room.lastDiceRoll && room.lastDiceRoll.dice1 === room.lastDiceRoll.dice2,
+    //   doublesCount: room.playerDoublesCount[currentPlayer.id],
+    //   playerDoublesCount: room.playerDoublesCount,
+    //   turnIndex: room.turnIndex,
+    //   lastDiceRoll: room.lastDiceRoll,
+    //   allowRollAgain: room.allowRollAgain,
+    //   doublesSequenceActive: room.doublesSequenceActive
+    // });
 
     // Check if player rolled doubles
     const lastRoll = room.lastDiceRoll;
     const isDoubles = lastRoll && lastRoll.dice1 === lastRoll.dice2;
     const doublesCount = room.playerDoublesCount[currentPlayer.id] || 0;
     // Debug log
-    console.log('[DEBUG][SERVER][endTurn][CHECK]', { socketId: socket.id, currentPlayerId: currentPlayer.id, doublesCount });
+    // console.log('[DEBUG][SERVER][endTurn][CHECK]', { socketId: socket.id, currentPlayerId: currentPlayer.id, doublesCount });
 
     // Handle doubles logic
     if (isDoubles) {
@@ -406,13 +406,13 @@ module.exports = (io, socket) => {
           message: 'ended turn after rolling doubles - gets another roll'
         }, io);
         emitGameStateUpdated(room, io, roomId, { allowRollAgain: true, doublesSequenceActive: true });
-        console.log('[DEBUG][SERVER][endTurn][DOUBLES RETURN]', {
-          playerDoublesCount: room.playerDoublesCount,
-          turnIndex: room.turnIndex,
-          lastDiceRoll: room.lastDiceRoll,
-          allowRollAgain: room.allowRollAgain,
-          doublesSequenceActive: room.doublesSequenceActive
-        });
+        // console.log('[DEBUG][SERVER][endTurn][DOUBLES RETURN]', {
+        //   playerDoublesCount: room.playerDoublesCount,
+        //   turnIndex: room.turnIndex,
+        //   lastDiceRoll: room.lastDiceRoll,
+        //   allowRollAgain: room.allowRollAgain,
+        //   doublesSequenceActive: room.doublesSequenceActive
+        // });
         return;
       }
     }
@@ -439,13 +439,13 @@ module.exports = (io, socket) => {
     room.lastDiceRoll = null;
     emitAdvanceTurnLogs(room, turnResult, io);
     emitGameStateUpdated(room, io, roomId);
-    console.log('[DEBUG][SERVER][endTurn][ADVANCE TURN]', {
-      playerDoublesCount: room.playerDoublesCount,
-      turnIndex: room.turnIndex,
-      lastDiceRoll: room.lastDiceRoll,
-      allowRollAgain: room.allowRollAgain,
-      doublesSequenceActive: room.doublesSequenceActive
-    });
+    // console.log('[DEBUG][SERVER][endTurn][ADVANCE TURN]', {
+    //   playerDoublesCount: room.playerDoublesCount,
+    //   turnIndex: room.turnIndex,
+    //   lastDiceRoll: room.lastDiceRoll,
+    //   allowRollAgain: room.allowRollAgain,
+    //   doublesSequenceActive: room.doublesSequenceActive
+    // });
   };
 
   // New handler for property landing
