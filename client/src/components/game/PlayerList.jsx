@@ -62,12 +62,12 @@ const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = fa
   const hasPlayers = players.length > 0;
 
   return (
-    <Box sx={{ maxHeight: 240, overflow: 'auto' }} className="custom-scrollbar">
+    <Box sx={{ maxHeight: 240, overflow: 'auto' }} className={`custom-scrollbar${isShuffling ? ' shuffling' : ''}`}>
       {/* Players List */}
       {hasPlayers && (
         <Box>
           {players.map((player) => (
-            <StyledPlayerCard key={player.id} elevation={0} isshuffling={isShuffling.toString()}>
+            <StyledPlayerCard key={player.id} elevation={0} isshuffling={isShuffling.toString()} className="player-list-item">
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 {/* Left side - Avatar and player info */}
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flex: 1 }}>

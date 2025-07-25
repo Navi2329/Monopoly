@@ -44,14 +44,7 @@ import classicMap from '../data/maps/classic';
 import AuctionModal from '../components/game/AuctionModal';
 import { useUser } from '../contexts/UserContext';
 import socket from '../socket';
-
-// Add global socket event logger (only once)
-if (!window.__SOCKET_EVENT_LOGGER_ADDED__) {
-  socket.onAny((event, ...args) => {
-    // console.log('[SOCKET EVENT]', event, ...args);
-  });
-  window.__SOCKET_EVENT_LOGGER_ADDED__ = true;
-}
+import PropertyPopup from '../components/game/PropertyPopup';
 
 const StyledSidebar = styled(Paper)(({ theme }) => ({
   background: 'linear-gradient(145deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.95))',
@@ -123,22 +116,25 @@ const GamePage = () => {
   const location = useLocation();
   const playerNameFromNav = location.state?.playerName;
 
-  // Log socket id and roomId for debugging
-  // console.log('[CLIENT] GamePage mount: socket.id =', socket.id || 'unknown', 'roomId =', roomId);
-
   // Track the current room and player name globally for reconnect logic
   window.currentRoomId = roomId;
   window.currentPlayerName = playerNameFromNav;
 
+  // --- DEBUG: Log socket id and roomId on mount and on every reconnect ---
   useEffect(() => {
-    function handleConnect() {
-      // console.log('[CLIENT] Socket connected:', socket.id, 'roomId:', roomId);
-    }
+    const handleConnect = () => {
+      if (window.currentRoomId && window.currentPlayerName) {
+        socket.emit('joinRoom', {
+          roomId: window.currentRoomId,
+          playerName: window.currentPlayerName,
+        });
+      }
+    };
     socket.on('connect', handleConnect);
     return () => {
       socket.off('connect', handleConnect);
     };
-  }, []);
+  }, [roomId]);
 
   // Multiplayer state
   const [players, setPlayers] = useState([]);
@@ -163,100 +159,68 @@ const GamePage = () => {
   const [syncedSpecialAction, setSyncedSpecialAction] = useState(null);
   const [currentTurnSocketId, setCurrentTurnSocketId] = useState(null);
   const [globalDiceRolling, setGlobalDiceRolling] = useState(false);
+  const [localDiceRolling, setLocalDiceRolling] = useState(false);
+
+  // Helper function to wait for dice animation to complete before ending turn
+  const waitForDiceAnimationAndEndTurn = (endTurnCallback) => {
+    const checkDiceAnimation = () => {
+      if (!globalDiceRolling && !localDiceRolling) {
+        // Dice animation is complete, end turn
+        endTurnCallback();
+      } else {
+        // Check again in 100ms
+        setTimeout(checkDiceAnimation, 100);
+      }
+    };
+
+    // Start checking for dice animation completion
+    setTimeout(checkDiceAnimation, 100);
+  };
 
   // Add this near the other useState hooks at the top of GamePage
   const [lastDiceRoll, setLastDiceRoll] = useState(null);
+
+  // Property popup state
+  const [propertyPopupOpen, setPropertyPopupOpen] = useState(false);
+  const [selectedProperty, setSelectedProperty] = useState(null);
 
   const prevPropertyOwnershipRef = useRef({});
 
   // Move onGameStateUpdated outside useEffect for stable reference
   const onGameStateUpdated = React.useCallback((gameState) => {
-    // Debug: Log received game state
-    console.log('[DEBUG] [CLIENT] Received gameStateUpdated:', {
-      propertyOwnership: gameState.propertyOwnership,
-      playerMoney: gameState.playerMoney
-    });
-    if (gameState.playerStatuses) {
-      // console.log('[CLIENT] Player statuses:', JSON.stringify(gameState.playerStatuses));
+    // Log the game state as a collapsible object
+    // console.log('[DEBUG] [CLIENT] FULL gameStateUpdated:', gameState);
+    // --- FIX: Log after property purchase only when owned by current player ---
+    if (
+      window.lastBuyProperty &&
+      gameState.propertyOwnership &&
+      gameState.propertyOwnership[window.lastBuyProperty] &&
+      gameState.propertyOwnership[window.lastBuyProperty].owner === socket.id
+    ) {
+      // console.log('[DEBUG] [CLIENT] Buy Property completed:', gameState);
+      window.lastBuyProperty = null;
     }
-    setPlayerPositions(gameState.playerPositions || {});
-    setSyncedPositions(gameState.playerPositions || {});
-    setSyncedLastDiceRoll(gameState.lastDiceRoll);
-    setSyncedPlayerMoney(gameState.playerMoney || {});
-    setSyncedSpecialAction(gameState.specialAction || null);
-    setPlayerStatuses(gameState.playerStatuses || {});
-    setSyncedStatuses(gameState.playerStatuses || {});
-    setCurrentPlayerIndex(gameState.turnIndex || 0);
-    setSyncedTurnIndex(gameState.turnIndex || 0);
-    setSyncedRound(gameState.roundNumber || 1);
-    setPlayerJailCards(gameState.playerJailCards || {});
-    setPlayerJailRounds(gameState.playerJailRounds || {});
-    setVacationCash(gameState.vacationCash || 0);
-    setCurrentTurnSocketId(gameState.currentTurnSocketId || null);
-    setSyncedPropertyOwnership(gameState.propertyOwnership || {});
+  }, []);
 
-    // Update player money
-    if (gameState.playerMoney) {
-      setPlayers(prev => prev.map(player => ({
-        ...player,
-        money: gameState.playerMoney[player.id] || player.money
-      })));
-    }
-
-    // Detect if the current player just bought a property (compare with previous)
-    let justBoughtProperty = false;
-    const prevPropertyOwnership = prevPropertyOwnershipRef.current;
-    if (gameState.propertyOwnership) {
-      const boughtProperty = Object.entries(gameState.propertyOwnership).find(
-        ([name, details]) =>
-          details.owner === socket.id &&
-          (!prevPropertyOwnership[name] || prevPropertyOwnership[name].owner !== socket.id)
-      );
-      if (boughtProperty) {
-        justBoughtProperty = true;
+  // --- Remove all duplicate gameStateUpdated listeners and ensure only one is active ---
+  useEffect(() => {
+    // Remove any previous listeners before adding a new one
+    const handleGameStateUpdated = (gameState) => {
+      // console.log('[DEBUG] [CLIENT] FULL gameStateUpdated:', gameState, 'socket.id:', socket.id, 'roomId:', roomId);
+      // ...existing onGameStateUpdated logic...
+      if (
+        window.lastBuyProperty &&
+        gameState.propertyOwnership &&
+        gameState.propertyOwnership[window.lastBuyProperty] &&
+        gameState.propertyOwnership[window.lastBuyProperty].owner === socket.id
+      ) {
+        // console.log('[DEBUG] [CLIENT] Buy Property completed:', gameState);
+        window.lastBuyProperty = null;
       }
-    }
-
-    // Set game phase
-    const mySocketId = socket.id;
-    const isMyTurn = gameState.currentTurnSocketId === mySocketId;
-
-    if (justBoughtProperty) {
-      setGamePhase('turn-end');
-    } else if (isMyTurn) {
-      setGamePhase('rolling');
-    } else {
-      setGamePhase('waiting');
-    }
-
-    // Update property ownership and ref
-    prevPropertyOwnershipRef.current = gameState.propertyOwnership || {};
-
-    // After updating propertyOwnership:
-    if (gameState.propertyOwnership) {
-      const boughtProperty = Object.entries(gameState.propertyOwnership).find(
-        ([name, details]) => details.owner === socket.id && (!prevPropertyOwnership[name] || prevPropertyOwnership[name].owner !== socket.id)
-      );
-      if (boughtProperty) {
-        const [propertyName, details] = boughtProperty;
-        if (gameState.playerMoney && gameState.playerMoney[socket.id] >= 0 && details) {
-          // console.log('[CLIENT] Property bought:', { propertyName, details, playerId: socket.id });
-        }
-      }
-    }
-
-    // Log property purchases for all clients
-    if (gameState.propertyOwnership && typeof gameState.propertyOwnership === 'object') {
-      Object.entries(gameState.propertyOwnership).forEach(([property, details]) => {
-        if (
-          (!prevPropertyOwnership[property] || prevPropertyOwnership[property].owner !== details.owner) &&
-          details.ownerName
-        ) {
-          // console.log(`Property ${property} has been bought by ${details.ownerName}`);
-        }
-      });
-    }
-  }, []); // No dependencies, stable reference
+    };
+    return () => {
+    };
+  }, [roomId]);
 
   useEffect(() => {
     if (roomId) {
@@ -285,12 +249,18 @@ const GamePage = () => {
     });
     // Listen for game started
     socket.on('gameStarted', () => {
-      setGameStarted(true);
-      // Set gamePhase to 'rolling' immediately - will be updated when we get the game state
-      setGamePhase('rolling');
+      if (isShufflingPlayers) {
+        // Wait for shuffling animation to finish before starting the game
+        setTimeout(() => {
+          setGameStarted(true);
+          setGamePhase('rolling');
+        }, 2000);
+      } else {
+        setGameStarted(true);
+        setGamePhase('rolling');
+      }
     });
     // Listen for game state updates from server
-    socket.on('gameStateUpdated', onGameStateUpdated);
     // Listen for game log updates from backend
     socket.on('gameLogUpdated', (logEntry) => {
       // console.log('[CLIENT] Received gameLogUpdated:', logEntry);
@@ -344,21 +314,33 @@ const GamePage = () => {
       }, 800);
     });
 
+    // Listen for shufflingPlayers event from server
+    socket.on('shufflingPlayers', ({ shuffledOrder }) => {
+      setIsShufflingPlayers(true);
+      // Map shuffledOrder (array of ids) to player objects
+      const order = shuffledOrder.map(id => players.find(p => p.id === id)).filter(Boolean);
+      setShuffledOrder(order);
+      setTimeout(() => {
+        setIsShufflingPlayers(false);
+        setShuffledOrder([]);
+      }, 2000);
+    });
+
     // Optionally: fetch initial state if needed
     return () => {
       socket.off('playerListUpdated');
       socket.off('playerList');
       socket.off('roomSettingsUpdated');
       socket.off('gameStarted');
-      socket.off('gameStateUpdated', onGameStateUpdated);
       socket.off('gameLogUpdated');
       socket.off('fullGameLog');
       socket.off('colorTakenError');
       socket.off('propertyLanding');
       socket.off('purchaseError');
       socket.off('diceRollingStarted');
+      socket.off('shufflingPlayers');
     };
-  }, [roomId, onGameStateUpdated]);
+  }, [roomId, onGameStateUpdated, players]);
 
   // Player states
   const [playerStatuses, setPlayerStatuses] = useState({}); // { playerId: { status: 'jail' | 'vacation', vacationStartRound?: number } }
@@ -405,7 +387,7 @@ const GamePage = () => {
   // Bots state
   const [bots, setBots] = useState([]);
   const [isAddingBots, setIsAddingBots] = useState(false);
-  const [isShufflingPlayers, setIsShufflingPlayers] = useState(false);
+  const [shuffledOrder, setShuffledOrder] = useState([]);
 
   // Ref to store the final shuffled order
   const shuffledOrderRef = useRef(null);
@@ -414,14 +396,25 @@ const GamePage = () => {
   // Ref to track if game has started (for immediate bot stopping)
   const gameStartedRef = useRef(false);
 
+  // Add syncedPlayersOrdered state to store the latest player order from the server
+  const [syncedPlayersOrdered, setSyncedPlayersOrdered] = useState([]);
+
   // Combine human players and bots for display
-  // Use shuffled order if available, otherwise use current order
+  // Use server-synced order if available, otherwise use current order
   const allPlayers = React.useMemo(() => {
+    if (gameStarted && syncedPlayersOrdered.length > 0) {
+      // Merge server-sent order with up-to-date player objects (for money, status, etc.)
+      return syncedPlayersOrdered.map(player => {
+        // Find the current version of this player in players or bots arrays
+        const currentPlayer = players.find(p => p.id === player.id) || bots.find(b => b.id === player.id);
+        return currentPlayer ? { ...currentPlayer, ...player } : player;
+      });
+    }
     if (shuffledOrderRef.current && gameStarted) {
       return shuffledOrderRef.current;
     }
     return [...players, ...bots];
-  }, [players, bots, gameStarted, shuffleVersion]);
+  }, [players, bots, gameStarted, shuffleVersion, syncedPlayersOrdered]);
 
   // State to track if randomization was used
   const [wasRandomized, setWasRandomized] = useState(false);
@@ -964,10 +957,61 @@ const GamePage = () => {
     setMessages([...messages, newMessage]);
   };
 
+  // Add shuffling state
+  const [isShufflingPlayers, setIsShufflingPlayers] = useState(false);
+  const [shufflingOverlayVisible, setShufflingOverlayVisible] = useState(false);
+
+  // Helper to shuffle array
+  function shuffleArray(array) {
+    const arr = [...array];
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }
+
+  // Modified handleStartGame
   const handleStartGame = () => {
-    if (!playerJoined) return; // Don't allow game start until player joined
-    socket.emit('startGame', { roomId });
+    if (!playerJoined) return;
+    if (gameSettings.randomizePlayerOrder) {
+      // Host requests shuffle from server
+      socket.emit('requestShuffle', { roomId });
+    } else {
+      socket.emit('startGame', { roomId });
+    }
   };
+
+  // Listen for shufflingPlayers event from server
+  useEffect(() => {
+    const handleShufflingPlayers = ({ shuffledOrder }) => {
+      setIsShufflingPlayers(true);
+      setShufflingOverlayVisible(true); // Show overlay for all clients
+      // Map shuffledOrder (array of ids) to player objects
+      const order = shuffledOrder.map(id => players.find(p => p.id === id)).filter(Boolean);
+      setShuffledOrder(order);
+      setTimeout(() => {
+        setIsShufflingPlayers(false);
+        setShuffledOrder([]);
+        setShufflingOverlayVisible(false); // Hide overlay after animation
+        // Only the host emits startGame after animation
+        if (isHost) {
+          socket.emit('startGame', { roomId, shuffledOrder });
+        }
+      }, 2000);
+    };
+    socket.on('shufflingPlayers', handleShufflingPlayers);
+    return () => {
+      socket.off('shufflingPlayers', handleShufflingPlayers);
+    };
+  }, [players, isHost, roomId]);
+
+  // For rendering player list, use server-synced order if available
+  const displayPlayers = React.useMemo(() => {
+    if (isShufflingPlayers && shuffledOrder.length > 0) return shuffledOrder;
+    if (gameStarted && syncedPlayersOrdered.length > 0) return allPlayers;
+    return players;
+  }, [isShufflingPlayers, shuffledOrder, players, allPlayers, gameStarted, syncedPlayersOrdered]);
 
   const handleRollDice = (dice1, dice2, total, isDoubles, specialAction, landedSpaceIndex, currentPos) => {
     setLastDiceRoll({ dice1, dice2, total });
@@ -1020,10 +1064,9 @@ const GamePage = () => {
         handleMovePlayerToPosition(currentPlayer.id, 10).then(() => {
           // Clear the last dice roll to prevent "roll again" logic
           setLastDiceRoll(null);
-          // End turn immediately after moving to jail
-          setTimeout(() => {
-            handleEndTurn(true); // <-- force next player
-          }, 1000);
+
+          // Wait for dice animation to complete before ending turn
+          waitForDiceAnimationAndEndTurn(() => handleEndTurn(true));
         });
         return;
       }
@@ -1041,12 +1084,16 @@ const GamePage = () => {
 
     // Check if player passed or landed on START (position 0)
     let startBonus = 0;
+    let startMessage = '';
+
     if (startPos !== 0 && newPos === 0) {
       // Landed exactly on START
       startBonus = 300;
-    } else if (startPos > newPos || (startPos + total) >= 40) {
-      // Passed START (wrapped around)
+      startMessage = 'landed on START and collected $300!';
+    } else if (startPos + total > 40 && newPos !== 0) {
+      // Passed START (wrapped around) but didn't land on it
       startBonus = 200;
+      startMessage = 'passed START and collected $200!';
     }
 
     // Award START bonus
@@ -1069,13 +1116,11 @@ const GamePage = () => {
       }
 
       // START bonus goes directly to player only (not to vacation cash)
-
-      const bonusMessage = startBonus === 300 ? 'landed on START and collected $300!' : 'passed START and collected $200!';
       setGameLog(prev => [{
         id: generateLogId(),
         type: 'special',
         player: currentPlayer?.name,
-        message: bonusMessage
+        message: startMessage
       }, ...prev]);
     }
 
@@ -1109,10 +1154,8 @@ const GamePage = () => {
       // Set game phase to turn-end immediately to prevent showing jail escape buttons
       setGamePhase('turn-end');
 
-      // End turn immediately when sent to jail
-      setTimeout(() => {
-        handleEndTurn(true); // <-- force next player
-      }, 1000);
+      // Wait for dice animation to complete before ending turn
+      waitForDiceAnimationAndEndTurn(() => handleEndTurn(true));
       return;
     } else if (specialAction === 'vacation') {
       // Award collected money if vacation cash rule is enabled
@@ -1170,10 +1213,8 @@ const GamePage = () => {
 
       setLastDiceRoll(null); // <-- Clear dice after vacation
 
-      // End turn immediately after setting vacation status
-      setTimeout(() => {
-        handleEndTurn(true, { [currentPlayer.id]: { status: 'vacation', vacationStartRound: roundNumber } });
-      }, 1000); // Increased delay to ensure state is updated
+      // Wait for dice animation to complete before ending turn
+      waitForDiceAnimationAndEndTurn(() => handleEndTurn(true, { [currentPlayer.id]: { status: 'vacation', vacationStartRound: roundNumber } }));
       return;
     } else if (specialAction === 'jail-escape') {
       setGameLog(prev => [{
@@ -1199,10 +1240,8 @@ const GamePage = () => {
       // Set game phase to turn-end to prevent showing any buttons
       setGamePhase('turn-end');
 
-      // Player escaped jail - end turn immediately (no extra turn for doubles)
-      setTimeout(() => {
-        handleEndTurn(true); // <-- force next player
-      }, 1000);
+      // Wait for dice animation to complete before ending turn
+      waitForDiceAnimationAndEndTurn(() => handleEndTurn(true));
       return;
     } else if (specialAction === 'jail-stay') {
       setGameLog(prev => [{
@@ -1215,10 +1254,8 @@ const GamePage = () => {
       // Set game phase to turn-end to prevent showing any buttons
       setGamePhase('turn-end');
 
-      // Player stays in jail, end their turn immediately
-      setTimeout(() => {
-        handleEndTurn(true); // <-- force next player
-      }, 1000);
+      // Wait for dice animation to complete before ending turn
+      waitForDiceAnimationAndEndTurn(() => handleEndTurn(true));
       return;
     } else if (specialAction === 'jail-auto-release') {
       setGameLog(prev => [{
@@ -1238,10 +1275,8 @@ const GamePage = () => {
       // Set game phase to turn-end to prevent showing any buttons
       setGamePhase('turn-end');
 
-      // Player is automatically released, end their turn immediately
-      setTimeout(() => {
-        handleEndTurn(true); // <-- force next player
-      }, 1000);
+      // Wait for dice animation to complete before ending turn
+      waitForDiceAnimationAndEndTurn(() => handleEndTurn(true));
       return;
     }
 
@@ -1456,6 +1491,13 @@ const GamePage = () => {
 
   // Property management handlers
   const handleBuildHouse = (propertyName) => {
+    // Multiplayer: emit socket event
+    if (gameStarted) {
+      console.log('[DEBUG] Emitting buildHouse', propertyName, roomId);
+      socket.emit('buildHouse', { roomId, propertyName });
+      return;
+    }
+    // ... existing singleplayer/local logic ...
     const currentPlayer = allPlayers[currentPlayerIndex];
     if (!currentPlayer) return;
 
@@ -1633,6 +1675,12 @@ const GamePage = () => {
   };
 
   const handleDestroyHouse = (propertyName) => {
+    // Multiplayer: emit socket event
+    if (gameStarted) {
+      socket.emit('destroyHouse', { roomId, propertyName });
+      return;
+    }
+    // ... existing singleplayer/local logic ...
     const currentPlayer = allPlayers[currentPlayerIndex];
     if (!currentPlayer) return;
 
@@ -1765,6 +1813,16 @@ const GamePage = () => {
   };
 
   const handleMortgageProperty = (propertyName, mortgage) => {
+    // Multiplayer: emit socket event
+    if (gameStarted) {
+      if (mortgage) {
+        socket.emit('mortgageProperty', { roomId, propertyName });
+      } else {
+        socket.emit('unmortgageProperty', { roomId, propertyName });
+      }
+      return;
+    }
+    // ... existing singleplayer/local logic ...
     const currentPlayer = allPlayers[currentPlayerIndex];
     if (!currentPlayer) return;
 
@@ -1892,6 +1950,12 @@ const GamePage = () => {
   };
 
   const handleSellProperty = (propertyName) => {
+    // Multiplayer: emit socket event
+    if (gameStarted) {
+      socket.emit('sellProperty', { roomId, propertyName });
+      return;
+    }
+    // ... existing singleplayer/local logic ...
     const currentPlayer = allPlayers[currentPlayerIndex];
     if (!currentPlayer) return;
 
@@ -1961,6 +2025,12 @@ const GamePage = () => {
       player: currentPlayer.name,
       message: `sold ${propertyName} for $${sellAmount}`
     }, ...prev]);
+  };
+
+  // Handler for opening property popup from sidebar
+  const handlePropertyClick = (propertyName) => {
+    setSelectedProperty(propertyName);
+    setPropertyPopupOpen(true);
   };
 
   // Handler for property rent events
@@ -2315,13 +2385,19 @@ const GamePage = () => {
 
   // Add syncedPropertyOwnership state to store the latest property ownership from the server
   const [syncedPropertyOwnership, setSyncedPropertyOwnership] = useState({});
+  // Add syncedVacationCash state to store the latest vacation cash from the server
+  const [syncedVacationCash, setSyncedVacationCash] = useState(0);
 
   // Update syncedPropertyOwnership in the multiplayer sync useEffect
   useEffect(() => {
     socket.on('gameStateUpdated', (state) => {
-      // Print the updated game state after every turn (multiplayer sync)
-      // console.log('[CLIENT] [SYNC] Updated game state:', state);
-      // console.log('[CLIENT] [SYNC] Player statuses:', JSON.stringify(state.playerStatuses || {}));
+      console.log('[DEBUG][CLIENT] gameStateUpdated:', state);
+      console.log('[DEBUG][CLIENT] playerStatuses:', state.playerStatuses);
+      console.log('[DEBUG][CLIENT] turnIndex:', state.turnIndex);
+      console.log('[DEBUG][CLIENT] roundNumber:', state.roundNumber);
+      console.log('[DEBUG][CLIENT] currentTurnSocketId:', state.currentTurnSocketId);
+      console.log('[DEBUG][CLIENT] specialAction:', state.specialAction);
+      console.log('[DEBUG][CLIENT] gameLog:', state.gameLog);
       setSyncedPositions(state.playerPositions || {});
       setSyncedStatuses(state.playerStatuses || {});
       setSyncedTurnIndex(state.turnIndex || 0);
@@ -2331,13 +2407,14 @@ const GamePage = () => {
       setSyncedSpecialAction(state.specialAction || null);
       setCurrentTurnSocketId(state.currentTurnSocketId || null);
       setSyncedPropertyOwnership(state.propertyOwnership || {});
+      setSyncedVacationCash(state.vacationCash || 0);
+      setSyncedPlayersOrdered(state.playersOrdered || []);
       // Set game phase to 'rolling' when game starts and it's the current player's turn
       if (gameStarted && state.currentTurnSocketId === socket.id) {
         setGamePhase('rolling');
       }
     });
     return () => {
-      socket.off('gameStateUpdated');
     };
   }, [gameStarted, socket.id]);
 
@@ -2393,7 +2470,7 @@ const GamePage = () => {
     devDiceEnabled={devDiceEnabled}
     devDice1={devDice1}
     devDice2={devDice2}
-    vacationCash={gameSettings.vacationCash ? vacationCash : 0}
+    vacationCash={gameSettings.vacationCash ? syncedVacationCash : 0}
     isHost={isHost}
     syncedPositions={syncedPositions}
     syncedLastDiceRoll={syncedLastDiceRoll}
@@ -2410,6 +2487,8 @@ const GamePage = () => {
       if (gamePhase !== 'rolling') setGamePhase('rolling');
     }}
     currentUserId={currentPlayer?.id}
+    isShufflingPlayers={isShufflingPlayers}
+    onLocalDiceRollingChange={setLocalDiceRolling}
   />
 
 
@@ -2426,14 +2505,27 @@ const GamePage = () => {
   }, [syncedPropertyOwnership, propertyLandingState, currentPlayer]);
 
 
+  // Only log gameStateUpdated events inside this effect
   useEffect(() => {
-    if (!socket) return;
-    // ... existing code ...
-    socket.on('gameStateUpdated', (gameState) => {
-      // ... existing code ...
-    });
-    // ... existing code ...
-  }, [socket, roomId]);
+    const handleGameStateUpdated = (gameState) => {
+      console.log('[gameStateUpdated]', gameState);
+    };
+    socket.on('gameStateUpdated', handleGameStateUpdated);
+    return () => {
+      socket.off('gameStateUpdated', handleGameStateUpdated);
+    };
+  }, []);
+
+  // Listen for property action errors from server
+  useEffect(() => {
+    const handlePropertyActionError = ({ message }) => {
+      alert(message || 'Property action failed');
+    };
+    socket.on('propertyActionError', handlePropertyActionError);
+    return () => {
+      socket.off('propertyActionError', handlePropertyActionError);
+    };
+  }, [roomId]);
 
   return (
     <Box sx={{
@@ -2554,7 +2646,7 @@ const GamePage = () => {
             devDiceEnabled={devDiceEnabled}
             devDice1={devDice1}
             devDice2={devDice2}
-            vacationCash={gameSettings.vacationCash ? vacationCash : 0}
+            vacationCash={gameSettings.vacationCash ? syncedVacationCash : 0}
             isHost={isHost}
             syncedPositions={syncedPositions}
             syncedLastDiceRoll={syncedLastDiceRoll}
@@ -2571,7 +2663,56 @@ const GamePage = () => {
               if (gamePhase !== 'rolling') setGamePhase('rolling');
             }}
             currentUserId={currentPlayer?.id}
+            isShufflingPlayers={isShufflingPlayers}
+            onPropertyClick={handlePropertyClick}
           />
+
+          {/* Property Popup */}
+          {propertyPopupOpen && selectedProperty && (
+            <div style={{
+              position: 'absolute',
+              top: 100,
+              left: classicMap.find(p => p.name === selectedProperty)?.type === 'company' ? '48%' : '57%',
+              transform: classicMap.find(p => p.name === selectedProperty)?.type === 'company' ? 'translateX(-9%)' : 'translateX(10%)',
+              zIndex: 200,
+            }}
+              onClick={e => e.stopPropagation()}
+            >
+              <PropertyPopup
+                propertyName={selectedProperty}
+                onClose={() => setPropertyPopupOpen(false)}
+                propertyOwnership={syncedPropertyOwnership}
+                players={allPlayers}
+                currentPlayerIndex={syncedTurnIndex}
+                gamePhase={gamePhase}
+                onBuildHouse={handleBuildHouse}
+                onDestroyHouse={handleDestroyHouse}
+                onMortgageProperty={handleMortgageProperty}
+                onSellProperty={handleSellProperty}
+                gameSettings={gameSettings}
+                currentUserId={currentPlayer?.id}
+                popupWidth={classicMap.find(p => p.name === selectedProperty)?.type === 'company' ? 320 : undefined}
+                syncedPlayerMoney={syncedPlayerMoney}
+                playerStatuses={syncedStatuses}
+              />
+            </div>
+          )}
+
+          {/* Overlay to close popup on outside click */}
+          {propertyPopupOpen && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                zIndex: 99,
+                background: 'transparent',
+              }}
+              onClick={() => setPropertyPopupOpen(false)}
+            />
+          )}
         </Box>
 
         {/* Map Preview Overlay */}
@@ -2642,7 +2783,7 @@ const GamePage = () => {
         {/* Players Section - Fixed at top */}
         <Box sx={{ flex: '0 0 auto', p: 2, borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
           <PlayerList
-            players={allPlayers}
+            players={displayPlayers}
             currentPlayerId={currentPlayer?.id}
             gameStarted={gameStarted}
             isHost={true}
@@ -2830,10 +2971,7 @@ const GamePage = () => {
                         className="property-item"
                         data-type={prop.type}
                         data-mortgaged={ownership?.mortgaged || false}
-                        onClick={() => {
-                          // You can add property click functionality here
-                          // For example, open property details modal
-                        }}
+                        onClick={() => handlePropertyClick(prop.name)}
                         sx={{
                           px: 1,
                           py: 0.75,
@@ -2844,6 +2982,7 @@ const GamePage = () => {
                           border: '1px solid rgba(255, 255, 255, 0.05)',
                           position: 'relative',
                           overflow: 'hidden',
+                          cursor: 'pointer',
                           '&:hover': {
                             background: 'rgba(51, 65, 85, 0.8)',
                             transform: 'translateY(-2px)',

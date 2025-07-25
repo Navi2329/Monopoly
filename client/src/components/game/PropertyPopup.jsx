@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import classicMap from '../../data/maps/classic';
 import { Avatar, Tooltip } from '@mui/material';
 import { Home, Hotel, MonetizationOn, Gavel, Delete } from '@mui/icons-material';
@@ -128,15 +128,35 @@ const PropertyPopup = ({
     onSellProperty,
     gameSettings,
     currentUserId,
-    popupWidth
+    popupWidth,
+    syncedPlayerMoney,
+    playerStatuses
 }) => {
+    const [actionLoading, setActionLoading] = useState(false);
+    // Add a local state to force re-render on ownership change
+    const [ownershipVersion, setOwnershipVersion] = useState(0);
+    useEffect(() => { setActionLoading(false); }, [propertyName, onClose]);
+    // Force re-render when propertyOwnership for this property changes
+    useEffect(() => {
+        setOwnershipVersion(v => v + 1);
+    }, [propertyOwnership]);
+
     const property = classicMap.find(p => p.name === propertyName);
     if (!property) return null;
 
     const ownership = propertyOwnership[propertyName];
     const currentPlayer = players && players[currentPlayerIndex];
+    // Use syncedPlayerMoney if currentPlayer.money is undefined (multiplayer)
+    const currentPlayerMoney = (currentPlayer && typeof currentPlayer.money === 'number')
+        ? currentPlayer.money
+        : (syncedPlayerMoney ? syncedPlayerMoney[currentUserId] : undefined);
     const isOwner = ownership && ownership.owner === currentUserId;
     const isOwnerTurn = isOwner && currentPlayer && currentPlayer.id === currentUserId;
+
+    // Check if current player is on vacation
+    const isOnVacation = playerStatuses && playerStatuses[currentUserId] &&
+        typeof playerStatuses[currentUserId] === 'object' &&
+        playerStatuses[currentUserId].status === 'vacation';
 
     // Get current property state from ownership data
     const currentHouses = ownership?.houses || 0;
@@ -144,7 +164,7 @@ const PropertyPopup = ({
     const isMortgaged = ownership?.mortgaged || false;
 
     const setProperties = classicMap.filter(p => p.set === property.set && p.type === 'property');
-    const ownedSet = setProperties.every(p => propertyOwnership[p.name] && propertyOwnership[p.name].owner === currentPlayer?.id);
+    const ownedSet = setProperties.every(p => propertyOwnership[p.name] && propertyOwnership[p.name].owner === currentUserId);
     const anyMortgaged = setProperties.some(p => propertyOwnership[p.name]?.mortgaged);
     const anyHousesOrHotels = setProperties.some(p => propertyOwnership[p.name]?.houses > 0 || propertyOwnership[p.name]?.hotel);
 
@@ -157,11 +177,11 @@ const PropertyPopup = ({
         // For unmortgaging: can unmortgage if this specific property is mortgaged and no other properties in set have houses/hotels
         // and player has enough money (60% of property price)
         const unmortgageCost = Math.ceil(property.price * 0.6);
-        if (property.type === 'property' && isMortgaged && !anyHousesOrHotels && currentPlayer && currentPlayer.money >= unmortgageCost) canMortgage = true;
-        else if (property.type !== 'property' && isMortgaged && currentPlayer && currentPlayer.money >= unmortgageCost) canMortgage = true;
+        if (property.type === 'property' && isMortgaged && !anyHousesOrHotels && currentPlayer && currentPlayerMoney >= unmortgageCost) canMortgage = true;
+        else if (property.type !== 'property' && isMortgaged && currentPlayer && currentPlayerMoney >= unmortgageCost) canMortgage = true;
 
         if (property.type === 'property') {
-            if (ownedSet && !anyMortgaged && !(currentHouses === 4 && hasHotel) && currentPlayer && currentPlayer.money >= property.buildCost) {
+            if (ownedSet && !anyMortgaged && !(currentHouses === 4 && hasHotel) && currentPlayer && currentPlayerMoney >= property.buildCost) {
                 // Check if houses are built evenly across the set (only if even build rule is enabled)
                 let canBuildEvenly = true;
                 if (gameSettings?.evenBuild) {
@@ -232,15 +252,23 @@ const PropertyPopup = ({
         else if (property.type !== 'property' && !isMortgaged) canSell = true;
     }
 
+    // Only allow build if not already a hotel
+    const canBuildFinal = canBuild && !hasHotel;
+
+    // Sell button enable/disable logic
+    const canSellFinal = canSell && !anyHousesOrHotels && !isMortgaged;
+
     // Handle mortgage/unmortgage
     const handleMortgage = () => {
         if (onMortgageProperty) {
+            setActionLoading(true);
             onMortgageProperty(propertyName, !isMortgaged);
         }
     };
 
     // Handle build house
     const handleBuildHouse = () => {
+        console.log('[DEBUG] Build button clicked', propertyName);
         if (onBuildHouse) {
             onBuildHouse(propertyName);
         }
@@ -256,6 +284,7 @@ const PropertyPopup = ({
     // Handle sell property
     const handleSellProperty = () => {
         if (onSellProperty) {
+            setActionLoading(true);
             onSellProperty(propertyName);
         }
     };
@@ -278,8 +307,75 @@ const PropertyPopup = ({
         { label: 'If two companies are owned', value: '$10 × 🎲' },
     ] : [];
 
-    // Check if double rent applies for this property
-    const hasDoubleRent = gameSettings?.doubleRentOnFullSet && property.type === 'property' && ownedSet && !hasHotel && currentHouses === 0;
+    // Determine if double rent applies (own full set, property type is property)
+    const showDoubleRent = property.type === 'property' && ownedSet && gameSettings?.doubleRentOnFullSet;
+
+    // Debug log for build button state
+    let canBuildEvenly = true;
+    if (property.type === 'property') {
+        if (ownedSet && !anyMortgaged && !(currentHouses === 4 && hasHotel) && currentPlayer && currentPlayerMoney >= property.buildCost) {
+            if (gameSettings?.evenBuild) {
+                // For even build calculation, treat hotels as 4 houses
+                const setHouseCounts = setProperties.map(p => {
+                    const propHouses = propertyOwnership[p.name]?.houses || 0;
+                    const propHotel = propertyOwnership[p.name]?.hotel || false;
+                    return propHotel ? 4 : propHouses;
+                });
+                const minHouses = Math.min(...setHouseCounts);
+
+                // Calculate current property's effective house count
+                const currentEffectiveHouses = hasHotel ? 4 : currentHouses;
+
+                // Can build if this property has the minimum number of houses
+                if (currentEffectiveHouses <= minHouses) {
+                    // If building a hotel (4 houses), check if all properties in set have 4 houses or hotels
+                    if (currentHouses >= 4) {
+                        const allReadyForHotel = setProperties.every(p => {
+                            const propHouses = propertyOwnership[p.name]?.houses || 0;
+                            const propHotel = propertyOwnership[p.name]?.hotel || false;
+                            return propHouses >= 4 || propHotel;
+                        });
+                        if (allReadyForHotel) {
+                            canBuildEvenly = true;
+                        } else {
+                            canBuildEvenly = false;
+                        }
+                    } else {
+                        canBuildEvenly = true;
+                    }
+                } else {
+                    canBuildEvenly = false;
+                }
+            }
+            // canBuildEvenly is set above
+        } else {
+            // Log which sub-condition failed
+            console.log('[DEBUG][PropertyPopup][canBuild sub-conditions]', {
+                ownedSet,
+                anyMortgaged,
+                currentHouses,
+                hasHotel,
+                currentPlayerMoney,
+                buildCost: property.buildCost,
+                notMaxHousesAndHotel: !(currentHouses === 4 && hasHotel),
+                currentPlayerExists: !!currentPlayer,
+                moneyEnough: currentPlayerMoney >= property.buildCost
+            });
+        }
+    }
+
+    console.log('[DEBUG][PropertyPopup]', {
+        propertyName,
+        isOwner,
+        ownedSet,
+        isOwnerTurn,
+        canBuild,
+        propertyOwnership,
+        currentUserId,
+        currentPlayerIndex,
+        players,
+        currentPlayer,
+    });
 
     return (
         <div style={{
@@ -302,31 +398,31 @@ const PropertyPopup = ({
                         <button
                             style={{
                                 width: '100%',
-                                background: canMortgage ? 'linear-gradient(90deg,#eab308,#fbbf24)' : 'linear-gradient(90deg,#fef3c7,#fde68a)',
-                                color: canMortgage ? '#fff' : '#b45309',
+                                background: canMortgage && isOwnerTurn && !isOnVacation ? 'linear-gradient(90deg,#eab308,#fbbf24)' : 'linear-gradient(90deg,#fef3c7,#fde68a)',
+                                color: canMortgage && isOwnerTurn && !isOnVacation ? '#fff' : '#b45309',
                                 border: 'none',
                                 borderRadius: 7,
                                 fontWeight: 700,
                                 fontSize: '1rem',
                                 padding: '7px 0',
                                 marginBottom: 7,
-                                cursor: canMortgage ? 'pointer' : 'not-allowed',
-                                boxShadow: canMortgage ? '0 1px 4px rgba(251,191,36,0.10)' : 'none',
-                                opacity: canMortgage ? 1 : 0.7
+                                cursor: canMortgage && isOwnerTurn && !actionLoading && !isOnVacation ? 'pointer' : 'not-allowed',
+                                boxShadow: canMortgage && isOwnerTurn && !isOnVacation ? '0 1px 4px rgba(251,191,36,0.10)' : 'none',
+                                opacity: canMortgage && isOwnerTurn && !actionLoading && !isOnVacation ? 1 : 0.7
                             }}
-                            onClick={canMortgage ? handleMortgage : undefined}
-                            disabled={!canMortgage}
+                            onClick={canMortgage && isOwnerTurn && !actionLoading && !isOnVacation ? handleMortgage : undefined}
+                            disabled={!canMortgage || !isOwnerTurn || actionLoading || isOnVacation}
                         >
-                            {isMortgaged ? 'Unmortgage' : 'Mortgage'}
+                            {actionLoading ? 'Processing...' : (isMortgaged ? 'Unmortgage' : 'Mortgage')}
                         </button>
                     </span>
                 </Tooltip>
             )}
-            {/* Double rent indicator */}
-            {hasDoubleRent && (
+            {/* Double rent indicator - always show if full set owned and setting enabled */}
+            {showDoubleRent && (
                 <div style={{ color: '#fbbf24', fontWeight: 700, fontSize: '0.95rem', marginBottom: 4 }}>
                     <MonetizationOn style={{ fontSize: 18, verticalAlign: 'middle', marginRight: 4 }} />
-                    Double rent (full set owned)
+                    Double rent
                 </div>
             )}
             {/* Header: Property Name */}
@@ -364,19 +460,31 @@ const PropertyPopup = ({
             </div>
             {/* Action Buttons Row: Only show for owner */}
             {isOwner ? (
-                <div style={{ display: 'flex', gap: 4, marginTop: 6, justifyContent: 'center' }}>
-                    <button style={actionBtn(isOwnerTurn && canBuild)} disabled={!isOwnerTurn || !canBuild} onClick={handleBuildHouse} title="Build House">
-                        <Home sx={{ fontSize: 16, verticalAlign: 'middle', color: isOwnerTurn && canBuild ? '#fff' : '#a78bfa', opacity: isOwnerTurn && canBuild ? 1 : 0.5 }} />
-                    </button>
-                    <button style={actionBtn(isOwnerTurn && canDestroy)} disabled={!isOwnerTurn || !canDestroy} onClick={handleDestroyHouse} title="Destroy House">
-                        <Delete sx={{ fontSize: 16, verticalAlign: 'middle', color: isOwnerTurn && canDestroy ? '#fff' : '#a78bfa', opacity: isOwnerTurn && canDestroy ? 1 : 0.5 }} />
-                    </button>
-                    {canSell && (
-                        <button style={actionBtn(isOwnerTurn)} disabled={!isOwnerTurn} onClick={handleSellProperty} title="Sell Property">
-                            <Gavel sx={{ fontSize: 16, mr: 0.5 }} />
+                <>
+                    <div style={{ display: 'flex', gap: 4, marginTop: 6, justifyContent: 'center' }}>
+                        <button style={actionBtn(isOwnerTurn && canBuildFinal && !isOnVacation)} disabled={!isOwnerTurn || !canBuildFinal || isOnVacation} onClick={handleBuildHouse} title="Build House">
+                            <Home sx={{ fontSize: 16, verticalAlign: 'middle', color: isOwnerTurn && canBuildFinal && !isOnVacation ? '#fff' : '#a78bfa', opacity: isOwnerTurn && canBuildFinal && !isOnVacation ? 1 : 0.5 }} />
                         </button>
-                    )}
-                </div>
+                        <button style={actionBtn(isOwnerTurn && canDestroy && !isOnVacation)} disabled={!isOwnerTurn || !canDestroy || isOnVacation} onClick={handleDestroyHouse} title="Destroy House">
+                            <Delete sx={{ fontSize: 16, verticalAlign: 'middle', color: isOwnerTurn && canDestroy && !isOnVacation ? '#fff' : '#a78bfa', opacity: isOwnerTurn && canDestroy && !isOnVacation ? 1 : 0.5 }} />
+                        </button>
+                    </div>
+                    <button
+                        style={{
+                            ...actionBtn(isOwnerTurn && canSellFinal && !isOnVacation),
+                            width: '100%',
+                            marginTop: 8,
+                            background: isOwnerTurn && canSellFinal && !isOnVacation
+                                ? 'linear-gradient(90deg,#fbbf24,#f59e42)'
+                                : actionBtn(false).background
+                        }}
+                        disabled={!isOwnerTurn || !canSellFinal || actionLoading || isOnVacation}
+                        onClick={handleSellProperty}
+                        title="Sell Property"
+                    >
+                        {actionLoading ? 'Processing...' : <><Gavel sx={{ fontSize: 16, mr: 0.5 }} /> Sell Property</>}
+                    </button>
+                </>
             ) : null}
         </div>
     );

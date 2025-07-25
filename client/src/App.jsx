@@ -7,7 +7,9 @@ import HomePage from './pages/HomePage';
 import ProfilePage from './pages/ProfilePage';
 import GamePage from './pages/GamePage';
 
-// Remove all socket.on('connect') and socket.on('disconnect') debug logs
+// Remove any global socket event logger or socket.onAny logging code.
+// Remove any console.log('[SOCKET EVENT]', ...) or similar debug logging for socket events.
+// Only keep necessary application logic.
 
 function App() {
   const [gameState, setGameState] = useState('lobby');

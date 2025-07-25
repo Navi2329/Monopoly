@@ -26,43 +26,43 @@ class Room {
     // Property data from classic map
     this.propertyData = {
       // Brazil set
-      'Salvador': { type: 'property', set: 'Brazil', price: 60, rent: [2, 10, 30, 90, 160, 250], buildCost: 50 },
-      'Rio': { type: 'property', set: 'Brazil', price: 60, rent: [4, 20, 60, 180, 320, 450], buildCost: 50 },
+      'Salvador': { type: 'property', set: 'Brazil', price: 60, rent: [2, 10, 30, 90, 160, 250], buildCost: 50, hotelCost: 250 },
+      'Rio': { type: 'property', set: 'Brazil', price: 60, rent: [4, 20, 60, 180, 320, 450], buildCost: 50, hotelCost: 250 },
       // Airport
       'TLV Airport': { type: 'airport', set: 'Airport', price: 200, rent: [25, 50, 100, 200] },
       // Israel set
-      'Tel Aviv': { type: 'property', set: 'Israel', price: 100, rent: [6, 30, 90, 270, 400, 550], buildCost: 50 },
-      'Haifa': { type: 'property', set: 'Israel', price: 100, rent: [6, 30, 90, 270, 400, 550], buildCost: 50 },
-      'Jerusalem': { type: 'property', set: 'Israel', price: 120, rent: [8, 40, 100, 300, 450, 600], buildCost: 50 },
+      'Tel Aviv': { type: 'property', set: 'Israel', price: 100, rent: [6, 30, 90, 270, 400, 550], buildCost: 50, hotelCost: 250 },
+      'Haifa': { type: 'property', set: 'Israel', price: 100, rent: [6, 30, 90, 270, 400, 550], buildCost: 50, hotelCost: 250 },
+      'Jerusalem': { type: 'property', set: 'Israel', price: 120, rent: [8, 40, 100, 300, 450, 600], buildCost: 50, hotelCost: 250 },
       // Italy set
-      'Venice': { type: 'property', set: 'Italy', price: 140, rent: [10, 50, 150, 450, 625, 750], buildCost: 100 },
-      'Milan': { type: 'property', set: 'Italy', price: 140, rent: [10, 50, 150, 450, 625, 750], buildCost: 50 },
-      'Rome': { type: 'property', set: 'Italy', price: 160, rent: [12, 60, 180, 500, 700, 900], buildCost: 100 },
+      'Venice': { type: 'property', set: 'Italy', price: 140, rent: [10, 50, 150, 450, 625, 750], buildCost: 100, hotelCost: 500 },
+      'Milan': { type: 'property', set: 'Italy', price: 140, rent: [10, 50, 150, 450, 625, 750], buildCost: 50, hotelCost: 250 },
+      'Rome': { type: 'property', set: 'Italy', price: 160, rent: [12, 60, 180, 500, 700, 900], buildCost: 100, hotelCost: 500 },
       // Airport
       'MUC Airport': { type: 'airport', set: 'Airport', price: 200, rent: [25, 50, 100, 200] },
       // Germany set
-      'Frankfurt': { type: 'property', set: 'Germany', price: 180, rent: [14, 70, 200, 550, 750, 950], buildCost: 100 },
-      'Munich': { type: 'property', set: 'Germany', price: 180, rent: [14, 70, 200, 550, 750, 950], buildCost: 100 },
-      'Berlin': { type: 'property', set: 'Germany', price: 200, rent: [16, 80, 220, 600, 800, 1000], buildCost: 100 },
+      'Frankfurt': { type: 'property', set: 'Germany', price: 180, rent: [14, 70, 200, 550, 750, 950], buildCost: 100, hotelCost: 500 },
+      'Munich': { type: 'property', set: 'Germany', price: 180, rent: [14, 70, 200, 550, 750, 950], buildCost: 100, hotelCost: 500 },
+      'Berlin': { type: 'property', set: 'Germany', price: 200, rent: [16, 80, 220, 600, 800, 1000], buildCost: 100, hotelCost: 500 },
       // China set
-      'Shenzhen': { type: 'property', set: 'China', price: 220, rent: [18, 90, 250, 700, 875, 1050], buildCost: 150 },
-      'Beijing': { type: 'property', set: 'China', price: 220, rent: [18, 90, 250, 700, 875, 1050], buildCost: 150 },
-      'Shanghai': { type: 'property', set: 'China', price: 240, rent: [20, 100, 300, 750, 925, 1100], buildCost: 150 },
+      'Shenzhen': { type: 'property', set: 'China', price: 220, rent: [18, 90, 250, 700, 875, 1050], buildCost: 150, hotelCost: 750 },
+      'Beijing': { type: 'property', set: 'China', price: 220, rent: [18, 90, 250, 700, 875, 1050], buildCost: 150, hotelCost: 750 },
+      'Shanghai': { type: 'property', set: 'China', price: 240, rent: [20, 100, 300, 750, 925, 1100], buildCost: 150, hotelCost: 750 },
       // Airport
       'CDG Airport': { type: 'airport', set: 'Airport', price: 200, rent: [25, 50, 100, 200] },
       // France set
-      'Lyon': { type: 'property', set: 'France', price: 260, rent: [22, 110, 330, 800, 975, 1150], buildCost: 150 },
-      'Toulouse': { type: 'property', set: 'France', price: 260, rent: [22, 110, 330, 800, 975, 1150], buildCost: 150 },
-      'Paris': { type: 'property', set: 'France', price: 280, rent: [24, 120, 360, 850, 1025, 1200], buildCost: 150 },
+      'Lyon': { type: 'property', set: 'France', price: 260, rent: [22, 110, 330, 800, 975, 1150], buildCost: 150, hotelCost: 750 },
+      'Toulouse': { type: 'property', set: 'France', price: 260, rent: [22, 110, 330, 800, 975, 1150], buildCost: 150, hotelCost: 750 },
+      'Paris': { type: 'property', set: 'France', price: 280, rent: [24, 120, 360, 850, 1025, 1200], buildCost: 150, hotelCost: 750 },
       // UK set
-      'Liverpool': { type: 'property', set: 'UK', price: 300, rent: [26, 130, 390, 900, 1100, 1275], buildCost: 200 },
-      'Manchester': { type: 'property', set: 'UK', price: 300, rent: [26, 130, 390, 900, 1100, 1275], buildCost: 200 },
-      'London': { type: 'property', set: 'UK', price: 320, rent: [28, 150, 450, 1000, 1200, 1400], buildCost: 200 },
+      'Liverpool': { type: 'property', set: 'UK', price: 300, rent: [26, 130, 390, 900, 1100, 1275], buildCost: 200, hotelCost: 1000 },
+      'Manchester': { type: 'property', set: 'UK', price: 300, rent: [26, 130, 390, 900, 1100, 1275], buildCost: 200, hotelCost: 1000 },
+      'London': { type: 'property', set: 'UK', price: 320, rent: [28, 150, 450, 1000, 1200, 1400], buildCost: 200, hotelCost: 1000 },
       // Airport
       'JFK Airport': { type: 'airport', set: 'Airport', price: 200, rent: [25, 50, 100, 200] },
       // USA set
-      'California': { type: 'property', set: 'USA', price: 350, rent: [35, 175, 500, 1100, 1300, 1500], buildCost: 200 },
-      'New York': { type: 'property', set: 'USA', price: 400, rent: [50, 200, 600, 1400, 1700, 2000], buildCost: 200 },
+      'California': { type: 'property', set: 'USA', price: 350, rent: [35, 175, 500, 1100, 1300, 1500], buildCost: 200, hotelCost: 1000 },
+      'New York': { type: 'property', set: 'USA', price: 400, rent: [50, 200, 600, 1400, 1700, 2000], buildCost: 200, hotelCost: 1000 },
       // Companies
       'Electric Company': { type: 'company', set: 'Company', price: 150, rent: [4, 10] },
       'Water Company': { type: 'company', set: 'Company', price: 150, rent: [4, 10] }
@@ -150,6 +150,8 @@ class Room {
       }
     }
     this.turnIndex = 0;
+    console.log('[DEBUG][ROUND] startGame setting roundNumber to 1, call stack:', new Error().stack);
+    this.roundNumber = 1;
     this.gameState = 'in-progress';
     // Set all player states
     this.players.forEach(player => {
@@ -168,6 +170,11 @@ class Room {
     if (this.players[this.turnIndex].id !== playerId) return null;
 
     const currentPlayer = this.players[this.turnIndex];
+    // Prevent rolling if player is on vacation (must skip turn)
+    const status = this.playerStatuses[currentPlayer.id];
+    if (status && typeof status === 'object' && status.status === 'vacation') {
+      return { action: 'vacation-skip-required' };
+    }
     // Use dev dice if provided, otherwise use random dice
     const dice1 = devDice1 && devDice2 ? devDice1 : Math.floor(Math.random() * 6) + 1;
     const dice2 = devDice1 && devDice2 ? devDice2 : Math.floor(Math.random() * 6) + 1;
@@ -207,31 +214,46 @@ class Room {
     // Handle doubles
     if (isDoubles) {
       this.playerDoublesCount[currentPlayer.id]++;
+      console.log('[DEBUG][SERVER][rollDice] Doubles count for', currentPlayer.id, ':', this.playerDoublesCount[currentPlayer.id]);
 
       if (this.playerDoublesCount[currentPlayer.id] >= 3) {
-        // Go to jail for 3 doubles - turn ends immediately
+        // Go to jail for 3 doubles - move player to jail, set status, and ADVANCE TURN
         this.playerPositions[currentPlayer.id] = 10;
         this.playerStatuses[currentPlayer.id] = 'jail';
         this.playerJailRounds[currentPlayer.id] = 0;
         this.playerDoublesCount[currentPlayer.id] = 0;
         const turnResult = this.advanceTurn();
-        this.lastDiceRoll = null; // Reset dice roll for the new player's turn
-        return { dice1, dice2, total, isDoubles, action: 'jail', position: 10, turnResult };
+        this.lastDiceRoll = null;
+        return { dice1, dice2, total, isDoubles, action: 'jail-move', position: 10, turnResult };
       }
       // If doubles but less than 3, don't advance turn - player gets another roll after clicking End Turn
     } else {
       this.playerDoublesCount[currentPlayer.id] = 0;
+      console.log('[DEBUG][SERVER][rollDice] Doubles count reset for', currentPlayer.id);
       // Don't advance turn automatically - player must click End Turn
     }
 
     // Check for special spaces that end turn immediately
-    if (result.action === 'jail' || result.action === 'vacation') {
-      const turnResult = this.advanceTurn(); // End turn immediately for Go to Jail or Vacation
-      this.lastDiceRoll = null; // Reset dice roll for the new player's turn
-      return { dice1, dice2, total, isDoubles, action: result.action, position: result.position, turnResult };
+    if (result.action === 'jail') {
+      // Move player to jail and set jail status, but do NOT end turn
+      this.playerPositions[currentPlayer.id] = 10;
+      this.playerStatuses[currentPlayer.id] = 'jail';
+      this.playerJailRounds[currentPlayer.id] = 0;
+      // Return special action for frontend to show End Turn button
+      return { dice1, dice2, total, isDoubles, action: 'jail-move', position: 10, passedStart: result.passedStart };
+    }
+    // --- FIX: Handle Go to Jail (space 30) ---
+    if (result.action === 'go-to-jail') {
+      // Move player to jail and set jail status, but do NOT end turn
+      this.playerPositions[currentPlayer.id] = 10;
+      this.playerStatuses[currentPlayer.id] = 'jail';
+      this.playerJailRounds[currentPlayer.id] = 0;
+      // Return special action for frontend to show End Turn button
+      return { dice1, dice2, total, isDoubles, action: 'jail-move', position: 10, passedStart: result.passedStart };
     }
 
-    return { dice1, dice2, total, isDoubles, action: result.action, position: result.position };
+    // For vacation, do NOT end turn automatically. Just return the action and let the frontend show End Turn/Skip.
+    return { dice1, dice2, total, isDoubles, action: result.action, position: result.position, passedStart: result.passedStart };
   }
 
   movePlayer(playerId, spaces) {
@@ -241,8 +263,10 @@ class Room {
 
     if (currentPos + spaces >= 40) {
       passedStart = true;
-      // Award money for passing START
-      this.playerMoney[playerId] += 200;
+      // Award money for passing START (but not landing on it)
+      if (newPos !== 0) {
+        this.playerMoney[playerId] += 200;
+      }
     }
 
     this.playerPositions[playerId] = newPos;
@@ -255,82 +279,133 @@ class Room {
       // Return position 30 so the client can animate the move
       return { action, position: 30 };
     } else if (newPos === 20) { // Vacation
-      // console.log(`[ROOM] Player ${playerId} landed on vacation in round ${this.roundNumber}`);
-      this.playerStatuses[playerId] = { status: 'vacation', vacationStartRound: this.roundNumber };
-      // console.log(`[ROOM] Set vacation status for player ${playerId}:`, JSON.stringify(this.playerStatuses[playerId]));
-      // Clear dice state when player goes on vacation
-      // this.lastDiceRoll = null; // <-- Removed: dice roll should remain until turn advances
-      this.playerDoublesCount[playerId] = 0;
-      // console.log(`[ROOM] Cleared dice state for player ${playerId} going on vacation`);
+      // Only return action: 'vacation' if landed on vacation.
+      // The status will be set after End Turn is clicked.
       action = 'vacation';
-    } else if (newPos === 0 && passedStart) {
-      // Landed on START - extra bonus
-      this.playerMoney[playerId] += 100; // Additional $100 for landing
+
+      // If there's vacation cash, give it to the player who landed on vacation
+      if (this.vacationCash > 0) {
+        this.playerMoney[playerId] += this.vacationCash;
+        this.vacationCash = 0;
+        // Clear collected money for all players
+        Object.keys(this.collectedMoney).forEach(playerId => {
+          this.collectedMoney[playerId] = 0;
+        });
+      }
+    } else if (newPos === 0) {
+      // Landed on START - $300 bonus
+      this.playerMoney[playerId] += 300;
       action = 'start';
+    } else if (newPos === 4) { // Income Tax
+      // Handle income tax (10% of cash or add to vacation cash)
+      const currentMoney = this.playerMoney[playerId];
+      const taxAmount = Math.floor(currentMoney * 0.1);
+
+      // Always deduct from player's cash
+      this.playerMoney[playerId] -= taxAmount;
+
+      if (this.settings.vacationCash) {
+        // Add to vacation cash
+        this.vacationCash += taxAmount;
+        this.collectedMoney[playerId] += taxAmount;
+      }
+      action = 'income-tax';
+    } else if (newPos === 38) { // Luxury Tax
+      // Handle luxury tax ($75 or add to vacation cash)
+      const taxAmount = 75;
+
+      // Always deduct from player's cash
+      this.playerMoney[playerId] -= taxAmount;
+
+      if (this.settings.vacationCash) {
+        // Add to vacation cash
+        this.vacationCash += taxAmount;
+        this.collectedMoney[playerId] += taxAmount;
+      }
+      action = 'luxury-tax';
     }
 
-    return { action, position: newPos };
+    return { action, position: newPos, passedStart };
   }
 
-  advanceTurn() {
-    let attempts = 0;
+  // Add a new method to handle vacation end turn
+  handleVacationEndTurn(playerId) {
+    // Only allow if player is not already on vacation
+    const status = this.playerStatuses[playerId];
+    if (status && typeof status === 'object' && status.status === 'vacation') return false;
+    this.playerStatuses[playerId] = { status: 'vacation', vacationStartRound: this.roundNumber };
+    const playerName = this.players.find(p => p.id === playerId)?.name || 'Player';
+    this.addGameLog({ type: 'vacation', playerId, message: `${playerName} went on vacation!` });
+    this.playerDoublesCount[playerId] = 0; // Reset doubles count
+    return true;
+  }
+
+  // Modify advanceTurn to set vacation status after End Turn on vacation
+  advanceTurn(sessionId, vacationEndTurnPlayerId = null) {
+    console.log('[DEBUG][VACATION] advanceTurn called with sessionId:', sessionId, 'vacationEndTurnPlayerId:', vacationEndTurnPlayerId);
     const totalPlayers = this.players.length;
-    let vacationEvents = [];
-    let vacationReturnEvents = [];
     let orderedEvents = [];
-    let maxAttempts = totalPlayers * 10; // Prevent infinite loop
+    let vacationReturnEvents = [];
+    let roundJustIncremented = false;
+    let attempts = 0;
+    let maxAttempts = totalPlayers * 2; // Prevent infinite loop, only need to check each player once per round
+
+    // If vacationEndTurnPlayerId is provided, set vacation status for that player
+    if (vacationEndTurnPlayerId) {
+      // Only set vacation status if not already set
+      const status = this.playerStatuses[vacationEndTurnPlayerId];
+      if (!(status && typeof status === 'object' && status.status === 'vacation')) {
+        this.handleVacationEndTurn(vacationEndTurnPlayerId);
+      }
+    }
 
     const shouldResetVacation = (playerId) => {
       const status = this.playerStatuses[playerId];
-      return status && typeof status === 'object' && status.status === 'vacation' && this.roundNumber >= status.vacationStartRound + 1;
+      // Only allow return after player has skipped their turn (status.justSkippedVacation)
+      return status && typeof status === 'object' && status.status === 'vacation' && status.justSkippedVacation;
     };
 
-    const startingTurnIndex = this.turnIndex;
-    let firstLoop = true;
-    let roundJustIncremented = false;
     while (attempts < maxAttempts) {
-      const previousTurnIndex = this.turnIndex;
+      const prevTurnIndex = this.turnIndex;
       this.turnIndex = (this.turnIndex + 1) % totalPlayers;
       attempts++;
-      // Round increment and log
-      if (this.turnIndex === 0 && previousTurnIndex !== 0) {
+      // If we wrapped around, increment round and log
+      if (this.turnIndex === 0 && prevTurnIndex !== 0) {
+        const prevRound = this.roundNumber;
         this.roundNumber++;
         roundJustIncremented = true;
-        // Only log for rounds 2 and above
-        if (this.roundNumber > 1) {
-          orderedEvents.push({ type: 'round-start', message: `Round ${this.roundNumber} started.` });
-        }
+        orderedEvents.push({ type: 'round-start', message: `Round ${this.roundNumber} started.` });
       }
-      firstLoop = false;
       const playerId = this.players[this.turnIndex].id;
-      // If player just returned from vacation, log it and clear the flag
-      if (
-        this.playerStatuses[playerId] &&
-        typeof this.playerStatuses[playerId] === 'object' &&
-        this.playerStatuses[playerId].justReturnedFromVacation
-      ) {
-        vacationReturnEvents.push({
-          type: 'vacation-return-log',
-          playerId,
-          message: `${this.players.find(p => p.id === playerId)?.name || playerId} returned from vacation and can roll again!`
-        });
-        delete this.playerStatuses[playerId].justReturnedFromVacation;
-      }
-      if (this.playerStatuses[playerId] && typeof this.playerStatuses[playerId] === 'object' && this.playerStatuses[playerId].status === 'vacation') {
-        // If the round just incremented, ensure the round-start event is the first for this round
-        if (roundJustIncremented) {
-          roundJustIncremented = false; // Only do this once per round increment
-        }
-        orderedEvents.push({ type: 'vacation-skip', playerId });
+      const playerName = this.players[this.turnIndex].name;
+      const status = this.playerStatuses[playerId];
+      // If player is on vacation
+      if (status && typeof status === 'object' && status.status === 'vacation') {
+        // If vacation is over (after player has skipped), clear vacation and let them roll
         if (shouldResetVacation(playerId)) {
-          this.playerStatuses[playerId] = { justReturnedFromVacation: true };
+          delete this.playerStatuses[playerId];
+          vacationReturnEvents.push({
+            type: 'vacation-return-log',
+            playerId,
+            message: `${playerName} returned from vacation and can roll again!`
+          });
+          break; // Let this player roll
+        } else {
+          // Still on vacation, require skip, but only one skip per turn
+          this.playerStatuses[playerId].justSkippedVacation = true;
+          orderedEvents.push({
+            type: 'vacation-skip',
+            playerId,
+            message: `${playerName} turn skipped. Still in vacation.`
+          });
+          break;
         }
-        continue;
       } else {
+        // Not on vacation, let this player roll
         break;
       }
     }
-    return { vacationEvents, vacationReturnEvents, orderedEvents };
+    return { vacationEvents: [], vacationReturnEvents, orderedEvents, roundJustIncremented };
   }
 
   buyProperty(playerId, propertyName, price) {
@@ -359,8 +434,8 @@ class Room {
       hotel: false,
       mortgaged: false
     };
-
-    console.log('[DEBUG] Room.buyProperty propertyOwnership:', this.propertyOwnership);
+    console.log('[DEBUG] buyProperty: Property bought:', propertyName, 'by', playerId);
+    // console.log('[DEBUG] Room.buyProperty propertyOwnership:', this.propertyOwnership);
     return true;
   }
 
@@ -406,8 +481,8 @@ class Room {
       return multiplier * diceValue;
     }
     if (data.type === 'property') {
-      // Double rent for full set (no houses/hotels) if enabled
-      if (this.settings.doubleRentOnFullSet && !property.hotel && property.houses === 0) {
+      // Double rent for full set (any house/hotel level) if enabled
+      if (this.settings.doubleRentOnFullSet) {
         const set = data.set;
         const setProps = Object.keys(this.propertyData).filter(
           k => this.propertyData[k].set === set && this.propertyData[k].type === 'property'
@@ -416,7 +491,13 @@ class Room {
           k => this.propertyOwnership[k] && this.propertyOwnership[k].owner === property.owner && !this.propertyOwnership[k].mortgaged
         );
         if (ownsAll) {
-          return data.rent[0] * 2;
+          if (property.hotel) {
+            return data.rent[5] * 2;
+          } else if (property.houses > 0) {
+            return data.rent[property.houses] * 2;
+          } else {
+            return data.rent[0] * 2;
+          }
         }
       }
       if (property.hotel) {
@@ -463,9 +544,10 @@ class Room {
       playerJailRounds: this.playerJailRounds,
       vacationCash: this.vacationCash,
       gameLog: this.gameLog,
+      playersOrdered: this.players.map(p => ({ id: p.id, name: p.name, color: p.color, isBot: p.isBot, isOnline: p.isOnline })),
       // add more fields if needed
     };
-    // console.log(`[ROOM] getGameState: propertyOwnership:`, JSON.stringify(gameState.propertyOwnership));
+    console.log('[DEBUG] getGameState propertyOwnership:', JSON.stringify(gameState.propertyOwnership));
     return gameState;
   }
 
@@ -504,9 +586,26 @@ class Room {
     const setProps = Object.keys(this.propertyData).filter(
       k => this.propertyData[k].set === set && this.propertyData[k].type === 'property'
     );
-    const houseCounts = setProps.map(k => this.propertyOwnership[k]?.houses || 0);
+    const houseCounts = setProps.map(k => {
+      const p = this.propertyOwnership[k];
+      if (p && p.hotel) return 5; // treat hotel as 5 for strict even build
+      return p ? p.houses : 0;
+    });
     const minHouses = Math.min(...houseCounts);
-    return property.houses <= minHouses;
+    // Only allow building if this property has the minimum number of houses
+    if (property.hotel) return false;
+    if (property.houses < 4) {
+      return property.houses === minHouses;
+    }
+    // For hotel, all others must have 4 houses or a hotel
+    if (property.houses === 4) {
+      return setProps.every(k => {
+        if (k === propertyName) return true;
+        const p = this.propertyOwnership[k];
+        return p && (p.houses === 4 || p.hotel);
+      });
+    }
+    return false;
   }
   canDestroyHouse(playerId, propertyName) {
     if (!this.settings.evenBuild) return true;
@@ -521,6 +620,74 @@ class Room {
     const houseCounts = setProps.map(k => this.propertyOwnership[k]?.houses || 0);
     const maxHouses = Math.max(...houseCounts);
     return property.houses >= maxHouses;
+  }
+
+  // Sell property
+  sellProperty(playerId, propertyName) {
+    const property = this.propertyOwnership[propertyName];
+    if (!property || property.owner !== playerId) return false;
+    if (property.mortgaged) return false;
+    if (property.houses > 0 || property.hotel) return false;
+    const price = this.propertyData[propertyName]?.price || 0;
+    if (!price) return false;
+    delete this.propertyOwnership[propertyName];
+    this.playerMoney[playerId] += Math.floor(price / 2);
+    return true;
+  }
+
+  // Build house or hotel
+  buildHouse(playerId, propertyName) {
+    const property = this.propertyOwnership[propertyName];
+    const data = this.propertyData[propertyName];
+    if (!property || property.owner !== playerId) return false;
+    if (!data || data.type !== 'property') return false;
+    if (property.mortgaged) return false;
+    if (property.hotel) return false;
+    // Enforce even build only if enabled
+    if (this.settings.evenBuild && !this.canBuildHouse(playerId, propertyName)) return false;
+    // Build hotel
+    if (property.houses === 4) {
+      if (this.settings.evenBuild) {
+        // Already checked in canBuildHouse
+      }
+      if (this.playerMoney[playerId] < data.hotelCost) return false;
+      property.houses = 0;
+      property.hotel = true;
+      this.playerMoney[playerId] -= data.hotelCost;
+      return true;
+    }
+    // Build house
+    if (property.houses < 4) {
+      if (this.playerMoney[playerId] < data.buildCost) return false;
+      property.houses += 1;
+      this.playerMoney[playerId] -= data.buildCost;
+      return true;
+    }
+    return false;
+  }
+  // Destroy house or hotel
+  destroyHouse(playerId, propertyName) {
+    const property = this.propertyOwnership[propertyName];
+    const data = this.propertyData[propertyName];
+    if (!property || property.owner !== playerId) return false;
+    if (!data || data.type !== 'property') return false;
+    if (property.mortgaged) return false;
+    // Enforce even build
+    if (!this.canDestroyHouse(playerId, propertyName)) return false;
+    // Destroy hotel
+    if (property.hotel) {
+      property.hotel = false;
+      property.houses = 4;
+      this.playerMoney[playerId] += Math.floor(data.hotelCost / 2);
+      return true;
+    }
+    // Destroy house
+    if (property.houses > 0) {
+      property.houses -= 1;
+      this.playerMoney[playerId] += Math.floor(data.buildCost / 2);
+      return true;
+    }
+    return false;
   }
 }
 

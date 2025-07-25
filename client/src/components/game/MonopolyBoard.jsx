@@ -147,6 +147,7 @@ const UniformButton = styled(Button)(({ theme, variant, disabled: isDisabled }) 
   }
 }));
 
+
 const StyledCurrentPlayer = styled(Card)(({ theme }) => ({
   background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(34, 197, 94, 0.2))',
   border: '1px solid rgba(34, 197, 94, 0.3)',
@@ -181,8 +182,10 @@ const MonopolyBoard = (props) => {
     playerMoveRequest = null,
     onPlayerMoveComplete,
     propertyLandingState = null,
-    onMortgageProperty,
-    onSellProperty,
+    onMortgageProperty = () => { },
+    onSellProperty = () => { },
+    onBuildHouse = () => { },
+    onDestroyHouse = () => { },
     onMovementComplete,
     devDiceEnabled = false,
     devDice1 = 1,
@@ -200,7 +203,9 @@ const MonopolyBoard = (props) => {
     onAuctionProperty,
     onSkipProperty,
     onClearPropertyLandingState,
-    currentUserId
+    currentUserId,
+    isShufflingPlayers = false,
+    onPropertyClick = () => { }
   } = props;
   const [showModal, setShowModal] = useState(false);
   const [modalContent, setModalContent] = useState('');
@@ -209,8 +214,6 @@ const MonopolyBoard = (props) => {
   const [canRollAgain, setCanRollAgain] = useState(false);
   const [hasRolledBefore, setHasRolledBefore] = useState(false); // Track if any dice have been rolled
   const [hasEndedTurnAfterDoubles, setHasEndedTurnAfterDoubles] = useState(false); // Track if player ended turn after doubles
-  const [propertyPopupOpen, setPropertyPopupOpen] = useState(false);
-  const [selectedProperty, setSelectedProperty] = useState(null);
   const [jailAnimationStates, setJailAnimationStates] = useState({}); // Track jail entry/exit animations
   const [movementComplete, setMovementComplete] = useState(true); // Track if movement animation is complete
   const [localDiceRolling, setLocalDiceRolling] = useState(false); // Local dice rolling state for immediate response
@@ -225,7 +228,17 @@ const MonopolyBoard = (props) => {
   const [rollAgainButtonVisible, setRollAgainButtonVisible] = React.useState(false);
   const [endTurnButtonVisible, setEndTurnButtonVisible] = React.useState(false);
   const [justPurchasedProperty, setJustPurchasedProperty] = React.useState(false);
+  const [awaitingVacationEndTurn, setAwaitingVacationEndTurn] = React.useState(false);
+  const [endTurnClicked, setEndTurnClicked] = React.useState(false);
+  const [hasRolledSinceLastEndTurn, setHasRolledSinceLastEndTurn] = React.useState(true);
+  const [awaitingRollAfterDoubles, setAwaitingRollAfterDoubles] = React.useState(false);
   React.useEffect(() => { setBuying(false); }, [propertyLandingState]);
+
+  // Move this function up before any useEffect that references it
+  const getCurrentPlayer = React.useCallback(() => {
+    return players && players.length > 0 ? players[currentPlayerIndex] : null;
+  }, [players, currentPlayerIndex]);
+
 
   // --- FIX: Close property modal and reset buying state after purchase ---
   React.useEffect(() => {
@@ -347,18 +360,50 @@ const MonopolyBoard = (props) => {
     }
   }, [gameStarted]);
 
-  // Reset player-specific states when current player changes
+  // Replace the currentPlayerIndex useEffect with the following:
+  const prevPlayerIdRef = React.useRef();
   React.useEffect(() => {
-    // Always reset all doubles state when the player changes
-    setTimeout(() => {
+    const currentPlayer = getCurrentPlayer();
+    // Only reset doubles state if the player actually changes
+    if (prevPlayerIdRef.current !== undefined && currentPlayer && prevPlayerIdRef.current !== currentPlayer.id) {
+      console.log('[DEBUG][RESET DOUBLES][CLIENT]', {
+        prevPlayerId: prevPlayerIdRef.current,
+        currentPlayerId: currentPlayer && currentPlayer.id,
+        currentPlayerIndex,
+        hasEndedTurnAfterDoubles,
+        isInDoublesSequence,
+        allowRollAgain,
+        doublesSequenceActive,
+        syncedLastDiceRoll,
+        gamePhase,
+        isMyTurn,
+        propsGameState: {
+          allowRollAgain: props.allowRollAgain,
+          doublesSequenceActive: props.doublesSequenceActive,
+          syncedLastDiceRoll: props.syncedLastDiceRoll,
+          gamePhase: props.gamePhase,
+          currentPlayerIndex: props.currentPlayerIndex,
+          currentTurnSocketId: props.currentTurnSocketId,
+          turnIndex: props.turnIndex,
+          playerStatuses: props.playerStatuses,
+          playerPositions: props.playerPositions,
+          specialAction: props.specialAction,
+        }
+      });
       setCanRollAgain(false);
       setHasEndedTurnAfterDoubles(false);
       setHasRolledBefore(false);
       setIsInDoublesSequence(false);
       setMovementComplete(true);
       setLocalDiceRolling(false);
-    }, 200);
-  }, [currentPlayerIndex]);
+      // Reset dice values when player changes
+      setLastValidDiceRoll(null);
+      if (lastValidDiceRollRef.current) {
+        lastValidDiceRollRef.current = null;
+      }
+    }
+    prevPlayerIdRef.current = currentPlayer ? currentPlayer.id : undefined;
+  }, [currentPlayerIndex, getCurrentPlayer]);
 
   // Track dice roll changes and detect turn changes
   React.useEffect(() => {
@@ -374,10 +419,7 @@ const MonopolyBoard = (props) => {
         setLocalDiceRolling(false);
         // Do NOT reset dice faces here
       }
-      // If same player's dice roll became null, don't reset hasEndedTurnAfterDoubles
-      // This preserves the state for the Roll Again button after ending turn on doubles
-      // Only update previousDiceRoll after animation starts (handled in rollDice)
-      // setPreviousDiceRoll(syncedLastDiceRoll); // Move this to after animation starts
+      // If same player's dice roll became null, do NOT reset hasEndedTurnAfterDoubles or isInDoublesSequence
     }
   }, [syncedLastDiceRoll, previousDiceRoll]);
 
@@ -563,15 +605,14 @@ const MonopolyBoard = (props) => {
       // Get property name for current position
       const propertyName = getPropertyNameByPosition(currentPosition);
 
-      // --- GUARD: Do not trigger property landing if property is now owned ---
+      // --- GUARD: Do not trigger property landing if not a property space ---
       // --- GUARD: Do not emit if we already emitted for this landing ---
       if (
         propertyName &&
         isPropertySpace(propertyName) &&
-        !propertyOwnership[propertyName] &&
         lastEmittedLanding.current !== `${currentPlayer.id}-${currentPosition}-${syncedLastDiceRoll.dice1}-${syncedLastDiceRoll.dice2}`
       ) {
-        // console.log('[DEBUG] MonopolyBoard: Emitting handlePropertyLanding for property:', propertyName);
+        // Emit for any property space (owned or unowned)
         socket.emit('handlePropertyLanding', {
           roomId,
           propertyName
@@ -713,47 +754,50 @@ const MonopolyBoard = (props) => {
   }, [localDiceRolling, syncedLastDiceRoll, syncedSpecialAction]);
 
   const handleEndTurn = () => {
-    // Check if player rolled doubles and landed on a special space
+    if (endTurnClicked || awaitingRollAfterDoubles) {
+      console.warn('[GUARD] handleEndTurn called while already awaiting roll after doubles or endTurnClicked. Ignoring.');
+      return;
+    }
+    setEndTurnClicked(true);
+    setAwaitingRollAfterDoubles(true);
+    console.log('[DEBUG][handleEndTurn][CALL STACK]', new Error().stack);
+    if (!hasRolledSinceLastEndTurn) {
+      console.warn('[GUARD] handleEndTurn called without rolling since last end turn. Ignoring.');
+      return;
+    }
+    setHasRolledSinceLastEndTurn(false);
     const currentPlayer = getCurrentPlayer();
-    const currentPosition = syncedPositions[currentPlayer.id];
-    const isSpecialSpace = [0, 2, 4, 7, 10, 17, 20, 22, 30, 33, 36, 38].includes(currentPosition);
-
-    // Special handling for jail escape - turn ends immediately regardless of doubles
-    if (playerStatuses[currentPlayer.id] === 'jail' && syncedLastDiceRoll) {
-      // Player escaped jail - end turn immediately (no extra turn for doubles)
-      setCanRollAgain(false);
-      setHasRolledBefore(false);
-      setHasEndedTurnAfterDoubles(false);
-      setIsInDoublesSequence(false); // Exit doubles sequence
-      setMovementComplete(true); // Ensure movement is complete for next turn
-    } else if (syncedLastDiceRoll && syncedLastDiceRoll.dice1 === syncedLastDiceRoll.dice2) {
-      // Player rolled doubles - they get another roll regardless of where they landed
+    const currentPosition = syncedPositions && currentPlayer ? syncedPositions[currentPlayer.id] : null;
+    // Set doubles state if last roll was doubles and not the third double (not going to jail)
+    if (
+      syncedLastDiceRoll &&
+      syncedLastDiceRoll.dice1 === syncedLastDiceRoll.dice2 &&
+      syncedSpecialAction !== 'jail'
+    ) {
       setHasEndedTurnAfterDoubles(true);
-      setIsInDoublesSequence(true); // Mark that we're in a doubles sequence
-      setCanRollAgain(false);
-      setMovementComplete(false); // Reset movement state for next roll
+      setIsInDoublesSequence(true);
     } else {
-      // Normal turn end - reset states
-      setCanRollAgain(false);
-      setHasRolledBefore(false);
       setHasEndedTurnAfterDoubles(false);
-      setIsInDoublesSequence(false); // Exit doubles sequence
-      setMovementComplete(true); // Ensure movement is complete for next turn
+      setIsInDoublesSequence(false);
     }
-    if (propertyLandingState && typeof onClearPropertyLandingState === 'function') {
-      onClearPropertyLandingState(); // <-- Reset propertyLandingState after end turn
+    // Debug log
+    console.log('[DEBUG][handleEndTurn] gamePhase:', gamePhase, 'hasEndedTurnAfterDoubles:', hasEndedTurnAfterDoubles, 'isInDoublesSequence:', isInDoublesSequence, 'syncedLastDiceRoll:', syncedLastDiceRoll, 'currentPlayerIndex:', currentPlayerIndex);
+    if (
+      currentPosition === 20 &&
+      currentPlayer &&
+      (!playerStatuses[currentPlayer.id] || (typeof playerStatuses[currentPlayer.id] === 'object' && playerStatuses[currentPlayer.id].status !== 'vacation'))
+    ) {
+      // eslint-disable-next-line no-console
+      console.log('[DEBUG][CLIENT] End Turn button clicked after landing on vacation (position check)');
+      socket.emit('endTurn', { roomId, vacationEndTurnPlayerId: currentPlayer.id });
+    } else {
+      socket.emit('endTurn', { roomId });
     }
-    // Reset the last emitted landing ref to allow new landings
-    lastEmittedLanding.current = null;
     if (onEndTurn) {
+      console.log('[DEBUG][onEndTurn][CALL STACK][handleEndTurn]', new Error().stack);
       onEndTurn();
     }
   };
-
-  const getCurrentPlayer = React.useCallback(() => {
-    return players && players.length > 0 ? players[currentPlayerIndex] : null;
-  }, [players, currentPlayerIndex]);
-
   // Helper function to get space index from position arrays
   const getSpaceIndex = (position) => {
     // Board has 40 positions total
@@ -1148,8 +1192,7 @@ const MonopolyBoard = (props) => {
   ];
 
   const handlePropertyClick = (propertyName) => {
-    setSelectedProperty(propertyName);
-    setPropertyPopupOpen(true);
+    onPropertyClick(propertyName);
   };
 
   const renderSpace = (space, index, position) => {
@@ -1433,6 +1476,8 @@ const MonopolyBoard = (props) => {
 
   const handleBuyProperty = () => {
     if (!propertyLandingState || !propertyLandingState.canAfford) return;
+    // In the Buy button click handler, before socket.emit('buyProperty', ...):
+    window.lastBuyProperty = propertyLandingState.property.name;
     socket.emit('buyProperty', {
       roomId,
       propertyName: propertyLandingState.property.name,
@@ -1445,13 +1490,48 @@ const MonopolyBoard = (props) => {
     if (typeof onClearPropertyLandingState === 'function') {
       onClearPropertyLandingState(); // <-- Reset propertyLandingState after buy
     }
-    onEndTurn();
+    if (onEndTurn) {
+      console.log('[DEBUG][onEndTurn][CALL STACK][handleBuyProperty]', new Error().stack);
+      onEndTurn();
+    }
   };
 
   // Track the last logged button state to prevent duplicate logs
   const lastLoggedState = React.useRef('');
   // Track if we've handled property landing for the current dice roll
   const hasHandledPropertyLanding = React.useRef(false);
+
+  // Set the flag when player lands on vacation
+  React.useEffect(() => {
+    if (
+      syncedLastDiceRoll &&
+      syncedLastDiceRoll.action === 'vacation' &&
+      isMyTurn
+    ) {
+      setJustPurchasedProperty(true);
+    }
+  }, [syncedLastDiceRoll, isMyTurn]);
+
+  React.useEffect(() => {
+    if (syncedSpecialAction === 'vacation' && isMyTurn) {
+      setAwaitingVacationEndTurn(true);
+    }
+    // Do NOT reset here!
+  }, [syncedSpecialAction, isMyTurn]);
+
+  // Reset flag only when backend confirms vacation status
+  React.useEffect(() => {
+    const currentPlayer = getCurrentPlayer();
+    if (
+      awaitingVacationEndTurn &&
+      currentPlayer &&
+      playerStatuses[currentPlayer.id] &&
+      typeof playerStatuses[currentPlayer.id] === 'object' &&
+      playerStatuses[currentPlayer.id].status === 'vacation'
+    ) {
+      setAwaitingVacationEndTurn(false);
+    }
+  }, [playerStatuses, awaitingVacationEndTurn, getCurrentPlayer]);
 
   // Place this useEffect near other hooks, before the return statement
   React.useEffect(() => {
@@ -1593,6 +1673,46 @@ const MonopolyBoard = (props) => {
     }
   }, [propertyOwnership, propertyLandingState, buying, currentUserId, onClearPropertyLandingState]);
 
+  // Add debug log when player lands on vacation
+  React.useEffect(() => {
+    if (syncedSpecialAction === 'vacation') {
+      // eslint-disable-next-line no-console
+      console.log('[DEBUG][CLIENT] Player landed on vacation!');
+    }
+  }, [syncedSpecialAction]);
+
+  const handleSkipVacationTurn = () => {
+    const currentPlayer = getCurrentPlayer();
+    if (currentPlayer) {
+      socket.emit('skipVacationTurn', { roomId, playerId: currentPlayer.id });
+    }
+  };
+
+  // Use allowRollAgain and doublesSequenceActive from server if present
+  const allowRollAgain = typeof props.allowRollAgain === 'boolean' ? props.allowRollAgain : false;
+  const doublesSequenceActive = typeof props.doublesSequenceActive === 'boolean' ? props.doublesSequenceActive : false;
+
+  // Reset endTurnClicked when turn or dice roll changes
+  React.useEffect(() => {
+    setEndTurnClicked(false);
+  }, [currentPlayerIndex, syncedLastDiceRoll]);
+
+  // Set hasRolledSinceLastEndTurn to true after a roll
+  React.useEffect(() => {
+    if (syncedLastDiceRoll) {
+      setHasRolledSinceLastEndTurn(true);
+    }
+  }, [syncedLastDiceRoll]);
+  // Reset hasRolledSinceLastEndTurn to true on turn change
+  React.useEffect(() => {
+    setHasRolledSinceLastEndTurn(true);
+  }, [currentPlayerIndex]);
+
+  // Reset awaitingRollAfterDoubles on turn change or new dice roll
+  React.useEffect(() => {
+    setAwaitingRollAfterDoubles(false);
+  }, [currentPlayerIndex, syncedLastDiceRoll]);
+
   return (
     <div className="monopoly-board">
       {/* Top Row - 11 spaces */}
@@ -1692,7 +1812,20 @@ const MonopolyBoard = (props) => {
             {/* Show Start Game button or waiting message when there are players who have chosen colors */}
             {players.length > 0 && players.some(p => p.color) && (
               <Box sx={{ height: 56, display: 'flex', alignItems: 'center', mb: 2 }}>
-                {isHost ? (
+                {isShufflingPlayers ? (
+                  <Typography
+                    sx={{
+                      fontWeight: 400,
+                      fontSize: '1rem',
+                      color: '#f8fafc',
+                      textAlign: 'center',
+                      width: '100%',
+                      lineHeight: '56px',
+                    }}
+                  >
+                    Shuffling Player Order...
+                  </Typography>
+                ) : isHost ? (
                   <StyledActionButton onClick={onStartGame} sx={{ mb: 0 }}>
                     Start Game
                   </StyledActionButton>
@@ -1704,7 +1837,7 @@ const MonopolyBoard = (props) => {
                       color: '#f8fafc',
                       textAlign: 'center',
                       width: '100%',
-                      lineHeight: '56px', // Vertically center text to match button height
+                      lineHeight: '56px',
                     }}
                   >
                     Waiting for host to start the game...
@@ -1835,7 +1968,41 @@ const MonopolyBoard = (props) => {
             {gamePhase !== 'moving' && (
               <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap', justifyContent: 'center', width: '100%' }}>
                 {(() => {
+                  // Debug log for button rendering
+                  console.log('[DEBUG][BUTTONS] gamePhase:', gamePhase, 'hasEndedTurnAfterDoubles:', hasEndedTurnAfterDoubles, 'isInDoublesSequence:', isInDoublesSequence, 'syncedLastDiceRoll:', syncedLastDiceRoll, 'currentPlayerIndex:', currentPlayerIndex, 'isMyTurn:', currentUserId === getCurrentPlayer()?.id);
                   const landingPlayerId = propertyLandingState?.player?.id || getCurrentPlayer()?.id;
+                  const isMyTurn = currentUserId === getCurrentPlayer()?.id;
+                  const isOnVacation = playerStatuses[currentUserId] && typeof playerStatuses[currentUserId] === 'object' && playerStatuses[currentUserId].status === 'vacation';
+                  const lastRoll = syncedLastDiceRoll;
+                  // Show End Turn button if player just went to jail (jail-move)
+                  if (
+                    isMyTurn &&
+                    lastRoll &&
+                    lastRoll.action === 'jail-move'
+                  ) {
+                    return (
+                      <UniformButton
+                        variant="purple"
+                        onClick={handleEndTurn}
+                        disabled={endTurnClicked || globalDiceRolling || localDiceRolling}
+                        sx={{ minWidth: 120 }}
+                      >
+                        End Turn
+                      </UniformButton>
+                    );
+                  }
+                  if (isMyTurn && isOnVacation) {
+                    return (
+                      <UniformButton
+                        variant="purple"
+                        onClick={handleSkipVacationTurn}
+                        disabled={endTurnClicked || globalDiceRolling || localDiceRolling}
+                        sx={{ minWidth: 80 }}
+                      >
+                        Skip Turn
+                      </UniformButton>
+                    );
+                  }
                   if (
                     propertyLandingState &&
                     propertyLandingState.isActive &&
@@ -1875,6 +2042,7 @@ const MonopolyBoard = (props) => {
                           // console.log('[DEBUG] End Turn clicked from property landing, showing Roll Dice button');
                           handleEndTurn();
                         }}
+                        disabled={endTurnClicked || globalDiceRolling || localDiceRolling}
                       >
                         End Turn
                       </UniformButton>
@@ -1910,7 +2078,6 @@ const MonopolyBoard = (props) => {
                         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', justifyContent: 'center' }}>
                           <UniformButton
                             variant="green"
-                            disabled={!canAffordFine}
                             onClick={() => {
                               // console.log('[DEBUG] Pay jail fine clicked');
                               // Clear doubles sequence when paying fine
@@ -1920,6 +2087,7 @@ const MonopolyBoard = (props) => {
                               setHasRolledBefore(false);
                               if (onPayJailFine) onPayJailFine();
                             }}
+                            disabled={endTurnClicked || globalDiceRolling || localDiceRolling || isOnVacation}
                           >
                             Pay $50
                           </UniformButton>
@@ -1929,6 +2097,7 @@ const MonopolyBoard = (props) => {
                               // console.log('[DEBUG] Roll dice for jail escape clicked');
                               rollDice();
                             }}
+                            disabled={endTurnClicked || globalDiceRolling || localDiceRolling || isOnVacation}
                           >
                             Roll Dice
                           </UniformButton>
@@ -1944,6 +2113,7 @@ const MonopolyBoard = (props) => {
                                 setHasRolledBefore(false);
                                 if (onUseJailCard) onUseJailCard();
                               }}
+                              disabled={endTurnClicked || globalDiceRolling || localDiceRolling || isOnVacation}
                             >
                               Use Pardon Card
                             </UniformButton>
@@ -1957,22 +2127,18 @@ const MonopolyBoard = (props) => {
                       gamePhase === 'rolling' && getCurrentPlayer() && canPlayerRoll(getCurrentPlayer().id) && !globalDiceRolling && !localDiceRolling && playerStatuses[getCurrentPlayer().id] !== 'jail' && (!playerStatuses[getCurrentPlayer().id] || typeof playerStatuses[getCurrentPlayer().id] !== 'object' || playerStatuses[getCurrentPlayer().id].status !== 'vacation') && !syncedLastDiceRoll && isMyTurn
                     ) {
                       // If player is in a doubles sequence (i.e., just ended turn after rolling doubles), show 'Roll Again' instead of 'Roll Dice'
-                      if (isInDoublesSequence || hasEndedTurnAfterDoubles) {
+                      if (allowRollAgain || doublesSequenceActive || isInDoublesSequence || hasEndedTurnAfterDoubles) {
                         if (lastButtonLogRef.current !== 'roll-again') {
-                          // console.log('[DEBUG] Showing Roll Again button for doubles sequence');
                           lastButtonLogRef.current = 'roll-again';
                         }
                         return <UniformButton variant="blue" onClick={() => {
-                          // console.log('[DEBUG] Roll Again clicked (doubles sequence)');
                           rollDice();
                         }}>Roll Again</UniformButton>;
                       } else {
                         if (lastButtonLogRef.current !== 'roll-dice') {
-                          // console.log('[DEBUG] Showing Roll Dice button');
                           lastButtonLogRef.current = 'roll-dice';
                         }
                         return <UniformButton onClick={() => {
-                          // console.log('[DEBUG] Roll Dice clicked');
                           rollDice();
                         }}>Roll Dice</UniformButton>;
                       }
@@ -2255,50 +2421,7 @@ const MonopolyBoard = (props) => {
           </Card>
         </CustomModal>
 
-        {/* Property Popup Modal (within board, top center) */}
-        {propertyPopupOpen && selectedProperty && (
-          <div
-            style={{
-              position: 'absolute',
-              top: 12,
-              left: classicMap.find(p => p.name === selectedProperty)?.type === 'company' ? '48%' : '60%',
-              transform: classicMap.find(p => p.name === selectedProperty)?.type === 'company' ? 'translateX(-9%)' : 'translateX(10%)',
-              zIndex: 200,
-            }}
-            onClick={e => e.stopPropagation()}
-          >
-            <PropertyPopup
-              propertyName={selectedProperty}
-              onClose={() => setPropertyPopupOpen(false)}
-              propertyOwnership={propertyOwnership}
-              players={players}
-              currentPlayerIndex={currentPlayerIndex}
-              gamePhase={gamePhase}
-              onBuildHouse={typeof onBuildHouse === 'function' ? onBuildHouse : () => { }}
-              onDestroyHouse={typeof onDestroyHouse === 'function' ? onDestroyHouse : () => { }}
-              onMortgageProperty={onMortgageProperty}
-              onSellProperty={onSellProperty}
-              gameSettings={gameSettings}
-              currentUserId={props.currentUserId}
-              popupWidth={classicMap.find(p => p.name === selectedProperty)?.type === 'company' ? 320 : undefined}
-            />
-          </div>
-        )}
-        {/* Overlay to close popup on outside click */}
-        {propertyPopupOpen && (
-          <div
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              width: '100%',
-              height: '100%',
-              zIndex: 99,
-              background: 'transparent',
-            }}
-            onClick={() => setPropertyPopupOpen(false)}
-          />
-        )}
+
       </div>
     </div>
   );

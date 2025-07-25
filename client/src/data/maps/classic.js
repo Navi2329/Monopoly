@@ -24,6 +24,14 @@ export const classicMap = [
         houses: 0,
         hotel: false,
     },
+    // Tax
+    {
+        name: "Income Tax",
+        type: "tax",
+        taxType: "income",
+        taxAmount: 0.1, // 10% of cash
+        mortgaged: false,
+    },
     // Airport
     {
         name: "TLV Airport",
@@ -306,6 +314,14 @@ export const classicMap = [
         mortgaged: false,
         houses: 0,
         hotel: false,
+    },
+    // Tax
+    {
+        name: "Luxury Tax",
+        type: "tax",
+        taxType: "luxury",
+        taxAmount: 75, // $75 flat amount
+        mortgaged: false,
     },
     // Companies
     {
