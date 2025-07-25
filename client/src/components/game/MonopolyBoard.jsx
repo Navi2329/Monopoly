@@ -367,29 +367,29 @@ const MonopolyBoard = (props) => {
     // Only reset doubles state if the player actually changes
     if (prevPlayerIdRef.current !== undefined && currentPlayer && prevPlayerIdRef.current !== currentPlayer.id) {
       // console.log('[DEBUG][RESET DOUBLES][CLIENT]', {
-        prevPlayerId: prevPlayerIdRef.current,
-        currentPlayerId: currentPlayer && currentPlayer.id,
-        currentPlayerIndex,
-        hasEndedTurnAfterDoubles,
-        isInDoublesSequence,
-        allowRollAgain,
-        doublesSequenceActive,
-        syncedLastDiceRoll,
-        gamePhase,
-        isMyTurn,
-        propsGameState: {
-          allowRollAgain: props.allowRollAgain,
-          doublesSequenceActive: props.doublesSequenceActive,
-          syncedLastDiceRoll: props.syncedLastDiceRoll,
-          gamePhase: props.gamePhase,
-          currentPlayerIndex: props.currentPlayerIndex,
-          currentTurnSocketId: props.currentTurnSocketId,
-          turnIndex: props.turnIndex,
-          playerStatuses: props.playerStatuses,
-          playerPositions: props.playerPositions,
-          specialAction: props.specialAction,
-        }
-      });
+      //   prevPlayerId: prevPlayerIdRef.current,
+      //   currentPlayerId: currentPlayer && currentPlayer.id,
+      //   currentPlayerIndex,
+      //   hasEndedTurnAfterDoubles,
+      //   isInDoublesSequence,
+      //   allowRollAgain,
+      //   doublesSequenceActive,
+      //   syncedLastDiceRoll,
+      //   gamePhase,
+      //   isMyTurn,
+      //   propsGameState: {
+      //     allowRollAgain: props.allowRollAgain,
+      //     doublesSequenceActive: props.doublesSequenceActive,
+      //     syncedLastDiceRoll: props.syncedLastDiceRoll,
+      //     gamePhase: props.gamePhase,
+      //     currentPlayerIndex: props.currentPlayerIndex,
+      //     currentTurnSocketId: props.currentTurnSocketId,
+      //     turnIndex: props.turnIndex,
+      //     playerStatuses: props.playerStatuses,
+      //     playerPositions: props.playerPositions,
+      //     specialAction: props.specialAction,
+      //   }
+      // });
       setCanRollAgain(false);
       setHasEndedTurnAfterDoubles(false);
       setHasRolledBefore(false);
@@ -2019,11 +2019,11 @@ const MonopolyBoard = (props) => {
                         onClick={() => {
                           if (propertyLandingState && propertyLandingState.canAfford && !buying) {
                             setBuying(true);
-                            // console.log('[DEBUG] Buy button clicked: emitting buyProperty', {
-                              roomId,
-                              propertyName: propertyLandingState.property.name,
-                              price: propertyLandingState.price
-                            });
+                            //       console.log('[DEBUG] Buy button clicked: emitting buyProperty', {
+                            //       roomId,
+                            //         propertyName: propertyLandingState.property.name,
+                            // price: propertyLandingState.price
+                            //       });
                             socket.emit('buyProperty', {
                               roomId,
                               propertyName: propertyLandingState.property.name,
@@ -2035,7 +2035,7 @@ const MonopolyBoard = (props) => {
                         }}
                       >
                         Buy for ${propertyLandingState.price}
-                      </UniformButton>
+                      </UniformButton >
                       <UniformButton
                         variant="purple"
                         onClick={() => {
@@ -2423,7 +2423,7 @@ const MonopolyBoard = (props) => {
 
 
       </div>
-    </div>
+    </div >
   );
 }
 
