@@ -276,7 +276,7 @@ module.exports = (io, socket) => {
         return;
       } else if (result.action === 'income-tax') {
         // Income Tax: Log the tax payment
-        const taxAmount = Math.floor(room.playerMoney[currentPlayer.id] * 0.1);
+        const taxAmount = Math.floor(room.playerMoney[currentPlayer.id] / 9);
         if (room.settings.vacationCash) {
           pushGameLog(room, {
             type: 'info',

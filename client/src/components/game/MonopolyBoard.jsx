@@ -2014,9 +2014,12 @@ const MonopolyBoard = (props) => {
                     landingPlayerId === getCurrentPlayer()?.id
                   ) {
                     if (lastButtonLogRef.current !== 'property-landing') {
-                      // console.log('[DEBUG] Showing Buy and End Turn buttons for property landing');
+                      // console.log('[DEBUG] Showing Buy and End Turn/Auction buttons for property landing');
                       lastButtonLogRef.current = 'property-landing';
                     }
+                    // --- AUCTION LOGIC ---
+                    if (gameSettings.allowAuction) {
+                      // Auction enabled: show Buy and Auction buttons only
                     return <>
                       <UniformButton
                         variant="green"
@@ -2024,27 +2027,52 @@ const MonopolyBoard = (props) => {
                         onClick={() => {
                           if (propertyLandingState && propertyLandingState.canAfford && !buying) {
                             setBuying(true);
-                            //       console.log('[DEBUG] Buy button clicked: emitting buyProperty', {
-                            //       roomId,
-                            //         propertyName: propertyLandingState.property.name,
-                            // price: propertyLandingState.price
-                            //       });
                             socket.emit('buyProperty', {
                               roomId,
                               propertyName: propertyLandingState.property.name,
                               price: propertyLandingState.price
                             });
-                            // Do NOT clear property landing state or setJustPurchasedProperty here; wait for server response
                             lastButtonLogRef.current = '';
                           }
                         }}
                       >
                         Buy for ${propertyLandingState.price}
-                      </UniformButton >
+                        </UniformButton>
+                        <UniformButton
+                          variant="blue"
+                          onClick={() => {
+                            if (typeof onAuctionProperty === 'function') {
+                              onAuctionProperty();
+                            }
+                          }}
+                          disabled={buying}
+                        >
+                          Auction
+                        </UniformButton>
+                      </>;
+                    } else {
+                      // Auction disabled: show Buy and End Turn buttons
+                      return <>
+                        <UniformButton
+                          variant="green"
+                          disabled={buying || syncedPlayerMoney[landingPlayerId] < propertyLandingState.price}
+                          onClick={() => {
+                            if (propertyLandingState && propertyLandingState.canAfford && !buying) {
+                              setBuying(true);
+                              socket.emit('buyProperty', {
+                                roomId,
+                                propertyName: propertyLandingState.property.name,
+                                price: propertyLandingState.price
+                              });
+                              lastButtonLogRef.current = '';
+                            }
+                          }}
+                        >
+                          Buy for ${propertyLandingState.price}
+                        </UniformButton>
                       <UniformButton
                         variant="purple"
                         onClick={() => {
-                          // console.log('[DEBUG] End Turn clicked from property landing, showing Roll Dice button');
                           handleEndTurn();
                         }}
                         disabled={endTurnClicked || globalDiceRolling || localDiceRolling}
@@ -2052,6 +2080,7 @@ const MonopolyBoard = (props) => {
                         End Turn
                       </UniformButton>
                     </>;
+                    }
                   } else {
                     // Check if player just purchased a property - show End Turn button
                     if (justPurchasedProperty && syncedLastDiceRoll && !globalDiceRolling && !localDiceRolling && movementComplete && isMyTurn) {
@@ -2133,7 +2162,7 @@ const MonopolyBoard = (props) => {
                     const isOnVacationSpace = currentPlayerForCheck && syncedPositions[currentPlayerForCheck.id] === 20;
 
                     if (
-                      gamePhase === 'rolling' && getCurrentPlayer() && canPlayerRoll(getCurrentPlayer().id) && !globalDiceRolling && !localDiceRolling && playerStatuses[getCurrentPlayer().id] !== 'jail' && (!playerStatuses[getCurrentPlayer().id] || typeof playerStatuses[getCurrentPlayer().id] !== 'object' || playerStatuses[getCurrentPlayer().id].status !== 'vacation') && !isOnVacationSpace && !syncedLastDiceRoll && isMyTurn
+                      gamePhase === 'rolling' && getCurrentPlayer() && canPlayerRoll(getCurrentPlayer().id) && !globalDiceRolling && !localDiceRolling && playerStatuses[getCurrentPlayer().id] !== 'jail' && (!playerStatuses[getCurrentPlayer().id] || typeof playerStatuses[getCurrentPlayer().id] !== 'object' || playerStatuses[getCurrentPlayer().id].status !== 'vacation') && !syncedLastDiceRoll && isMyTurn
                     ) {
                       // If player is in a doubles sequence (i.e., just ended turn after rolling doubles), show 'Roll Again' instead of 'Roll Dice'
                       if (allowRollAgain || doublesSequenceActive || isInDoublesSequence || hasEndedTurnAfterDoubles) {
