@@ -259,7 +259,7 @@ module.exports = (io, socket) => {
           player: currentPlayer.name,
           message: `${currentPlayer.name} went to vacation!`
         }, io);
-        
+
         // Check if there was vacation cash to collect
         if (room.vacationCash > 0) {
           pushGameLog(room, {
@@ -268,7 +268,7 @@ module.exports = (io, socket) => {
             message: `collected $${room.vacationCash} from vacation cash!`
           }, io);
         }
-        
+
         room.playerDoublesCount[currentPlayer.id] = 0;
         // Store pending special action in the room
         room.pendingSpecialAction = { type: result.action, playerId: currentPlayer.id, dice: { dice1: result.dice1, dice2: result.dice2, total: result.total } };
@@ -353,6 +353,8 @@ module.exports = (io, socket) => {
     const currentPlayer = room.players[room.turnIndex];
     if (!currentPlayer || socket.id !== currentPlayer.id) return;
 
+
+
     // GUARD: If player is supposed to roll again after doubles, ignore extra endTurn calls
     if (room.allowRollAgain && room.lastDiceRoll === null) {
       // console.log('[DEBUG][SERVER][endTurn][GUARD] Ignoring endTurn: player must roll again after doubles');
@@ -381,7 +383,10 @@ module.exports = (io, socket) => {
     // console.log('[DEBUG][SERVER][endTurn][CHECK]', { socketId: socket.id, currentPlayerId: currentPlayer.id, doublesCount });
 
     // Handle doubles logic
-    if (isDoubles) {
+    // Check if player is on vacation space (position 20) even if status not set yet
+    const isOnVacationSpace = room.playerPositions[currentPlayer.id] === 20;
+
+    if (isDoubles && !isOnVacationSpace) {
       if (doublesCount === 3) {
         // THIRD DOUBLE: Go to jail, reset doubles state, advance turn
         room.doublesSequenceActive = false;

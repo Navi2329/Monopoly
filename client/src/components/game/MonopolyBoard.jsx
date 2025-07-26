@@ -790,6 +790,11 @@ const MonopolyBoard = (props) => {
       // eslint-disable-next-line no-console
       // console.log('[DEBUG][CLIENT] End Turn button clicked after landing on vacation (position check)');
       socket.emit('endTurn', { roomId, vacationEndTurnPlayerId: currentPlayer.id });
+      // Reset all doubles values when End Turn is clicked on vacation space
+      setHasEndedTurnAfterDoubles(false);
+      setCanRollAgain(false);
+      setHasRolledBefore(false);
+      setIsInDoublesSequence(false);
     } else {
       socket.emit('endTurn', { roomId });
     }
@@ -2123,8 +2128,12 @@ const MonopolyBoard = (props) => {
                     }
 
                     // Normal Rolling Actions - Only show when not in property landing
+                    // Also check if player is on vacation space (position 20) even if status not set yet
+                    const currentPlayerForCheck = getCurrentPlayer();
+                    const isOnVacationSpace = currentPlayerForCheck && syncedPositions[currentPlayerForCheck.id] === 20;
+
                     if (
-                      gamePhase === 'rolling' && getCurrentPlayer() && canPlayerRoll(getCurrentPlayer().id) && !globalDiceRolling && !localDiceRolling && playerStatuses[getCurrentPlayer().id] !== 'jail' && (!playerStatuses[getCurrentPlayer().id] || typeof playerStatuses[getCurrentPlayer().id] !== 'object' || playerStatuses[getCurrentPlayer().id].status !== 'vacation') && !syncedLastDiceRoll && isMyTurn
+                      gamePhase === 'rolling' && getCurrentPlayer() && canPlayerRoll(getCurrentPlayer().id) && !globalDiceRolling && !localDiceRolling && playerStatuses[getCurrentPlayer().id] !== 'jail' && (!playerStatuses[getCurrentPlayer().id] || typeof playerStatuses[getCurrentPlayer().id] !== 'object' || playerStatuses[getCurrentPlayer().id].status !== 'vacation') && !isOnVacationSpace && !syncedLastDiceRoll && isMyTurn
                     ) {
                       // If player is in a doubles sequence (i.e., just ended turn after rolling doubles), show 'Roll Again' instead of 'Roll Dice'
                       if (allowRollAgain || doublesSequenceActive || isInDoublesSequence || hasEndedTurnAfterDoubles) {
