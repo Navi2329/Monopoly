@@ -1217,12 +1217,6 @@ const GamePage = () => {
       waitForDiceAnimationAndEndTurn(() => handleEndTurn(true, { [currentPlayer.id]: { status: 'vacation', vacationStartRound: roundNumber } }));
       return;
     } else if (specialAction === 'jail-escape') {
-      setGameLog(prev => [{
-        id: generateLogId(),
-        type: 'special',
-        player: currentPlayer?.name,
-        message: `rolled doubles and escaped from jail! 🎲`
-      }, ...prev]);
 
       // Reset doubles count when escaping jail (don't count the escape double)
       setPlayerDoublesCount(prev => ({

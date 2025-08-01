@@ -240,6 +240,14 @@ module.exports = (io, socket) => {
           player: currentPlayer.name,
           message: `got out of jail with doubles`
         }, io);
+        room.playerDoublesCount[currentPlayer.id] = 0;
+      } else if (result.action === 'jail-auto-release') {
+        pushGameLog(room, {
+          type: 'special',
+          player: currentPlayer.name,
+          message: `served full sentence and was released from jail! ⏰`
+        }, io);
+        room.playerDoublesCount[currentPlayer.id] = 0;
       } else if (result.action === 'start') {
         pushGameLog(room, {
           type: 'info',
@@ -345,113 +353,100 @@ module.exports = (io, socket) => {
     }, 800); // Wait for dice animation to complete before moving player
   };
 
-  // Update the endTurn handler to accept vacationEndTurnPlayerId
-  const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
-    const room = roomService.getRoomById(roomId);
-    if (!room || room.gameState !== 'in-progress') return;
+// Update the endTurn handler to accept vacationEndTurnPlayerId
+const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
+  const room = roomService.getRoomById(roomId);
+  if (!room || room.gameState !== 'in-progress') return;
 
-    const currentPlayer = room.players[room.turnIndex];
-    if (!currentPlayer || socket.id !== currentPlayer.id) return;
+  const currentPlayer = room.players[room.turnIndex];
+  if (!currentPlayer || socket.id !== currentPlayer.id) return;
 
+  // GUARD: Prevent duplicate endTurn calls using a timestamp-based debounce
+  const now = Date.now();
+  const lastEndTurnTime = room.lastEndTurnTime || 0;
+  if (now - lastEndTurnTime < 1000) { // 1 second debounce
+    // console.log('[DEBUG][SERVER][endTurn][DEBOUNCE] Ignoring duplicate endTurn call');
+    return;
+  }
+  room.lastEndTurnTime = now;
 
+  // GUARD: If player is supposed to roll again after doubles, ignore extra endTurn calls
+  if (room.allowRollAgain && room.lastDiceRoll === null) {
+    // console.log('[DEBUG][SERVER][endTurn][GUARD] Ignoring endTurn: player must roll again after doubles');
+    return;
+  }
 
-    // GUARD: If player is supposed to roll again after doubles, ignore extra endTurn calls
-    if (room.allowRollAgain && room.lastDiceRoll === null) {
-      // console.log('[DEBUG][SERVER][endTurn][GUARD] Ignoring endTurn: player must roll again after doubles');
+  // Check if player rolled doubles
+  const lastRoll = room.lastDiceRoll;
+  const isDoubles = lastRoll && lastRoll.dice1 === lastRoll.dice2;
+  const doublesCount = room.playerDoublesCount[currentPlayer.id] || 0;
+  
+  // Handle doubles logic
+  // Check if player is on vacation space (position 20) even if status not set yet
+  const isOnVacationSpace = room.playerPositions[currentPlayer.id] === 20;
+
+  if (isDoubles && !isOnVacationSpace) {
+    if (doublesCount === 3) {
+      // THIRD DOUBLE: Go to jail, reset doubles state, advance turn
+      room.doublesSequenceActive = false;
+      room.allowRollAgain = false;
+      room.playerDoublesCount[currentPlayer.id] = 0;
+      // Send player to jail (set their status)
+      room.playerStatuses[currentPlayer.id] = 'jail';
+      // Note: The jail message is now handled in rollDice function
+      const turnResult = room.advanceTurn('user-action', vacationEndTurnPlayerId);
+      room.lastDiceRoll = null;
+      emitAdvanceTurnLogs(room, turnResult, io);
+      emitGameStateUpdated(room, io, roomId);
       return;
-    }
-
-    // Debug log at start
-    // console.log('[DEBUG][SERVER][endTurn][START]', {
-    //   socketId: socket.id,
-    //   currentPlayerId: currentPlayer.id,
-    //   lastRoll: room.lastDiceRoll,
-    //   isDoubles: room.lastDiceRoll && room.lastDiceRoll.dice1 === room.lastDiceRoll.dice2,
-    //   doublesCount: room.playerDoublesCount[currentPlayer.id],
-    //   playerDoublesCount: room.playerDoublesCount,
-    //   turnIndex: room.turnIndex,
-    //   lastDiceRoll: room.lastDiceRoll,
-    //   allowRollAgain: room.allowRollAgain,
-    //   doublesSequenceActive: room.doublesSequenceActive
-    // });
-
-    // Check if player rolled doubles
-    const lastRoll = room.lastDiceRoll;
-    const isDoubles = lastRoll && lastRoll.dice1 === lastRoll.dice2;
-    const doublesCount = room.playerDoublesCount[currentPlayer.id] || 0;
-    // Debug log
-    // console.log('[DEBUG][SERVER][endTurn][CHECK]', { socketId: socket.id, currentPlayerId: currentPlayer.id, doublesCount });
-
-    // Handle doubles logic
-    // Check if player is on vacation space (position 20) even if status not set yet
-    const isOnVacationSpace = room.playerPositions[currentPlayer.id] === 20;
-
-    if (isDoubles && !isOnVacationSpace) {
-      if (doublesCount === 3) {
-        // THIRD DOUBLE: Go to jail, reset doubles state, advance turn
-        room.doublesSequenceActive = false;
-        room.allowRollAgain = false;
-        room.playerDoublesCount[currentPlayer.id] = 0;
-        // Send player to jail (set their status)
-        room.playerStatuses[currentPlayer.id] = 'jail';
-        // Note: The jail message is now handled in rollDice function
-        const turnResult = room.advanceTurn('user-action', vacationEndTurnPlayerId);
-        room.lastDiceRoll = null;
-        emitAdvanceTurnLogs(room, turnResult, io);
-        emitGameStateUpdated(room, io, roomId);
-        return;
-      } else if (doublesCount < 3) {
-        // Allow another roll
-        room.lastDiceRoll = null;
-        room.doublesSequenceActive = true;
-        room.allowRollAgain = true;
-        pushGameLog(room, {
-          type: 'info',
-          player: currentPlayer.name,
-          message: 'ended turn after rolling doubles - gets another roll'
-        }, io);
-        emitGameStateUpdated(room, io, roomId, { allowRollAgain: true, doublesSequenceActive: true });
-        // console.log('[DEBUG][SERVER][endTurn][DOUBLES RETURN]', {
-        //   playerDoublesCount: room.playerDoublesCount,
-        //   turnIndex: room.turnIndex,
-        //   lastDiceRoll: room.lastDiceRoll,
-        //   allowRollAgain: room.allowRollAgain,
-        //   doublesSequenceActive: room.doublesSequenceActive
-        // });
-        return;
-      }
-    }
-
-    // If not doubles or not the third double, proceed with normal turn advancement
-    room.doublesSequenceActive = false;
-    room.allowRollAgain = false;
-    room.playerDoublesCount[currentPlayer.id] = 0; // Only reset here, when turn advances
-
-    // Check if player is being sent to jail (either by landing on Go to Jail or rolling 3 doubles)
-    const isBeingSentToJail = room.pendingSpecialAction &&
-      room.pendingSpecialAction.type === 'jail-move';
-
-    // Only log "ended turn" if player is not being sent to jail
-    if (!isBeingSentToJail) {
+    } else if (doublesCount < 3) {
+      // Allow another roll
+      room.lastDiceRoll = null;
+      room.doublesSequenceActive = true;
+      room.allowRollAgain = true;
       pushGameLog(room, {
         type: 'info',
         player: currentPlayer.name,
-        message: `ended turn`
+        message: 'ended turn after rolling doubles - gets another roll'
       }, io);
+      emitGameStateUpdated(room, io, roomId, { allowRollAgain: true, doublesSequenceActive: true });
+      return;
     }
+  }
 
-    const turnResult = room.advanceTurn('user-action', vacationEndTurnPlayerId);
-    room.lastDiceRoll = null;
-    emitAdvanceTurnLogs(room, turnResult, io);
-    emitGameStateUpdated(room, io, roomId);
-    // console.log('[DEBUG][SERVER][endTurn][ADVANCE TURN]', {
+  // If not doubles or not the third double, proceed with normal turn advancement
+  room.doublesSequenceActive = false;
+  room.allowRollAgain = false;
+  room.playerDoublesCount[currentPlayer.id] = 0; // Only reset here, when turn advances
+
+  // Check if player is being sent to jail (either by landing on Go to Jail or rolling 3 doubles)
+  const isBeingSentToJail = room.pendingSpecialAction &&
+    room.pendingSpecialAction.type === 'jail-move';
+
+  // Check if we already logged a turn-ending message for doubles
+  const alreadyLoggedTurnEnd = isDoubles && !isOnVacationSpace && doublesCount < 3;
+
+  // Only log "ended turn" if player is not being sent to jail AND we haven't already logged for doubles
+  if (!isBeingSentToJail && !alreadyLoggedTurnEnd) {
+    // console.log('[DEBUG][SERVER][endTurn][NORMAL]', {
     //   playerDoublesCount: room.playerDoublesCount,
     //   turnIndex: room.turnIndex,
     //   lastDiceRoll: room.lastDiceRoll,
     //   allowRollAgain: room.allowRollAgain,
     //   doublesSequenceActive: room.doublesSequenceActive
     // });
-  };
+    pushGameLog(room, {
+      type: 'info',
+      player: currentPlayer.name,
+      message: `ended turn`
+    }, io);
+  }
+
+  const turnResult = room.advanceTurn('user-action', vacationEndTurnPlayerId);
+  room.lastDiceRoll = null;
+  emitAdvanceTurnLogs(room, turnResult, io);
+  emitGameStateUpdated(room, io, roomId);
+};
 
   // New handler for property landing
   const handlePropertyLanding = ({ roomId, propertyName }) => {

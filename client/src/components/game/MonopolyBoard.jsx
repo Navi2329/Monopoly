@@ -1831,7 +1831,7 @@ const MonopolyBoard = (props) => {
                     Shuffling Player Order...
                   </Typography>
                 ) : isHost ? (
-                  <StyledActionButton onClick={onStartGame} sx={{ mb: 0 }}>
+                  <StyledActionButton onClick={onStartGame} sx={{ mb: 0 }} disabled={players.filter(p => p.color).length < 2}>
                     Start Game
                   </StyledActionButton>
                 ) : (
