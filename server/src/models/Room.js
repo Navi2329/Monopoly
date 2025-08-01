@@ -22,6 +22,10 @@ class Room {
     this.gameLog = []; // Array of log entries
     this.collectedMoney = {}; // { playerId: amount } for vacation cash
     this.vacationCash = 0; // Total money collected for vacation
+    
+    // Trade system
+    this.trades = {}; // { tradeId: tradeData }
+    this.tradeCounter = 0; // For generating unique trade IDs
 
     // Property data from classic map
     this.propertyData = {
@@ -386,7 +390,7 @@ class Room {
           vacationReturnEvents.push({
             type: 'vacation-return-log',
             playerId,
-            message: `${playerName} returned from vacation and can roll again!`
+            message: `returned from vacation and can roll again!`
           });
           break; // Let this player roll
         } else {
@@ -544,6 +548,7 @@ class Room {
       vacationCash: this.vacationCash,
       gameLog: this.gameLog,
       playersOrdered: this.players.map(p => ({ id: p.id, name: p.name, color: p.color, isBot: p.isBot, isOnline: p.isOnline })),
+      trades: Object.values(this.trades),
       // add more fields if needed
     };
     // console.log('[DEBUG] getGameState propertyOwnership:', JSON.stringify(gameState.propertyOwnership));
@@ -687,6 +692,137 @@ class Room {
       return true;
     }
     return false;
+  }
+
+  // Trade system methods
+  createTrade(createdBy, targetPlayerId, offers, note = '') {
+    const tradeId = `trade-${this.id}-${++this.tradeCounter}`;
+    const trade = {
+      id: tradeId,
+      createdBy,
+      targetPlayerId,
+      offers, // { playerId: { money: number, properties: [propertyName] } }
+      note,
+      status: 'pending', // pending, accepted, declined, cancelled
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+    
+    this.trades[tradeId] = trade;
+    return trade;
+  }
+
+  updateTradeStatus(tradeId, status) {
+    if (this.trades[tradeId]) {
+      this.trades[tradeId].status = status;
+      this.trades[tradeId].updatedAt = Date.now();
+      return this.trades[tradeId];
+    }
+    return null;
+  }
+
+  executeTrade(tradeId) {
+    const trade = this.trades[tradeId];
+    if (!trade || trade.status !== 'pending') {
+      return { success: false, error: 'Invalid trade or trade not accepted' };
+    }
+
+    const creatorId = trade.createdBy;
+    const targetId = trade.targetPlayerId;
+    const creatorOffer = trade.offers[creatorId] || { money: 0, properties: [] };
+    const targetOffer = trade.offers[targetId] || { money: 0, properties: [] };
+
+    // Validate players have sufficient resources
+    const creatorPlayer = this.players.find(p => p.id === creatorId);
+    const targetPlayer = this.players.find(p => p.id === targetId);
+    
+    if (!creatorPlayer || !targetPlayer) {
+      return { success: false, error: 'One or both players not found' };
+    }
+
+    // Check money availability
+    if (this.playerMoney[creatorId] < creatorOffer.money) {
+      return { success: false, error: 'Creator does not have sufficient money' };
+    }
+    if (this.playerMoney[targetId] < targetOffer.money) {
+      return { success: false, error: 'Target does not have sufficient money' };
+    }
+
+    // Check property ownership
+    for (const propertyName of creatorOffer.properties) {
+      if (!this.propertyOwnership[propertyName] || this.propertyOwnership[propertyName].owner !== creatorId) {
+        return { success: false, error: `Creator does not own ${propertyName}` };
+      }
+    }
+    for (const propertyName of targetOffer.properties) {
+      if (!this.propertyOwnership[propertyName] || this.propertyOwnership[propertyName].owner !== targetId) {
+        return { success: false, error: `Target does not own ${propertyName}` };
+      }
+    }
+
+    // Execute the trade
+    // Transfer money
+    this.playerMoney[creatorId] -= creatorOffer.money;
+    this.playerMoney[creatorId] += targetOffer.money;
+    this.playerMoney[targetId] -= targetOffer.money;
+    this.playerMoney[targetId] += creatorOffer.money;
+
+    // Update player money in players array
+    creatorPlayer.money = this.playerMoney[creatorId];
+    targetPlayer.money = this.playerMoney[targetId];
+
+    // Transfer properties
+    for (const propertyName of creatorOffer.properties) {
+      this.propertyOwnership[propertyName].owner = targetId;
+      this.propertyOwnership[propertyName].ownerName = targetPlayer.name;
+      this.propertyOwnership[propertyName].ownerColor = targetPlayer.color;
+    }
+    for (const propertyName of targetOffer.properties) {
+      this.propertyOwnership[propertyName].owner = creatorId;
+      this.propertyOwnership[propertyName].ownerName = creatorPlayer.name;
+      this.propertyOwnership[propertyName].ownerColor = creatorPlayer.color;
+    }
+
+    // Mark trade as completed
+    trade.status = 'completed';
+    trade.updatedAt = Date.now();
+
+    return { success: true, trade };
+  }
+
+  getTrades() {
+    return Object.values(this.trades);
+  }
+
+  getActiveTrades() {
+    return Object.values(this.trades).filter(trade => trade.status === 'pending');
+  }
+
+  cancelTrade(tradeId) {
+    if (this.trades[tradeId]) {
+      this.trades[tradeId].status = 'cancelled';
+      this.trades[tradeId].updatedAt = Date.now();
+      return this.trades[tradeId];
+    }
+    return null;
+  }
+
+  // Get properties owned by a player with their data
+  getPlayerProperties(playerId) {
+    const ownedProperties = [];
+    for (const [propertyName, ownership] of Object.entries(this.propertyOwnership)) {
+      if (ownership.owner === playerId) {
+        const propertyData = this.propertyData[propertyName];
+        if (propertyData) {
+          ownedProperties.push({
+            name: propertyName,
+            ...propertyData,
+            ...ownership
+          });
+        }
+      }
+    }
+    return ownedProperties;
   }
 }
 

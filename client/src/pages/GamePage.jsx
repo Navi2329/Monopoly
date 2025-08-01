@@ -42,6 +42,7 @@ import MapPreviewModal from '../components/game/MapPreviewModal';
 import MapFullPreview from '../components/game/MapFullPreview';
 import classicMap from '../data/maps/classic';
 import AuctionModal from '../components/game/AuctionModal';
+import { PlayerSelectionModal, CreateTradeModal, ViewTradeModal } from '../components/game/TradeModals';
 import { useUser } from '../contexts/UserContext';
 import socket from '../socket';
 import PropertyPopup from '../components/game/PropertyPopup';
@@ -184,6 +185,16 @@ const GamePage = () => {
   const [propertyPopupOpen, setPropertyPopupOpen] = useState(false);
   const [selectedProperty, setSelectedProperty] = useState(null);
 
+  // Trade system state
+  const [trades, setTrades] = useState([]);
+  const [allTrades, setAllTrades] = useState([]); // Store all trades including completed ones
+  const [playerSelectionModalOpen, setPlayerSelectionModalOpen] = useState(false);
+  const [createTradeModalOpen, setCreateTradeModalOpen] = useState(false);
+  const [viewTradeModalOpen, setViewTradeModalOpen] = useState(false);
+  const [selectedTradePartner, setSelectedTradePartner] = useState(null);
+  const [selectedTrade, setSelectedTrade] = useState(null);
+  const [playerProperties, setPlayerProperties] = useState({});
+
   const prevPropertyOwnershipRef = useRef({});
 
   // Move onGameStateUpdated outside useEffect for stable reference
@@ -214,6 +225,9 @@ const GamePage = () => {
       // Set current player by matching socket id
       const mySocketId = socket.id;
       const me = playerList.find(p => p.id === mySocketId);
+      console.log('[PLAYER DEBUG] Current player found:', me);
+      console.log('[PLAYER DEBUG] Current player money:', me?.money);
+      console.log('[PLAYER DEBUG] Full player list:', playerList);
       setCurrentPlayer(me);
       setIsHost(me?.isHost || false);
       // Only set playerJoined to true if the player is in the player list
@@ -1350,7 +1364,101 @@ const GamePage = () => {
   };
 
   const handleCreateTrade = () => {
-    // Add trade creation logic here
+    if (!gameStarted || !currentPlayer) return;
+    setPlayerSelectionModalOpen(true);
+  };
+
+  // Trade system handlers
+  const handleSelectTradePartner = (partner) => {
+    setSelectedTrade(null); // Clear any existing trade for new trade creation
+    setSelectedTradePartner(partner);
+    setPlayerSelectionModalOpen(false);
+    setCreateTradeModalOpen(true);
+  };
+
+  const handleCreateTradeSubmit = (tradeData) => {
+    if (tradeData.isNegotiation && selectedTrade) {
+      // This is a negotiation of an existing trade
+      socket.emit('negotiateTrade', {
+        roomId: roomId,
+        originalTradeId: selectedTrade.id,
+        offers: tradeData.offers,
+        note: tradeData.note
+      });
+    } else {
+      // This is a new trade
+      socket.emit('createTrade', {
+        roomId: roomId,
+        targetPlayerId: tradeData.targetPlayerId,
+        offers: tradeData.offers,
+        note: tradeData.note
+      });
+    }
+  };
+
+  const handleViewTrade = (trade) => {
+    setSelectedTrade(trade);
+    setViewTradeModalOpen(true);
+  };
+
+  const handleCloseTrade = () => {
+    setSelectedTrade(null);
+    setViewTradeModalOpen(false);
+  };
+
+  const handleConfirmTrade = (tradeId) => {
+    socket.emit('respondToTrade', {
+      roomId: roomId,
+      tradeId: tradeId,
+      response: 'accepted'
+    });
+    handleCloseTrade();
+  };
+
+  const handleDeclineTrade = (tradeId) => {
+    socket.emit('respondToTrade', {
+      roomId: roomId,
+      tradeId: tradeId,
+      response: 'declined'
+    });
+    handleCloseTrade();
+  };
+
+  const handleNegotiateTrade = (trade) => {
+    setSelectedTrade(trade); // Set the trade being negotiated
+    setSelectedTradePartner(players.find(p => p.id === trade.createdBy));
+    setViewTradeModalOpen(false);
+    setCreateTradeModalOpen(true);
+  };
+
+  const handleCancelTrade = (tradeId) => {
+    socket.emit('cancelTrade', {
+      roomId: roomId,
+      tradeId: tradeId
+    });
+    handleCloseTrade();
+  };
+
+  // Handle clicking on trade links in game log
+  const handleTradeClick = (tradeId) => {
+    const trade = allTrades.find(t => t.id === tradeId);
+    if (trade) {
+      setSelectedTrade(trade);
+      setViewTradeModalOpen(true);
+    }
+  };
+
+  // Get properties owned by a player
+  const getPlayerOwnedProperties = (playerId) => {
+    return classicMap.filter(property => 
+      ['property', 'airport', 'utility', 'company'].includes(property.type) &&
+      syncedPropertyOwnership[property.name]?.owner === playerId
+    ).map(property => ({
+      name: property.name,
+      price: property.price || 0,
+      type: property.type,
+      set: property.set
+    }));
   };
 
   // Handler functions for buttons
@@ -2261,11 +2369,48 @@ const GamePage = () => {
     socket.on('auctionStarted', handleAuctionStarted);
     socket.on('auctionUpdate', handleAuctionUpdate);
     socket.on('auctionEnded', handleAuctionEnded);
+
+    // Trade event handlers
+    const handleTradeCreated = (trade) => {
+      setTrades(prev => [...prev, trade]);
+      setAllTrades(prev => [...prev, trade]); // Also update allTrades for clickable log
+    };
+
+    const handleTradeAccepted = ({ tradeId, trade }) => {
+      setTrades(prev => prev.map(t => t.id === tradeId ? { ...t, status: 'accepted' } : t));
+      setAllTrades(prev => prev.map(t => t.id === tradeId ? { ...t, status: 'accepted' } : t));
+    };
+
+    const handleTradeDeclined = ({ tradeId }) => {
+      setTrades(prev => prev.map(t => t.id === tradeId ? { ...t, status: 'declined' } : t));
+      setAllTrades(prev => prev.map(t => t.id === tradeId ? { ...t, status: 'declined' } : t));
+    };
+
+    const handleTradeCancelled = ({ tradeId }) => {
+      setTrades(prev => prev.filter(t => t.id !== tradeId)); // Remove from active trades only
+      // Keep the trade in allTrades for clickable log history - just mark it as cancelled
+      setAllTrades(prev => prev.map(t => t.id === tradeId ? { ...t, status: 'cancelled' } : t));
+    };
+
+    const handleTradeError = ({ message }) => {
+      alert(message); // You can replace this with a proper notification system
+    };
+
+    socket.on('tradeCreated', handleTradeCreated);
+    socket.on('tradeAccepted', handleTradeAccepted);
+    socket.on('tradeDeclined', handleTradeDeclined);
+    socket.on('tradeCancelled', handleTradeCancelled);
+    socket.on('tradeError', handleTradeError);
     
     return () => {
       socket.off('auctionStarted', handleAuctionStarted);
       socket.off('auctionUpdate', handleAuctionUpdate);
       socket.off('auctionEnded', handleAuctionEnded);
+      socket.off('tradeCreated', handleTradeCreated);
+      socket.off('tradeAccepted', handleTradeAccepted);
+      socket.off('tradeDeclined', handleTradeDeclined);
+      socket.off('tradeCancelled', handleTradeCancelled);
+      socket.off('tradeError', handleTradeError);
     };
   }, []);
 
@@ -2345,6 +2490,12 @@ const GamePage = () => {
       setSyncedPropertyOwnership(state.propertyOwnership || {});
       setSyncedVacationCash(state.vacationCash || 0);
       setSyncedPlayersOrdered(state.playersOrdered || []);
+      
+      // Update trades from server state
+      if (state.trades) {
+        setTrades(state.trades.filter(trade => trade.status === 'pending')); // Only pending trades for active list
+        setAllTrades(state.trades); // All trades including completed ones for clickable log
+      }
     };
     
     socket.on('gameStateUpdated', handleGameStateUpdated);
@@ -2421,6 +2572,7 @@ const GamePage = () => {
     currentUserId={currentPlayer?.id}
     isShufflingPlayers={isShufflingPlayers}
     onLocalDiceRollingChange={setLocalDiceRolling}
+    onTradeClick={handleTradeClick}
   />
 
 
@@ -2589,6 +2741,7 @@ const GamePage = () => {
             onPropertyClick={handlePropertyClick}
             auctionEnded={auctionEnded}
             auctionCurrentPlayerId={auctionCurrentPlayerId}
+            onTradeClick={handleTradeClick}
           />
 
           {/* Property Popup */}
@@ -2820,16 +2973,74 @@ const GamePage = () => {
                   }
                 }}
               >
-                <Typography
-                  variant="body2"
-                  sx={{
-                    textAlign: 'center',
-                    color: 'rgba(255, 255, 255, 0.6)',
-                    fontSize: '0.875rem'
-                  }}
-                >
-                  No active trades
-                </Typography>
+                {trades.filter(trade => trade.status === 'pending').length > 0 ? (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    {trades.filter(trade => trade.status === 'pending').map((trade) => {
+                      const isCreator = trade.createdBy === currentPlayer?.id;
+                      const isTarget = trade.targetPlayerId === currentPlayer?.id;
+                      const canInteract = isCreator || isTarget;
+                      
+                      const otherPlayerId = isCreator ? trade.targetPlayerId : trade.createdBy;
+                      const otherPlayer = players.find(p => p.id === otherPlayerId);
+                      
+                      return (
+                        <Button
+                          key={trade.id}
+                          onClick={() => handleViewTrade(trade)}
+                          sx={{
+                            background: canInteract 
+                              ? 'linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(124, 58, 237, 0.2))'
+                              : 'linear-gradient(135deg, rgba(71, 85, 105, 0.2), rgba(51, 65, 85, 0.2))',
+                            border: '1px solid rgba(255, 255, 255, 0.1)',
+                            borderRadius: '8px',
+                            p: 1.5,
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            width: '100%',
+                            textTransform: 'none',
+                            color: 'white',
+                            justifyContent: 'center',
+                            mb: 1,
+                            '&:hover': {
+                              transform: 'translateY(-1px)',
+                              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)',
+                            }
+                          }}
+                        >
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                              {players.find(p => p.id === trade.createdBy)?.name}
+                            </Typography>
+                            <SwapHoriz sx={{ fontSize: '1rem' }} />
+                            <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                              {players.find(p => p.id === trade.targetPlayerId)?.name}
+                            </Typography>
+                            {canInteract && isTarget && (
+                              <Box sx={{ 
+                                width: 8, 
+                                height: 8, 
+                                borderRadius: '50%', 
+                                background: '#f59e0b',
+                                ml: 1
+                              }} />
+                            )}
+                          </Box>
+                        </Button>
+                      );
+                    })}
+                  </Box>
+                ) : (
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      textAlign: 'center',
+                      color: 'rgba(255, 255, 255, 0.6)',
+                      fontSize: '0.875rem'
+                    }}
+                  >
+                    No active trades
+                  </Typography>
+                )}
               </Paper>
             </Box>
 
@@ -3084,6 +3295,44 @@ const GamePage = () => {
         timerColor={auctionTimerColor}
         auctionEnded={auctionEnded}
         winner={auctionWinner}
+      />
+
+      {/* Trade Modals */}
+      <PlayerSelectionModal
+        isOpen={playerSelectionModalOpen}
+        onClose={() => setPlayerSelectionModalOpen(false)}
+        players={players}
+        currentPlayerId={currentPlayer?.id}
+        onSelectPlayer={handleSelectTradePartner}
+      />
+
+      <CreateTradeModal
+        isOpen={createTradeModalOpen}
+        onClose={() => {
+          setCreateTradeModalOpen(false);
+          setSelectedTradePartner(null);
+          setSelectedTrade(null); // Clear selected trade when closing
+        }}
+        currentPlayer={currentPlayer}
+        targetPlayer={selectedTradePartner}
+        syncedPlayerMoney={syncedPlayerMoney}
+        playerProperties={currentPlayer ? getPlayerOwnedProperties(currentPlayer.id) : []}
+        targetProperties={selectedTradePartner ? getPlayerOwnedProperties(selectedTradePartner.id) : []}
+        onCreateTrade={handleCreateTradeSubmit}
+        existingTrade={selectedTrade}
+      />
+
+      <ViewTradeModal
+        isOpen={viewTradeModalOpen}
+        onClose={handleCloseTrade}
+        trade={selectedTrade}
+        currentPlayerId={currentPlayer?.id}
+        players={players}
+        onConfirmTrade={handleConfirmTrade}
+        onDeclineTrade={handleDeclineTrade}
+        onCancelTrade={handleCancelTrade}
+        onNegotiateTrade={handleNegotiateTrade}
+        canInteract={gameStarted}
       />
     </Box>
   );

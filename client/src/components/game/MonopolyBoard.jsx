@@ -1920,7 +1920,30 @@ const MonopolyBoard = (props) => {
                                   fontWeight: entry.type === 'bankruptcy' ? 'bold' : 'normal'
                                 }}
                               >
-                                {entry.message}
+                                {entry.type === 'trade' && entry.tradeId ? (
+                                  <span>
+                                    {entry.message.split('trade').map((part, i) => 
+                                      i === 0 ? part : (
+                                        <span key={i}>
+                                          <span
+                                            onClick={() => props.onTradeClick && props.onTradeClick(entry.tradeId)}
+                                            style={{
+                                              color: '#10b981',
+                                              cursor: 'pointer',
+                                              textDecoration: 'underline',
+                                              fontWeight: 'bold'
+                                            }}
+                                          >
+                                            trade
+                                          </span>
+                                          {part}
+                                        </span>
+                                      )
+                                    )}
+                                  </span>
+                                ) : (
+                                  entry.message
+                                )}
                               </Typography>
                             </Box>
                           }
@@ -2401,7 +2424,30 @@ const MonopolyBoard = (props) => {
                                   fontWeight: entry.type === 'bankruptcy' ? 'bold' : 'normal'
                                 }}
                               >
-                                {entry.message}
+                                {entry.type === 'trade' && entry.tradeId ? (
+                                  <span>
+                                    {entry.message.split('trade').map((part, i) => 
+                                      i === 0 ? part : (
+                                        <span key={i}>
+                                          <span
+                                            onClick={() => props.onTradeClick && props.onTradeClick(entry.tradeId)}
+                                            style={{
+                                              color: '#10b981',
+                                              cursor: 'pointer',
+                                              textDecoration: 'underline',
+                                              fontWeight: 'bold'
+                                            }}
+                                          >
+                                            trade
+                                          </span>
+                                          {part}
+                                        </span>
+                                      )
+                                    )}
+                                  </span>
+                                ) : (
+                                  entry.message
+                                )}
                               </Typography>
                             </Box>
                           }

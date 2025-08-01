@@ -68,7 +68,7 @@ module.exports = (io, socket) => {
       io.to(newRoom.id).emit('playerListUpdated', newRoom.getPlayerList());
       // Emit log for host joining and game id
       pushGameLog(newRoom, { type: 'info', message: `Game ID: ${newRoom.id}` }, io);
-      pushGameLog(newRoom, { type: 'join', player: playerName, message: `${playerName} has joined the room as host.` }, io);
+      pushGameLog(newRoom, { type: 'join', player: playerName, message: `has joined the room as host.` }, io);
     }
   };
 
@@ -95,7 +95,7 @@ module.exports = (io, socket) => {
       // Log the player list before emitting to all clients
       io.to(roomId).emit('playerListUpdated', room.getPlayerList());
       // Emit log for player joining
-      pushGameLog(room, { type: 'join', player: playerName, message: `${playerName} joined the room.` }, io);
+      pushGameLog(room, { type: 'join', player: playerName, message: `joined the room.` }, io);
 
       // Send current game state so players can see their positions on the board
       emitGameStateUpdated(room, io, roomId);
@@ -265,7 +265,7 @@ module.exports = (io, socket) => {
         pushGameLog(room, {
           type: 'special',
           player: currentPlayer.name,
-          message: `${currentPlayer.name} went to vacation!`
+          message: `went to vacation!`
         }, io);
 
         // Check if there was vacation cash to collect
@@ -1017,4 +1017,250 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
       }
     }
   });
+
+  // ===== TRADE SYSTEM HANDLERS =====
+  
+  // Create a new trade
+  const createTrade = ({ roomId, targetPlayerId, offers, note }) => {
+    const room = roomService.getRoomById(roomId);
+    if (!room || room.gameState !== 'in-progress') return;
+
+    const creatorPlayer = room.players.find(p => p.id === socket.id);
+    const targetPlayer = room.players.find(p => p.id === targetPlayerId);
+    
+    if (!creatorPlayer || !targetPlayer) {
+      socket.emit('tradeError', { message: 'Player not found' });
+      return;
+    }
+
+    // Validate trade offers
+    const creatorOffer = offers[socket.id] || { money: 0, properties: [] };
+    const targetOffer = offers[targetPlayerId] || { money: 0, properties: [] };
+
+    // Check if creator has sufficient resources
+    if (creatorOffer.money > room.playerMoney[socket.id]) {
+      socket.emit('tradeError', { message: 'You do not have enough money' });
+      return;
+    }
+
+    // Check if creator owns all properties they're offering
+    for (const propertyName of creatorOffer.properties) {
+      if (!room.propertyOwnership[propertyName] || room.propertyOwnership[propertyName].owner !== socket.id) {
+        socket.emit('tradeError', { message: `You do not own ${propertyName}` });
+        return;
+      }
+    }
+
+    // Check if target owns all properties in the request
+    for (const propertyName of targetOffer.properties) {
+      if (!room.propertyOwnership[propertyName] || room.propertyOwnership[propertyName].owner !== targetPlayerId) {
+        socket.emit('tradeError', { message: `${targetPlayer.name} does not own ${propertyName}` });
+        return;
+      }
+    }
+
+    // Check if target has sufficient money
+    if (targetOffer.money > room.playerMoney[targetPlayerId]) {
+      socket.emit('tradeError', { message: `${targetPlayer.name} does not have enough money` });
+      return;
+    }
+
+    // Create the trade
+    const trade = room.createTrade(socket.id, targetPlayerId, offers, note);
+    
+    // Log trade creation
+    pushGameLog(room, {
+      type: 'trade',
+      player: creatorPlayer.name,
+      target: targetPlayer.name,
+      tradeId: trade.id, // Add trade ID for clickable functionality
+      message: `proposed a trade to ${targetPlayer.name}`
+    }, io);
+
+    // Emit trade created to all players
+    io.to(roomId).emit('tradeCreated', trade);
+    emitGameStateUpdated(room, io, roomId);
+  };
+
+  // Respond to a trade (accept/decline)
+  const respondToTrade = ({ roomId, tradeId, response }) => {
+    const room = roomService.getRoomById(roomId);
+    if (!room) return;
+
+    const trade = room.trades[tradeId];
+    if (!trade || trade.status !== 'pending') {
+      socket.emit('tradeError', { message: 'Trade not found or no longer active' });
+      return;
+    }
+
+    // Only target player can respond
+    if (trade.targetPlayerId !== socket.id) {
+      socket.emit('tradeError', { message: 'You cannot respond to this trade' });
+      return;
+    }
+
+    const responsePlayer = room.players.find(p => p.id === socket.id);
+    const creatorPlayer = room.players.find(p => p.id === trade.createdBy);
+
+    if (response === 'accepted') {
+      // Execute the trade
+      const result = room.executeTrade(tradeId);
+      
+      if (result.success) {
+        pushGameLog(room, {
+          type: 'trade',
+          player: responsePlayer.name,
+          target: creatorPlayer.name,
+          tradeId: tradeId, // Add trade ID for clickable functionality
+          message: `${responsePlayer.name} accepted the trade from ${creatorPlayer.name}`
+        }, io);
+
+        // Emit trade accepted
+        io.to(roomId).emit('tradeAccepted', { tradeId, trade: result.trade });
+        emitGameStateUpdated(room, io, roomId);
+      } else {
+        socket.emit('tradeError', { message: result.error });
+      }
+    } else if (response === 'declined') {
+      room.updateTradeStatus(tradeId, 'declined');
+      
+      pushGameLog(room, {
+        type: 'trade',
+        player: responsePlayer.name,
+        target: creatorPlayer.name,
+        tradeId: tradeId, // Add trade ID for clickable functionality
+        message: `declined the trade from ${creatorPlayer.name}`
+      }, io);
+
+      // Emit trade declined
+      io.to(roomId).emit('tradeDeclined', { tradeId });
+    }
+  };
+
+  // Cancel a trade
+  const cancelTrade = ({ roomId, tradeId }) => {
+    const room = roomService.getRoomById(roomId);
+    if (!room) return;
+
+    const trade = room.trades[tradeId];
+    if (!trade || trade.status !== 'pending') {
+      socket.emit('tradeError', { message: 'Trade not found or no longer active' });
+      return;
+    }
+
+    // Only creator can cancel
+    if (trade.createdBy !== socket.id) {
+      socket.emit('tradeError', { message: 'You cannot cancel this trade' });
+      return;
+    }
+
+    room.updateTradeStatus(tradeId, 'cancelled');
+    
+    const creatorPlayer = room.players.find(p => p.id === socket.id);
+    const targetPlayer = room.players.find(p => p.id === trade.targetPlayerId);
+
+    pushGameLog(room, {
+      type: 'trade',
+      player: creatorPlayer.name,
+      target: targetPlayer.name,
+      tradeId: tradeId, // Add trade ID for clickable functionality
+      message: `cancelled their trade proposal to ${targetPlayer.name}`
+    }, io);
+
+    // Emit trade cancelled
+    io.to(roomId).emit('tradeCancelled', { tradeId });
+  };
+
+  // Negotiate a trade (create counter-offer)
+  const negotiateTrade = ({ roomId, originalTradeId, offers, note }) => {
+    const room = roomService.getRoomById(roomId);
+    if (!room) return;
+
+    const originalTrade = room.trades[originalTradeId];
+    if (!originalTrade || originalTrade.status !== 'pending') {
+      socket.emit('tradeError', { message: 'Original trade not found or no longer active' });
+      return;
+    }
+
+    // Only target player can negotiate
+    if (originalTrade.targetPlayerId !== socket.id) {
+      socket.emit('tradeError', { message: 'You cannot negotiate this trade' });
+      return;
+    }
+
+    // Cancel the original trade
+    room.updateTradeStatus(originalTradeId, 'cancelled');
+
+    // Create new trade with negotiated terms (swap creator and target)
+    const newTargetId = originalTrade.createdBy;
+    const newCreatorId = socket.id;
+
+    // Validate the new offers
+    const creatorOffer = offers[newCreatorId] || { money: 0, properties: [] };
+    const targetOffer = offers[newTargetId] || { money: 0, properties: [] };
+
+    // Validation checks (similar to createTrade)
+    if (creatorOffer.money > room.playerMoney[newCreatorId]) {
+      socket.emit('tradeError', { message: 'You do not have enough money' });
+      return;
+    }
+
+    for (const propertyName of creatorOffer.properties) {
+      if (!room.propertyOwnership[propertyName] || room.propertyOwnership[propertyName].owner !== newCreatorId) {
+        socket.emit('tradeError', { message: `You do not own ${propertyName}` });
+        return;
+      }
+    }
+
+    for (const propertyName of targetOffer.properties) {
+      if (!room.propertyOwnership[propertyName] || room.propertyOwnership[propertyName].owner !== newTargetId) {
+        const targetPlayer = room.players.find(p => p.id === newTargetId);
+        socket.emit('tradeError', { message: `${targetPlayer.name} does not own ${propertyName}` });
+        return;
+      }
+    }
+
+    if (targetOffer.money > room.playerMoney[newTargetId]) {
+      const targetPlayer = room.players.find(p => p.id === newTargetId);
+      socket.emit('tradeError', { message: `${targetPlayer.name} does not have enough money` });
+      return;
+    }
+
+    // Mark the original trade as cancelled instead of deleting it (for trade history)
+    room.updateTradeStatus(originalTradeId, 'cancelled');
+    
+    // Create the negotiated trade (negotiating player becomes the new creator)
+    const newTrade = room.createTrade(newCreatorId, newTargetId, offers, note);
+    
+    const negotiatingPlayer = room.players.find(p => p.id === newCreatorId);
+    const originalCreator = room.players.find(p => p.id === newTargetId);
+
+    pushGameLog(room, {
+      type: 'trade',
+      player: negotiatingPlayer.name,
+      target: originalCreator.name,
+      message: `filed a negotiation in their trade with ${originalCreator.name}`,
+      tradeId: newTrade.id
+    }, io);
+
+    // Emit original trade cancelled and new trade created
+    io.to(roomId).emit('tradeCancelled', { tradeId: originalTradeId });
+    io.to(roomId).emit('tradeCreated', newTrade);
+  };
+
+  // Get player properties for trade UI
+  const getPlayerProperties = ({ roomId, playerId }) => {
+    const room = roomService.getRoomById(roomId);
+    if (!room) return;
+
+    const properties = room.getPlayerProperties(playerId);
+    socket.emit('playerProperties', { playerId, properties });
+  };
+
+  // Register trade event listeners
+  socket.on('createTrade', createTrade);
+  socket.on('respondToTrade', respondToTrade);
+  socket.on('cancelTrade', cancelTrade);
+  socket.on('negotiateTrade', negotiateTrade);
+  socket.on('getPlayerProperties', getPlayerProperties);
 };
