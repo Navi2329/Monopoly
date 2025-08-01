@@ -557,6 +557,178 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
       player: currentPlayer.name,
       message: `started auction for ${propertyName}`
     }, io);
+
+    // Find all participants (players with money > 0)
+    const participants = room.players.filter(p => room.playerMoney[p.id] > 0);
+    
+    // Get full property data - use propertyData if available, otherwise create basic property
+    let property = room.propertyData ? room.propertyData[propertyName] : null;
+    
+    // Initialize auction state in room
+    room.auction = {
+      active: true,
+      property: { ...property, name: propertyName },
+      participants: participants.map(p => ({
+        id: p.id,
+        name: p.name,
+        color: p.color,
+        money: room.playerMoney[p.id]
+      })),
+      currentBid: 0,
+      currentBidder: null, // No turn-based bidding, anyone can bid
+      bidHistory: [],
+      passedPlayers: [],
+      timer: 5,
+      timerColor: '#94a3b8', // Initial greyish silver color
+      ended: false,
+      winner: null,
+      lastBidTime: 0, // Track last bid time for 50ms gap
+      lastBidderId: null, // Track last bidder to prevent consecutive bids
+      currentPlayerId: currentPlayer.id // Track who started the auction for end turn button
+    };
+    
+    console.log('[SERVER] Emitting auctionStarted for property:', propertyName, 'to room:', roomId, 'participants:', participants.map(p => p.name));
+    
+    // Start auction timer on server
+    room.auctionTimer = setInterval(() => {
+      if (room.auction && room.auction.active && !room.auction.ended) {
+        room.auction.timer--;
+        if (room.auction.timer <= 0) {
+          // Timer expired, end auction
+          endAuction(room, io);
+        } else {
+          // Emit timer update
+          io.to(roomId).emit('auctionUpdate', room.auction);
+        }
+      }
+    }, 1000);
+    
+    io.to(roomId).emit('auctionStarted', room.auction);
+  };
+
+  // Helper function to end auction
+  const endAuction = (room, io) => {
+    if (!room.auction || room.auction.ended) return;
+    
+    clearInterval(room.auctionTimer);
+    room.auction.ended = true;
+    room.auction.active = false;
+    room.auction.timer = 0; // Set timer to 0 when auction ends
+    
+    // Determine winner
+    if (room.auction.bidHistory.length > 0) {
+      const lastBid = room.auction.bidHistory[room.auction.bidHistory.length - 1];
+      const winner = room.auction.participants.find(p => p.id === lastBid.playerId);
+      room.auction.winner = { ...winner, amount: room.auction.currentBid };
+      
+      // Award property to winner and deduct money
+      room.propertyOwnership[room.auction.property.name] = {
+        owner: winner.id,
+        ownerName: winner.name,
+        ownerColor: winner.color,
+        houses: 0,
+        hotel: false,
+        mortgaged: false
+      };
+      room.playerMoney[winner.id] -= room.auction.currentBid;
+      
+      pushGameLog(room, {
+        type: 'purchase',
+        player: winner.name,
+        message: `won ${room.auction.property.name} for $${room.auction.currentBid} (auction)`
+      }, io);
+      
+      // Emit updated game state to sync property ownership and money
+      emitGameStateUpdated(room, io, room.id);
+    } else {
+      pushGameLog(room, {
+        type: 'info',
+        message: `No one bid for ${room.auction.property.name}`
+      }, io);
+    }
+    
+    // Include current player info in auction ended event
+    const auctionEndedData = {
+      ...room.auction,
+      currentPlayerId: room.auction.currentPlayerId // This tells the client who should get the end turn button
+    };
+    
+    io.to(room.id).emit('auctionEnded', auctionEndedData);
+    
+    // Clean up auction state after a delay
+    setTimeout(() => {
+      if (room.auction) {
+        delete room.auction;
+      }
+      if (room.auctionTimer) {
+        delete room.auctionTimer;
+      }
+    }, 3000); // Give clients time to process the auction end
+  };
+
+  // Handle auction bid
+  const auctionBid = ({ roomId, amount }) => {
+    const room = roomService.getRoomById(roomId);
+    if (!room || !room.auction || !room.auction.active || room.auction.ended) return;
+    
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player) return;
+    
+    // Check if player is still in the auction (not passed)
+    if (room.auction.passedPlayers.includes(player.id)) return;
+    
+    // Prevent same player from bidding consecutively
+    if (room.auction.lastBidderId === player.id) return;
+    
+    // Enforce 50ms gap between bids
+    const now = Date.now();
+    if (now - room.auction.lastBidTime < 50) return;
+    
+    const newBid = room.auction.currentBid + amount;
+    if (room.playerMoney[player.id] < newBid) return; // Can't afford
+    
+    // Add bid to history
+    room.auction.bidHistory.push({
+      playerId: player.id,
+      name: player.name,
+      color: player.color,
+      amount: newBid,
+      note: `+$${amount}`
+    });
+    
+    room.auction.currentBid = newBid;
+    room.auction.passedPlayers = []; // Reset passes when someone bids
+    room.auction.timer = 5; // Reset timer to 5 seconds
+    room.auction.timerColor = player.color; // Set timer color to bidder's color
+    room.auction.lastBidTime = now; // Update last bid time
+    room.auction.lastBidderId = player.id; // Track last bidder to prevent consecutive bids
+    
+    console.log('[SERVER] Auction bid:', player.name, 'bid', newBid);
+    io.to(roomId).emit('auctionUpdate', room.auction);
+  };
+
+  // Handle auction pass
+  const auctionPass = ({ roomId }) => {
+    const room = roomService.getRoomById(roomId);
+    if (!room || !room.auction || !room.auction.active || room.auction.ended) return;
+    
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player) return;
+    
+    // Add to passed players if not already passed
+    if (!room.auction.passedPlayers.includes(player.id)) {
+      room.auction.passedPlayers.push(player.id);
+    }
+    
+    // Check if all but one have passed
+    const activeBidders = room.auction.participants.filter(p => !room.auction.passedPlayers.includes(p.id));
+    if (activeBidders.length <= 1) {
+      endAuction(room, io);
+      return;
+    }
+    
+    console.log('[SERVER] Auction pass:', player.name);
+    io.to(roomId).emit('auctionUpdate', room.auction);
   };
 
   // Enhanced buyProperty handler
@@ -800,6 +972,8 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
   socket.on('handlePropertyLanding', handlePropertyLanding);
   socket.on('skipProperty', skipProperty);
   socket.on('auctionProperty', auctionProperty);
+  socket.on('auctionBid', auctionBid);
+  socket.on('auctionPass', auctionPass);
   socket.on('buildHouse', buildHouse);
   socket.on('destroyHouse', destroyHouse);
   socket.on('disconnect', handleDisconnect);

@@ -37,8 +37,10 @@ const timerFillStyle = (color, percent) => ({
     transition: 'width 0.2s',
 });
 
-const bidBtnStyle = (enabled) => ({
-    background: enabled ? 'linear-gradient(90deg,#a78bfa,#818cf8)' : 'rgba(100,116,139,0.15)',
+const bidBtnStyle = (enabled, isHovered = false) => ({
+    background: enabled 
+        ? (isHovered ? 'linear-gradient(90deg,#8b5cf6,#6366f1)' : 'linear-gradient(90deg,#a78bfa,#818cf8)')
+        : 'rgba(100,116,139,0.15)',
     color: enabled ? 'white' : '#64748b',
     border: 'none',
     borderRadius: 10,
@@ -48,25 +50,12 @@ const bidBtnStyle = (enabled) => ({
     margin: '0 8px 0 0',
     minWidth: 90,
     cursor: enabled ? 'pointer' : 'not-allowed',
-    transition: 'background 0.2s',
+    transition: 'all 0.2s',
     outline: 'none',
-    boxShadow: enabled ? '0 2px 8px #a78bfa33' : 'none',
+    boxShadow: enabled ? (isHovered ? '0 4px 12px #a78bfa44' : '0 2px 8px #a78bfa33') : 'none',
+    opacity: enabled ? 1 : 0.4,
+    transform: enabled ? (isHovered ? 'translateY(-1px)' : 'none') : 'scale(0.95)',
 });
-
-const passBtnStyle = {
-    background: 'rgba(139,92,246,0.15)',
-    color: '#a78bfa',
-    border: 'none',
-    borderRadius: 10,
-    fontWeight: 700,
-    fontSize: '1.1rem',
-    padding: '14px 0',
-    minWidth: 90,
-    cursor: 'pointer',
-    marginLeft: 8,
-    outline: 'none',
-    transition: 'background 0.2s',
-};
 
 const AuctionModal = ({
     isOpen,
@@ -77,17 +66,17 @@ const AuctionModal = ({
     currentBidder,
     bidHistory,
     onBid,
-    onPass,
     canBidAmounts, // {2: true/false, 10: true/false, 100: true/false}
     timeLeft,
     timeTotal,
+    timerColor, // Color of the timer based on latest bidder
     auctionEnded,
     winner,
-    showEndButton,
-    onEndTurn,
 }) => {
     // Timer logic
     const [smoothPercent, setSmoothPercent] = useState(100);
+    const [hoveredButton, setHoveredButton] = useState(null);
+    
     useEffect(() => {
         if (!isOpen) return;
         let frame;
@@ -110,31 +99,45 @@ const AuctionModal = ({
         return () => cancelAnimationFrame(frame);
     }, [timeLeft, isOpen, auctionEnded, timeTotal]);
 
-    // Auto-close on auction end
-    useEffect(() => {
-        if (auctionEnded && isOpen) {
-            const timeout = setTimeout(() => {
-                onClose();
-            }, 1200);
-            return () => clearTimeout(timeout);
+    // Property info - handle different property types
+    const rentRows = property?.rent ? (() => {
+        if (property.type === 'property') {
+            // Regular properties have 6 rent levels: base, 1-4 houses, hotel
+            return [
+                { label: 'with rent', value: formatMoney(property.rent[0]) },
+                { label: 'with one house', value: formatMoney(property.rent[1]) },
+                { label: 'with two houses', value: formatMoney(property.rent[2]) },
+                { label: 'with three houses', value: formatMoney(property.rent[3]) },
+                { label: 'with four houses', value: formatMoney(property.rent[4]) },
+                { label: 'with a hotel', value: formatMoney(property.rent[5]) },
+            ];
+        } else if (property.type === 'airport') {
+            // Airports have 4 rent levels: 1, 2, 3, 4 airports owned
+            return [
+                { label: 'with 1 airport', value: formatMoney(property.rent[0]) },
+                { label: 'with 2 airports', value: formatMoney(property.rent[1]) },
+                { label: 'with 3 airports', value: formatMoney(property.rent[2]) },
+                { label: 'with 4 airports', value: formatMoney(property.rent[3]) },
+            ];
+        } else if (property.type === 'company') {
+            // Companies have 2 rent multipliers: 1 company, 2 companies
+            return [
+                { label: 'with 1 company', value: `${property.rent[0]}x dice roll` },
+                { label: 'with 2 companies', value: `${property.rent[1]}x dice roll` },
+            ];
         }
-    }, [auctionEnded, isOpen, onClose]);
-
-    // Property info
-    const rentRows = property?.rent ? [
-        { label: 'with rent', value: formatMoney(property.rent[0]) },
-        { label: 'with one house', value: formatMoney(property.rent[1]) },
-        { label: 'with two houses', value: formatMoney(property.rent[2]) },
-        { label: 'with three houses', value: formatMoney(property.rent[3]) },
-        { label: 'with four houses', value: formatMoney(property.rent[4]) },
-        { label: 'with a hotel', value: formatMoney(property.rent[5]) },
-    ] : [];
+        return [];
+    })() : [];
 
     const percent = smoothPercent;
-    const timerColor = currentBidder?.color || '#a78bfa';
+    // Use the timerColor from server, fallback to greyish silver
+    const finalTimerColor = timerColor || '#94a3b8';
+    
+    // Ensure timer bar shows 0 when auction ends or time is effectively up
+    const displayPercent = (auctionEnded || percent <= 0.1) ? 0 : percent;
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} disableBackdropClose={!auctionEnded}>
+        <Modal isOpen={isOpen} onClose={onClose}>
             <div style={glassStyle}>
                 {/* Header */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '32px 0 0 0' }}>
@@ -151,10 +154,12 @@ const AuctionModal = ({
                 </div>
                 {/* Timer Bar */}
                 <div style={{ padding: '0 32px' }}>
-                    <div style={timerBarStyle(timerColor, percent)}>
-                        <div style={timerFillStyle(timerColor, percent)} />
+                    <div style={timerBarStyle(finalTimerColor, displayPercent)}>
+                        <div style={timerFillStyle(finalTimerColor, displayPercent)} />
                     </div>
-                    <div style={{ textAlign: 'right', fontSize: 13, color: '#a78bfa', marginTop: -8 }}>{Math.ceil((percent / 100) * timeTotal)}s</div>
+                    <div style={{ textAlign: 'right', fontSize: 13, color: '#a78bfa', marginTop: -8 }}>
+                        {auctionEnded || percent <= 0.1 ? '0s' : `${Math.ceil((percent / 100) * timeTotal)}s`}
+                    </div>
                 </div>
                 {/* Bid Buttons */}
                 {!auctionEnded && (
@@ -162,15 +167,17 @@ const AuctionModal = ({
                         {[2, 10, 100].map((inc) => (
                             <button
                                 key={inc}
-                                style={bidBtnStyle(canBidAmounts[inc])}
+                                style={bidBtnStyle(canBidAmounts[inc], hoveredButton === inc)}
                                 disabled={!canBidAmounts[inc]}
                                 onClick={() => onBid(inc)}
+                                onMouseEnter={() => setHoveredButton(inc)}
+                                onMouseLeave={() => setHoveredButton(null)}
+                                title={!canBidAmounts[inc] ? "You cannot bid again until another player bids" : `Bid ${formatMoney(currentBid + inc)}`}
                             >
                                 {formatMoney(currentBid + inc)}
                                 <span style={{ fontSize: 13, fontWeight: 400, marginLeft: 2 }}>+${inc}</span>
                             </button>
                         ))}
-                        <button style={passBtnStyle} onClick={onPass}>Pass</button>
                     </div>
                 )}
                 {/* Bid History */}
@@ -202,8 +209,12 @@ const AuctionModal = ({
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', color: '#fbbf24', fontSize: 15, marginTop: 4, gap: 6 }}>
                             <span>Price {formatMoney(property?.price)}</span>
-                            <span>🏠 {formatMoney(property?.buildCost)}</span>
-                            <span>🏨 {formatMoney(property?.hotelCost)}</span>
+                            {property?.type === 'property' && (
+                                <>
+                                    <span>🏠 {formatMoney(property?.buildCost)}</span>
+                                    <span>🏨 {formatMoney(property?.hotelCost)}</span>
+                                </>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -211,11 +222,6 @@ const AuctionModal = ({
                 {auctionEnded && winner && (
                     <div style={{ textAlign: 'center', margin: '18px 0 0 0', color: '#a78bfa', fontWeight: 700, fontSize: 20 }}>
                         {winner.name} won the auction for {formatMoney(winner.amount)}!
-                        {showEndButton && (
-                            <div style={{ marginTop: 16 }}>
-                                <button style={{ ...bidBtnStyle(true), minWidth: 120 }} onClick={onEndTurn}>End Turn</button>
-                            </div>
-                        )}
                     </div>
                 )}
             </div>

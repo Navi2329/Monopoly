@@ -202,25 +202,7 @@ const GamePage = () => {
     }
   }, []);
 
-  // --- Remove all duplicate gameStateUpdated listeners and ensure only one is active ---
-  useEffect(() => {
-    // Remove any previous listeners before adding a new one
-    const handleGameStateUpdated = (gameState) => {
-      // console.log('[DEBUG] [CLIENT] FULL gameStateUpdated:', gameState, 'socket.id:', socket.id, 'roomId:', roomId);
-      // ...existing onGameStateUpdated logic...
-      if (
-        window.lastBuyProperty &&
-        gameState.propertyOwnership &&
-        gameState.propertyOwnership[window.lastBuyProperty] &&
-        gameState.propertyOwnership[window.lastBuyProperty].owner === socket.id
-      ) {
-        // console.log('[DEBUG] [CLIENT] Buy Property completed:', gameState);
-        window.lastBuyProperty = null;
-      }
-    };
-    return () => {
-    };
-  }, [roomId]);
+  // Remove duplicate gameStateUpdated handler - handled by main handler below
 
   useEffect(() => {
     if (roomId) {
@@ -1315,6 +1297,10 @@ const GamePage = () => {
     setPropertyLandingState(null);
     isProcessingLanding.current = false; // Reset processing flag
 
+    // Reset auction state when ending turn
+    setAuctionEnded(false);
+    setAuctionActive(false);
+
     // Send end turn request to server
     socket.emit('endTurn', { roomId });
   };
@@ -2201,144 +2187,106 @@ const GamePage = () => {
   const [auctionCurrentBid, setAuctionCurrentBid] = useState(0);
   const [auctionCurrentBidder, setAuctionCurrentBidder] = useState(null);
   const [auctionTimer, setAuctionTimer] = useState(5);
+  const [auctionTimerColor, setAuctionTimerColor] = useState('#94a3b8'); // Timer color based on latest bidder
   const [auctionPassedPlayers, setAuctionPassedPlayers] = useState([]); // [playerId]
   const [auctionEnded, setAuctionEnded] = useState(false);
   const [auctionWinner, setAuctionWinner] = useState(null);
+  const [auctionCurrentPlayerId, setAuctionCurrentPlayerId] = useState(null); // Track who started the auction
   const auctionTimerRef = useRef();
   const auctionBidOrderRef = useRef([]); // For round-robin
 
-  // Start auction
-  const startAuction = (property, player) => {
-    const participants = allPlayers.filter(p => p.money > 0);
-    setAuctionActive(true);
-    setAuctionProperty(property);
-    setAuctionBids([]);
-    setAuctionParticipants(participants);
-    setAuctionCurrentBid(0);
-    setAuctionCurrentBidder(participants[0]);
-    setAuctionTimer(5);
-    setAuctionPassedPlayers([]);
-    setAuctionEnded(false);
-    setAuctionWinner(null);
-    auctionBidOrderRef.current = participants.map(p => p.id);
-  };
+  // Listen for auctionStarted event from server to open auction modal for all clients
+  useEffect(() => {
+    function handleAuctionStarted(auctionData) {
+      console.log('[CLIENT] Received auctionStarted event:', auctionData);
+      setAuctionActive(true);
+      setAuctionProperty(auctionData.property);
+      setAuctionBids(auctionData.bidHistory || []);
+      setAuctionParticipants(auctionData.participants);
+      setAuctionCurrentBid(auctionData.currentBid);
+      setAuctionCurrentBidder(auctionData.currentBidder);
+      setAuctionTimer(auctionData.timer);
+      setAuctionTimerColor(auctionData.timerColor || '#94a3b8'); // Set initial timer color
+      setAuctionPassedPlayers(auctionData.passedPlayers || []);
+      setAuctionCurrentPlayerId(auctionData.currentPlayerId); // Track who started the auction
+      setAuctionEnded(false);
+      setAuctionWinner(null);
+      console.log('[CLIENT] Auction modal state set to active for property:', auctionData.property?.name);
+    }
+
+    function handleAuctionUpdate(auctionData) {
+      console.log('[CLIENT] Received auctionUpdate event:', auctionData);
+      setAuctionBids(auctionData.bidHistory || []);
+      setAuctionCurrentBid(auctionData.currentBid);
+      setAuctionCurrentBidder(auctionData.currentBidder);
+      setAuctionTimer(auctionData.timer);
+      setAuctionTimerColor(auctionData.timerColor || '#94a3b8'); // Update timer color
+      setAuctionPassedPlayers(auctionData.passedPlayers || []);
+    }
+
+    function handleAuctionEnded(auctionData) {
+      console.log('[CLIENT] Received auctionEnded event:', auctionData);
+      console.log('[CLIENT] Current socket.id:', socket.id, 'auctionData.currentPlayerId:', auctionData.currentPlayerId);
+      setAuctionEnded(true);
+      setAuctionActive(false);
+      setAuctionWinner(auctionData.winner);
+      setAuctionCurrentPlayerId(auctionData.currentPlayerId); // Set who should get the end turn button
+      
+      // Update property ownership and player money from server state
+      if (auctionData.winner) {
+        setSyncedPropertyOwnership(prev => ({
+          ...prev,
+          [auctionData.property.name]: {
+            owner: auctionData.winner.id,
+            ownerName: auctionData.winner.name,
+            ownerColor: auctionData.winner.color,
+            houses: 0,
+            hotel: false,
+            mortgaged: false
+          }
+        }));
+      }
+      
+      setPropertyLandingState(null);
+      setGamePhase('turn-end');
+      
+      // Auto-close modal after 3 seconds - close modal but keep auctionEnded for end turn logic
+      setTimeout(() => {
+        setAuctionActive(false);
+        // Create a temporary state to close modal but keep end turn button logic working
+        setAuctionProperty(null); // This will close modal while keeping auctionEnded = true
+      }, 3000);
+    }
+
+    socket.on('auctionStarted', handleAuctionStarted);
+    socket.on('auctionUpdate', handleAuctionUpdate);
+    socket.on('auctionEnded', handleAuctionEnded);
+    
+    return () => {
+      socket.off('auctionStarted', handleAuctionStarted);
+      socket.off('auctionUpdate', handleAuctionUpdate);
+      socket.off('auctionEnded', handleAuctionEnded);
+    };
+  }, []);
+
+  // Helper: is it my turn? (moved up to fix declaration order)
+  const isMyTurn = socket.id === currentTurnSocketId;
+
+  // Local startAuction function removed - auctions are started on server via auctionProperty socket event
 
   // Handle auction bid
   const handleAuctionBid = (inc) => {
-    if (!auctionActive || !auctionCurrentBidder) return;
-    const newBid = auctionCurrentBid + inc;
-    setAuctionBids(prev => [...prev, { playerId: auctionCurrentBidder.id, name: auctionCurrentBidder.name, color: auctionCurrentBidder.color, amount: newBid, note: `+${inc}` }]);
-    setAuctionCurrentBid(newBid);
-    setAuctionPassedPlayers([]); // Reset passes on new bid
-    setAuctionTimer(5); // Reset global timer on new bid
-    // Next bidder
-    nextAuctionBidder(auctionCurrentBidder.id);
+    console.log('[CLIENT] Sending auction bid:', inc);
+    socket.emit('auctionBid', { roomId, amount: inc });
   };
 
   // Handle auction pass
   const handleAuctionPass = () => {
-    setAuctionPassedPlayers(prev => [...prev, auctionCurrentBidder.id]);
-    // Next bidder
-    nextAuctionBidder(auctionCurrentBidder.id);
+    console.log('[CLIENT] Sending auction pass');
+    socket.emit('auctionPass', { roomId });
   };
 
-  // Next bidder logic
-  const nextAuctionBidder = (lastId) => {
-    const ids = auctionBidOrderRef.current;
-    let idx = ids.indexOf(lastId);
-    let nextIdx = (idx + 1) % ids.length;
-    let tries = 0;
-    while (auctionPassedPlayers.includes(ids[nextIdx]) && tries < ids.length) {
-      nextIdx = (nextIdx + 1) % ids.length;
-      tries++;
-    }
-    // If all but one passed, end auction
-    const activeBidders = auctionParticipants.filter(p => !auctionPassedPlayers.includes(p.id));
-    if (activeBidders.length <= 1) {
-      endAuction(activeBidders[0]);
-      return;
-    }
-    setAuctionCurrentBidder(auctionParticipants.find(p => p.id === ids[nextIdx]));
-  };
-
-  // Auction timer effect (global)
-  useEffect(() => {
-    if (!auctionActive || auctionEnded) return;
-    if (auctionTimer <= 0) {
-      // Timer ran out, end auction with current highest bidder
-      if (auctionBids.length > 0) {
-        const lastBid = auctionBids[auctionBids.length - 1];
-        const winner = auctionParticipants.find(p => p.id === lastBid.playerId);
-        endAuction(winner);
-      } else {
-        endAuction(null);
-      }
-      return;
-    }
-    auctionTimerRef.current = setTimeout(() => setAuctionTimer(t => t - 1), 1000);
-    return () => clearTimeout(auctionTimerRef.current);
-  }, [auctionTimer, auctionActive, auctionEnded, auctionBids, auctionParticipants]);
-
-  // End auction
-  const endAuction = (winner) => {
-    setAuctionEnded(true);
-    setAuctionActive(false);
-    if (!winner) {
-      setAuctionWinner(null);
-      setGameLog(prev => [{ id: generateLogId(), type: 'info', message: `No one bid for ${auctionProperty.name}` }, ...prev]);
-      setPropertyLandingState(null);
-      setGamePhase('turn-end');
-      return;
-    }
-    setAuctionWinner({ ...winner, amount: auctionCurrentBid });
-    // Deduct money and assign property
-    setSyncedPropertyOwnership(prev => ({
-      ...prev,
-      [auctionProperty.name]: {
-        owner: winner.id,
-        ownerName: winner.name,
-        ownerColor: winner.color,
-        houses: 0,
-        hotel: false,
-        mortgaged: false
-      }
-    }));
-    if (winner.isBot) {
-      setBots(prev => prev.map(bot => bot.id === winner.id ? { ...bot, money: bot.money - auctionCurrentBid } : bot));
-    } else {
-      setPlayers(prev => prev.map(p => p.id === winner.id ? { ...p, money: p.money - auctionCurrentBid } : p));
-      if (winner.id === currentPlayer?.id) {
-        setCurrentPlayer(prev => ({ ...prev, money: prev.money - auctionCurrentBid }));
-      }
-    }
-    setGameLog(prev => [{ id: generateLogId(), type: 'purchase', player: winner.name, message: `won ${auctionProperty.name} for $${auctionCurrentBid} (auction)` }, ...prev]);
-    setPropertyLandingState(null);
-    setGamePhase('turn-end');
-  };
-
-  // AuctionModal rendering
-  <AuctionModal
-    isOpen={auctionActive || auctionEnded}
-    onClose={() => { setAuctionActive(false); setAuctionEnded(false); }}
-    property={auctionProperty}
-    players={auctionParticipants}
-    currentBid={auctionCurrentBid}
-    currentBidder={auctionCurrentBidder}
-    bidHistory={auctionBids}
-    onBid={handleAuctionBid}
-    onPass={handleAuctionPass}
-    canBidAmounts={{
-      2: auctionCurrentBidder && auctionCurrentBidder.money >= auctionCurrentBid + 2,
-      10: auctionCurrentBidder && auctionCurrentBidder.money >= auctionCurrentBid + 10,
-      100: auctionCurrentBidder && auctionCurrentBidder.money >= auctionCurrentBid + 100,
-    }}
-    timeLeft={auctionTimer}
-    timeTotal={5}
-    auctionEnded={auctionEnded}
-    winner={auctionWinner}
-    showEndButton={auctionEnded && auctionWinner && currentPlayer && currentPlayer.id === currentPlayerIndex}
-    onEndTurn={handleEndTurn}
-  />
+  // Local auction timer and endAuction logic removed - now handled on server
 
   const [messages, setMessages] = useState([]);
   const [mapPreviewOpen, setMapPreviewOpen] = useState(false);
@@ -2384,14 +2332,8 @@ const GamePage = () => {
 
   // Update syncedPropertyOwnership in the multiplayer sync useEffect
   useEffect(() => {
-    socket.on('gameStateUpdated', (state) => {
-      // console.log('[DEBUG][CLIENT] gameStateUpdated:', state);
-      // console.log('[DEBUG][CLIENT] playerStatuses:', state.playerStatuses);
-      // console.log('[DEBUG][CLIENT] turnIndex:', state.turnIndex);
-      // console.log('[DEBUG][CLIENT] roundNumber:', state.roundNumber);
-      // console.log('[DEBUG][CLIENT] currentTurnSocketId:', state.currentTurnSocketId);
-      // console.log('[DEBUG][CLIENT] specialAction:', state.specialAction);
-      // console.log('[DEBUG][CLIENT] gameLog:', state.gameLog);
+    const handleGameStateUpdated = (state) => {
+      // console.log('[gameStateUpdated]', state);
       setSyncedPositions(state.playerPositions || {});
       setSyncedStatuses(state.playerStatuses || {});
       setSyncedTurnIndex(state.turnIndex || 0);
@@ -2403,24 +2345,20 @@ const GamePage = () => {
       setSyncedPropertyOwnership(state.propertyOwnership || {});
       setSyncedVacationCash(state.vacationCash || 0);
       setSyncedPlayersOrdered(state.playersOrdered || []);
-      // Set game phase to 'rolling' when game starts and it's the current player's turn
-      if (gameStarted && state.currentTurnSocketId === socket.id) {
-        setGamePhase('rolling');
-      }
-    });
-    return () => {
     };
-  }, [gameStarted, socket.id]);
+    
+    socket.on('gameStateUpdated', handleGameStateUpdated);
+    return () => {
+      socket.off('gameStateUpdated', handleGameStateUpdated);
+    };
+  }, []); // Remove dependencies to prevent re-registration
 
-  // Helper: is it my turn?
-  const isMyTurn = socket.id === currentTurnSocketId;
-
-  // Update game phase when turn changes
+  // Separate useEffect for game phase management - remove socket.id dependency to prevent infinite loops
   useEffect(() => {
-    if (gameStarted && isMyTurn) {
+    if (gameStarted && currentTurnSocketId && currentTurnSocketId === socket.id) {
       setGamePhase('rolling');
     }
-  }, [gameStarted, isMyTurn]);
+  }, [gameStarted, currentTurnSocketId]); // Removed socket.id dependency
 
   // Handler for rolling dice (only if my turn)
   const handleRollDiceMultiplayer = (...args) => {
@@ -2498,17 +2436,7 @@ const GamePage = () => {
     }
   }, [syncedPropertyOwnership, propertyLandingState, currentPlayer]);
 
-
-  // Only log gameStateUpdated events inside this effect
-  useEffect(() => {
-    const handleGameStateUpdated = (gameState) => {
-      console.log('[gameStateUpdated]', gameState);
-    };
-    socket.on('gameStateUpdated', handleGameStateUpdated);
-    return () => {
-      socket.off('gameStateUpdated', handleGameStateUpdated);
-    };
-  }, []);
+  // Remove duplicate logging-only gameStateUpdated handler - already handled above
 
   // Listen for property action errors from server
   useEffect(() => {
@@ -2659,6 +2587,8 @@ const GamePage = () => {
             currentUserId={currentPlayer?.id}
             isShufflingPlayers={isShufflingPlayers}
             onPropertyClick={handlePropertyClick}
+            auctionEnded={auctionEnded}
+            auctionCurrentPlayerId={auctionCurrentPlayerId}
           />
 
           {/* Property Popup */}
@@ -3136,7 +3066,7 @@ const GamePage = () => {
         )}
       </StyledSidebar>
       <AuctionModal
-        isOpen={auctionActive || auctionEnded}
+        isOpen={(auctionActive || auctionEnded) && auctionProperty !== null}
         onClose={() => { setAuctionActive(false); setAuctionEnded(false); }}
         property={auctionProperty}
         players={auctionParticipants}
@@ -3144,18 +3074,16 @@ const GamePage = () => {
         currentBidder={auctionCurrentBidder}
         bidHistory={auctionBids}
         onBid={handleAuctionBid}
-        onPass={handleAuctionPass}
         canBidAmounts={{
-          2: auctionCurrentBidder && auctionCurrentBidder.money >= auctionCurrentBid + 2,
-          10: auctionCurrentBidder && auctionCurrentBidder.money >= auctionCurrentBid + 10,
-          100: auctionCurrentBidder && auctionCurrentBidder.money >= auctionCurrentBid + 100,
+          2: currentPlayer && syncedPlayerMoney[currentPlayer.id] >= auctionCurrentBid + 2 && auctionCurrentBidder?.id !== currentPlayer.id,
+          10: currentPlayer && syncedPlayerMoney[currentPlayer.id] >= auctionCurrentBid + 10 && auctionCurrentBidder?.id !== currentPlayer.id,
+          100: currentPlayer && syncedPlayerMoney[currentPlayer.id] >= auctionCurrentBid + 100 && auctionCurrentBidder?.id !== currentPlayer.id,
         }}
         timeLeft={auctionTimer}
         timeTotal={5}
+        timerColor={auctionTimerColor}
         auctionEnded={auctionEnded}
         winner={auctionWinner}
-        showEndButton={auctionEnded && auctionWinner && currentPlayer && currentPlayer.id === currentPlayerIndex}
-        onEndTurn={handleEndTurn}
       />
     </Box>
   );

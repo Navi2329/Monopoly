@@ -205,7 +205,9 @@ const MonopolyBoard = (props) => {
     onClearPropertyLandingState,
     currentUserId,
     isShufflingPlayers = false,
-    onPropertyClick = () => { }
+    onPropertyClick = () => { },
+    auctionEnded = false,
+    auctionCurrentPlayerId = null
   } = props;
   const [showModal, setShowModal] = useState(false);
   const [modalContent, setModalContent] = useState('');
@@ -1991,6 +1993,42 @@ const MonopolyBoard = (props) => {
                         onClick={handleEndTurn}
                         disabled={endTurnClicked || globalDiceRolling || localDiceRolling}
                         sx={{ minWidth: 120 }}
+                      >
+                        End Turn
+                      </UniformButton>
+                    );
+                  }
+                  // Show End Turn button after auction ends for the player who started it
+                  if (
+                    gamePhase === 'turn-end' &&
+                    auctionEnded &&
+                    auctionCurrentPlayerId === currentUserId &&
+                    isMyTurn
+                  ) {
+                    return (
+                      <UniformButton
+                        variant="purple"
+                        onClick={() => {
+                          // Set doubles state properly like other end turn buttons
+                          const currentPlayer = getCurrentPlayer();
+                          if (
+                            syncedLastDiceRoll &&
+                            syncedLastDiceRoll.dice1 === syncedLastDiceRoll.dice2 &&
+                            syncedSpecialAction !== 'jail'
+                          ) {
+                            setHasEndedTurnAfterDoubles(true);
+                            setIsInDoublesSequence(true);
+                            // Set game phase to rolling so Roll Again button can show
+                            if (typeof onClearPropertyLandingState === 'function') {
+                              onClearPropertyLandingState();
+                            }
+                          } else {
+                            setHasEndedTurnAfterDoubles(false);
+                            setIsInDoublesSequence(false);
+                          }
+                          handleEndTurn();
+                        }}
+                        disabled={endTurnClicked || globalDiceRolling || localDiceRolling}
                       >
                         End Turn
                       </UniformButton>
