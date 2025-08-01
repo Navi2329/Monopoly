@@ -361,6 +361,8 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
   const currentPlayer = room.players[room.turnIndex];
   if (!currentPlayer || socket.id !== currentPlayer.id) return;
 
+  // console.log('[DEBUG SERVER] endTurn called by:', currentPlayer.name, 'activeVoteKick before:', room.activeVoteKick?.targetPlayerName);
+
   // GUARD: Prevent duplicate endTurn calls using a timestamp-based debounce
   const now = Date.now();
   const lastEndTurnTime = room.lastEndTurnTime || 0;
@@ -443,6 +445,7 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
   }
 
   const turnResult = room.advanceTurn('user-action', vacationEndTurnPlayerId);
+  // console.log('[DEBUG SERVER] endTurn: advanceTurn called, activeVoteKick after:', room.activeVoteKick);
   room.lastDiceRoll = null;
   emitAdvanceTurnLogs(room, turnResult, io);
   emitGameStateUpdated(room, io, roomId);
@@ -587,7 +590,7 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
       currentPlayerId: currentPlayer.id // Track who started the auction for end turn button
     };
     
-    console.log('[SERVER] Emitting auctionStarted for property:', propertyName, 'to room:', roomId, 'participants:', participants.map(p => p.name));
+    // console.log('[SERVER] Emitting auctionStarted for property:', propertyName, 'to room:', roomId, 'participants:', participants.map(p => p.name));
     
     // Start auction timer on server
     room.auctionTimer = setInterval(() => {
@@ -703,7 +706,7 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
     room.auction.lastBidTime = now; // Update last bid time
     room.auction.lastBidderId = player.id; // Track last bidder to prevent consecutive bids
     
-    console.log('[SERVER] Auction bid:', player.name, 'bid', newBid);
+    // console.log('[SERVER] Auction bid:', player.name, 'bid', newBid);
     io.to(roomId).emit('auctionUpdate', room.auction);
   };
 
@@ -727,7 +730,7 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
       return;
     }
     
-    console.log('[SERVER] Auction pass:', player.name);
+    // console.log('[SERVER] Auction pass:', player.name);
     io.to(roomId).emit('auctionUpdate', room.auction);
   };
 
@@ -1257,10 +1260,145 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
     socket.emit('playerProperties', { playerId, properties });
   };
 
+  // Bankruptcy handlers
+  const bankruptPlayer = ({ roomId }) => {
+    const room = roomService.getRoomById(roomId);
+    if (!room || room.gameState !== 'in-progress') return;
+
+    const playerId = socket.id;
+    const player = room.players.find(p => p.id === playerId);
+    if (!player) return;
+
+    // Can't bankrupt if already bankrupt or kicked
+    if (!room.canPlayerPlay(playerId)) return;
+
+    // Execute bankruptcy
+    const result = room.bankruptPlayer(playerId);
+    if (result) {
+      // Emit updated game state to all players
+      emitGameStateUpdated(room, io, roomId);
+      
+      // If it was current player's turn, advance turn
+      if (room.players[room.turnIndex]?.id === playerId) {
+        const turnResult = room.advanceTurn(socket.id);
+        emitAdvanceTurnLogs(room, turnResult, io);
+        emitGameStateUpdated(room, io, roomId);
+      }
+    }
+  };
+
+  // Vote-kick handlers
+  const startVoteKick = ({ roomId }) => {
+    const room = roomService.getRoomById(roomId);
+    if (!room || room.gameState !== 'in-progress') return;
+
+    const initiatorId = socket.id;
+    const currentPlayer = room.players[room.turnIndex];
+    
+    if (!currentPlayer) return;
+    
+    // Start vote-kick against current player
+    const result = room.startVoteKick(currentPlayer.id, initiatorId);
+    if (result && result.success) {
+      // Push the vote-kick log to all clients immediately
+      if (result.logEntry) {
+        io.to(roomId).emit('gameLogUpdated', result.logEntry);
+      }
+      
+      emitGameStateUpdated(room, io, roomId);
+      
+      // Start server-side timer to track remaining time
+      const updateTimer = () => {
+        // Always check if activeVoteKick still exists before proceeding
+        if (!room.activeVoteKick) {
+          // console.log('[DEBUG SERVER] updateTimer: activeVoteKick was cancelled, stopping timer');
+          // Emit a final timer update with 0 remaining time to clear frontend
+          io.to(roomId).emit('voteKickTimer', { 
+            targetPlayerId: null,
+            remainingTime: 0 
+          });
+          return; // Stop the timer if vote-kick was cancelled
+        }
+        
+        const remaining = Math.max(0, room.activeVoteKick.endTime - Date.now());
+        // console.log('[DEBUG SERVER] updateTimer emitting voteKickTimer:', { targetPlayerId: room.activeVoteKick.targetPlayerId, remainingTime: remaining });
+        io.to(roomId).emit('voteKickTimer', { 
+          targetPlayerId: room.activeVoteKick.targetPlayerId,
+          remainingTime: remaining 
+        });
+        
+        // If time is up, auto-kick the player
+        if (remaining <= 0) {
+          // console.log('[DEBUG SERVER] Vote-kick timer expired, auto-kicking player');
+          const executeResult = room.executeVoteKick();
+          if (executeResult && executeResult.kickLog) {
+            io.to(roomId).emit('gameLogUpdated', executeResult.kickLog);
+          }
+          
+          // If the kicked player was the current player, advance turn
+          if (executeResult && executeResult.wasCurrentPlayer) {
+            const turnResult = room.advanceTurn(socket.id);
+            emitAdvanceTurnLogs(room, turnResult, io);
+          }
+          
+          emitGameStateUpdated(room, io, roomId);
+          return; // Stop the timer
+        }
+        
+        // Store the timeout reference so it can be cancelled
+        room.voteKickTimer = setTimeout(updateTimer, 1000);
+      };
+      
+      // Start the timer
+      room.voteKickTimer = setTimeout(updateTimer, 1000);
+    } else {
+      socket.emit('voteKickError', { message: 'Cannot start vote-kick at this time' });
+    }
+  };
+
+  const addVoteKick = ({ roomId }) => {
+    const room = roomService.getRoomById(roomId);
+    if (!room || !room.activeVoteKick) return;
+
+    const voterId = socket.id;
+    const result = room.addVoteKick(voterId);
+    
+    if (result) {
+      // Push the vote-kick log to all clients immediately
+      if (result.logEntry) {
+        io.to(roomId).emit('gameLogUpdated', result.logEntry);
+      }
+      
+      emitGameStateUpdated(room, io, roomId);
+      
+      if (result.executed) {
+        // Push the kick log to all clients
+        if (result.kickLog) {
+          io.to(roomId).emit('gameLogUpdated', result.kickLog);
+        }
+        
+        // Vote-kick was executed, advance turn if the kicked player was the current player
+        if (result.wasCurrentPlayer) {
+          const turnResult = room.advanceTurn(socket.id);
+          emitAdvanceTurnLogs(room, turnResult, io);
+        }
+        
+        emitGameStateUpdated(room, io, roomId);
+      }
+    } else {
+      socket.emit('voteKickError', { message: 'Cannot vote at this time' });
+    }
+  };
+
   // Register trade event listeners
   socket.on('createTrade', createTrade);
   socket.on('respondToTrade', respondToTrade);
   socket.on('cancelTrade', cancelTrade);
   socket.on('negotiateTrade', negotiateTrade);
   socket.on('getPlayerProperties', getPlayerProperties);
+  
+  // Register bankruptcy and vote-kick listeners
+  socket.on('bankruptPlayer', bankruptPlayer);
+  socket.on('startVoteKick', startVoteKick);
+  socket.on('addVoteKick', addVoteKick);
 };

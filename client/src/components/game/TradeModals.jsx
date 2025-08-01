@@ -175,14 +175,14 @@ export const CreateTradeModal = ({
 
   // Initialize with existing trade data if editing
   useEffect(() => {
-    console.log('[TRADE DEBUG] Modal opened with:');
-    console.log('currentPlayer:', currentPlayer);
-    console.log('targetPlayer:', targetPlayer);
-    console.log('currentPlayer.money:', currentPlayer?.money);
-    console.log('targetPlayer.money:', targetPlayer?.money);
-    console.log('syncedPlayerMoney:', syncedPlayerMoney);
-    console.log('syncedPlayerMoney for currentPlayer:', syncedPlayerMoney?.[currentPlayer?.id]);
-    console.log('syncedPlayerMoney for targetPlayer:', syncedPlayerMoney?.[targetPlayer?.id]);
+    // console.log('[TRADE DEBUG] Modal opened with:');
+    // console.log('currentPlayer:', currentPlayer);
+    // console.log('targetPlayer:', targetPlayer);
+    // console.log('currentPlayer.money:', currentPlayer?.money);
+    // console.log('targetPlayer.money:', targetPlayer?.money);
+    // console.log('syncedPlayerMoney:', syncedPlayerMoney);
+    // console.log('syncedPlayerMoney for currentPlayer:', syncedPlayerMoney?.[currentPlayer?.id]);
+    // console.log('syncedPlayerMoney for targetPlayer:', syncedPlayerMoney?.[targetPlayer?.id]);
     
     if (existingTrade && currentPlayer && targetPlayer) {
       setCurrentPlayerMoney(existingTrade.offers[currentPlayer.id]?.money || 0);
@@ -301,7 +301,7 @@ export const CreateTradeModal = ({
         {/* Money Sliders */}
         <Box sx={{ display: 'flex', gap: 3, mb: 3 }}>
           <Box sx={{ flex: 1 }}>
-            {console.log('[SLIDER DEBUG] currentPlayerMoney:', currentPlayerMoney, 'max:', getCurrentPlayerMoney())}
+            {/* {console.log('[SLIDER DEBUG] currentPlayerMoney:', currentPlayerMoney, 'max:', getCurrentPlayerMoney())} */}
             <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 1 }}>
               <Typography sx={{ color: 'white' }}>0</Typography>
               <Slider

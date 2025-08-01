@@ -195,6 +195,22 @@ const GamePage = () => {
   const [selectedTrade, setSelectedTrade] = useState(null);
   const [playerProperties, setPlayerProperties] = useState({});
 
+  // Bankruptcy and vote-kick state
+  const [bankruptedPlayers, setBankruptedPlayers] = useState([]);
+  const [votekickedPlayers, setVotekickedPlayers] = useState([]);
+  const [activeVoteKick, setActiveVoteKick] = useState(null);
+  const [voteKickTimeRemaining, setVoteKickTimeRemaining] = useState(0);
+
+  // Debug activeVoteKick state changes
+  useEffect(() => {
+    // console.log('[DEBUG] activeVoteKick state changed:', activeVoteKick);
+  }, [activeVoteKick]);
+
+  // Debug voteKickTimeRemaining state changes
+  useEffect(() => {
+    // console.log('[DEBUG] voteKickTimeRemaining state changed:', voteKickTimeRemaining);
+  }, [voteKickTimeRemaining]);
+
   const prevPropertyOwnershipRef = useRef({});
 
   // Move onGameStateUpdated outside useEffect for stable reference
@@ -225,9 +241,9 @@ const GamePage = () => {
       // Set current player by matching socket id
       const mySocketId = socket.id;
       const me = playerList.find(p => p.id === mySocketId);
-      console.log('[PLAYER DEBUG] Current player found:', me);
-      console.log('[PLAYER DEBUG] Current player money:', me?.money);
-      console.log('[PLAYER DEBUG] Full player list:', playerList);
+      // console.log('[PLAYER DEBUG] Current player found:', me);
+      // console.log('[PLAYER DEBUG] Current player money:', me?.money);
+      // console.log('[PLAYER DEBUG] Full player list:', playerList);
       setCurrentPlayer(me);
       setIsHost(me?.isHost || false);
       // Only set playerJoined to true if the player is in the player list
@@ -322,6 +338,23 @@ const GamePage = () => {
       }, 2000);
     });
 
+    // Bankruptcy and vote-kick listeners
+    socket.on('voteKickTimer', ({ targetPlayerId, remainingTime }) => {
+      // console.log('[DEBUG] Vote-kick timer update:', { targetPlayerId, remainingTime });
+      setVoteKickTimeRemaining(remainingTime);
+      
+      // If targetPlayerId is null, the vote-kick was cancelled
+      if (targetPlayerId === null) {
+        // console.log('[DEBUG] Vote-kick was cancelled, clearing activeVoteKick');
+        setActiveVoteKick(null);
+        setVoteKickTimeRemaining(0);
+      }
+    });
+
+    socket.on('voteKickError', ({ message }) => {
+      alert(message);
+    });
+
     // Optionally: fetch initial state if needed
     return () => {
       socket.off('playerListUpdated');
@@ -335,6 +368,8 @@ const GamePage = () => {
       socket.off('purchaseError');
       socket.off('diceRollingStarted');
       socket.off('shufflingPlayers');
+      socket.off('voteKickTimer');
+      socket.off('voteKickError');
     };
   }, [roomId, onGameStateUpdated, players]);
 
@@ -1463,11 +1498,23 @@ const GamePage = () => {
 
   // Handler functions for buttons
   const handleVotekick = () => {
-    // Add votekick logic here
+    if (!gameStarted || !roomId) return;
+    
+    // Check if there's already an active vote-kick
+    if (activeVoteKick) {
+      // Add vote to existing vote-kick
+      socket.emit('addVoteKick', { roomId });
+    } else {
+      // Start new vote-kick
+      socket.emit('startVoteKick', { roomId });
+    }
   };
 
   const handleBankrupt = () => {
-    // Add bankrupt logic here
+    if (!gameStarted || !roomId) return;
+    if (window.confirm('Are you sure you want to bankrupt all your properties and assets? This action cannot be undone.')) {
+      socket.emit('bankruptPlayer', { roomId });
+    }
   };
 
   const handleKickPlayer = (playerId) => {
@@ -2306,7 +2353,7 @@ const GamePage = () => {
   // Listen for auctionStarted event from server to open auction modal for all clients
   useEffect(() => {
     function handleAuctionStarted(auctionData) {
-      console.log('[CLIENT] Received auctionStarted event:', auctionData);
+      // console.log('[CLIENT] Received auctionStarted event:', auctionData);
       setAuctionActive(true);
       setAuctionProperty(auctionData.property);
       setAuctionBids(auctionData.bidHistory || []);
@@ -2319,11 +2366,11 @@ const GamePage = () => {
       setAuctionCurrentPlayerId(auctionData.currentPlayerId); // Track who started the auction
       setAuctionEnded(false);
       setAuctionWinner(null);
-      console.log('[CLIENT] Auction modal state set to active for property:', auctionData.property?.name);
+      // console.log('[CLIENT] Auction modal state set to active for property:', auctionData.property?.name);
     }
 
     function handleAuctionUpdate(auctionData) {
-      console.log('[CLIENT] Received auctionUpdate event:', auctionData);
+      // console.log('[CLIENT] Received auctionUpdate event:', auctionData);
       setAuctionBids(auctionData.bidHistory || []);
       setAuctionCurrentBid(auctionData.currentBid);
       setAuctionCurrentBidder(auctionData.currentBidder);
@@ -2333,8 +2380,8 @@ const GamePage = () => {
     }
 
     function handleAuctionEnded(auctionData) {
-      console.log('[CLIENT] Received auctionEnded event:', auctionData);
-      console.log('[CLIENT] Current socket.id:', socket.id, 'auctionData.currentPlayerId:', auctionData.currentPlayerId);
+      // console.log('[CLIENT] Received auctionEnded event:', auctionData);
+      // console.log('[CLIENT] Current socket.id:', socket.id, 'auctionData.currentPlayerId:', auctionData.currentPlayerId);
       setAuctionEnded(true);
       setAuctionActive(false);
       setAuctionWinner(auctionData.winner);
@@ -2421,13 +2468,13 @@ const GamePage = () => {
 
   // Handle auction bid
   const handleAuctionBid = (inc) => {
-    console.log('[CLIENT] Sending auction bid:', inc);
+    // console.log('[CLIENT] Sending auction bid:', inc);
     socket.emit('auctionBid', { roomId, amount: inc });
   };
 
   // Handle auction pass
   const handleAuctionPass = () => {
-    console.log('[CLIENT] Sending auction pass');
+    // console.log('[CLIENT] Sending auction pass');
     socket.emit('auctionPass', { roomId });
   };
 
@@ -2491,6 +2538,12 @@ const GamePage = () => {
       setSyncedVacationCash(state.vacationCash || 0);
       setSyncedPlayersOrdered(state.playersOrdered || []);
       
+      // Update bankruptcy and vote-kick states
+      setBankruptedPlayers(state.bankruptedPlayers || []);
+      setVotekickedPlayers(state.votekickedPlayers || []);
+      // console.log('[DEBUG] Vote-kick state update:', state.activeVoteKick);
+      setActiveVoteKick(state.activeVoteKick || null);
+      
       // Update trades from server state
       if (state.trades) {
         setTrades(state.trades.filter(trade => trade.status === 'pending')); // Only pending trades for active list
@@ -2524,57 +2577,8 @@ const GamePage = () => {
     }
   };
 
-
-  <MonopolyBoard
-    gameStarted={gameStarted}
-    gameLog={gameLog}
-    onStartGame={handleStartGame}
-    players={allPlayers}
-    currentPlayerIndex={syncedTurnIndex}
-    onRollDice={handleRollDiceMultiplayer}
-    onEndTurn={handleEndTurn}
-    gamePhase={gamePhase}
-    onPlayerStatusChange={handlePlayerStatusChange}
-    propertyOwnership={syncedPropertyOwnership}
-    gameSettings={gameSettings}
-    playerJailCards={playerJailCards}
-    onPayJailFine={handlePayJailFine}
-    onUseJailCard={handleUseJailCard}
-    onJailExit={() => { }}
-    playerStatuses={syncedStatuses}
-    playerJailRounds={playerJailRounds}
-    playerMoveRequest={playerMoveRequest}
-    onPlayerMoveComplete={() => setPlayerMoveRequest(null)}
-    propertyLandingState={propertyLandingState}
-    onBuildHouse={handleBuildHouse}
-    onDestroyHouse={handleDestroyHouse}
-    onMortgageProperty={handleMortgageProperty}
-    onSellProperty={handleSellProperty}
-    devDiceEnabled={devDiceEnabled}
-    devDice1={devDice1}
-    devDice2={devDice2}
-    vacationCash={gameSettings.vacationCash ? syncedVacationCash : 0}
-    isHost={isHost}
-    syncedPositions={syncedPositions}
-    syncedLastDiceRoll={syncedLastDiceRoll}
-    syncedPlayerMoney={syncedPlayerMoney}
-    syncedSpecialAction={syncedSpecialAction}
-    isMyTurn={isMyTurn}
-    roomId={roomId}
-    globalDiceRolling={globalDiceRolling}
-    onBuyProperty={handleBuyProperty}
-    onAuctionProperty={handleAuctionProperty}
-    onSkipProperty={handleSkipProperty}
-    onClearPropertyLandingState={() => {
-      setPropertyLandingState(null);
-      if (gamePhase !== 'rolling') setGamePhase('rolling');
-    }}
-    currentUserId={currentPlayer?.id}
-    isShufflingPlayers={isShufflingPlayers}
-    onLocalDiceRollingChange={setLocalDiceRolling}
-    onTradeClick={handleTradeClick}
-  />
-
+  // Debug props being passed to MonopolyBoard
+  // console.log('[DEBUG GamePage] Props being passed to MonopolyBoard:', { activeVoteKick, voteKickTimeRemaining });
 
   // --- Add this effect to clear propertyLandingState after purchase ---
   React.useEffect(() => {
@@ -2741,6 +2745,8 @@ const GamePage = () => {
             onPropertyClick={handlePropertyClick}
             auctionEnded={auctionEnded}
             auctionCurrentPlayerId={auctionCurrentPlayerId}
+            activeVoteKick={activeVoteKick}
+            voteKickTimeRemaining={voteKickTimeRemaining}
             onTradeClick={handleTradeClick}
           />
 
@@ -2870,6 +2876,8 @@ const GamePage = () => {
             playerStatuses={syncedStatuses}
             isShuffling={isShufflingPlayers}
             syncedPlayerMoney={syncedPlayerMoney}
+            bankruptedPlayers={bankruptedPlayers}
+            votekickedPlayers={votekickedPlayers}
           />
         </Box>
 
@@ -2883,6 +2891,7 @@ const GamePage = () => {
                   startIcon={<PersonRemove />}
                   onClick={handleVotekick}
                   size="small"
+                  disabled={currentTurnSocketId === socket.id} // Disable for current turn player
                   sx={{
                     flex: 1,
                     background: 'linear-gradient(135deg, #6b7280, #4b5563)',
@@ -2895,15 +2904,21 @@ const GamePage = () => {
                     '&:hover': {
                       background: 'linear-gradient(135deg, #4b5563, #374151)',
                       transform: 'translateY(-1px)',
+                    },
+                    '&:disabled': {
+                      background: 'linear-gradient(135deg, #9ca3af, #6b7280)',
+                      color: 'rgba(255, 255, 255, 0.5)',
+                      transform: 'none',
                     }
                   }}
                 >
-                  Votekick
+                  Vote Kick
                 </Button>
                 <Button
                   startIcon={<MoneyOff />}
                   onClick={handleBankrupt}
                   size="small"
+                  disabled={bankruptedPlayers.includes(socket.id) || votekickedPlayers.includes(socket.id)}
                   sx={{
                     flex: 1,
                     background: 'linear-gradient(135deg, #dc2626, #b91c1c)',
@@ -2916,6 +2931,10 @@ const GamePage = () => {
                     '&:hover': {
                       background: 'linear-gradient(135deg, #b91c1c, #991b1b)',
                       transform: 'translateY(-1px)',
+                    },
+                    '&:disabled': {
+                      background: 'linear-gradient(135deg, #6b7280, #4b5563)',
+                      color: 'rgba(255, 255, 255, 0.5)',
                     }
                   }}
                 >

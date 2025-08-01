@@ -27,6 +27,12 @@ class Room {
     this.trades = {}; // { tradeId: tradeData }
     this.tradeCounter = 0; // For generating unique trade IDs
 
+    // Bankruptcy and vote-kick system
+    this.bankruptedPlayers = new Set(); // Set of player IDs who are bankrupt
+    this.votekickedPlayers = new Set(); // Set of player IDs who are vote-kicked
+    this.activeVoteKick = null; // { targetPlayerId, votes: Set(), startTime, endTime }
+    this.voteKickTimer = null; // Timer reference for auto-kick
+
     // Property data from classic map
     this.propertyData = {
       // Brazil set
@@ -346,6 +352,14 @@ class Room {
   // Modify advanceTurn to set vacation status after End Turn on vacation
   advanceTurn(sessionId, vacationEndTurnPlayerId = null) {
     // console.log('[DEBUG][VACATION] advanceTurn called with sessionId:', sessionId, 'vacationEndTurnPlayerId:', vacationEndTurnPlayerId);
+    
+    // FIRST: Cancel vote-kick if the current player (who is ending their turn) is the target
+    const currentPlayerBeforeAdvance = this.players[this.turnIndex];
+    if (this.activeVoteKick && currentPlayerBeforeAdvance && this.activeVoteKick.targetPlayerId === currentPlayerBeforeAdvance.id) {
+      // console.log('[DEBUG SERVER] advanceTurn: cancelling vote-kick for player', currentPlayerBeforeAdvance.name, 'who is ending their turn');
+      this.cancelVoteKick();
+    }
+    
     const totalPlayers = this.players.length;
     let orderedEvents = [];
     let vacationReturnEvents = [];
@@ -381,6 +395,12 @@ class Room {
       }
       const playerId = this.players[this.turnIndex].id;
       const playerName = this.players[this.turnIndex].name;
+      
+      // Skip bankrupt or vote-kicked players
+      if (!this.canPlayerPlay(playerId)) {
+        continue; // Skip this player and continue to next
+      }
+      
       const status = this.playerStatuses[playerId];
       // If player is on vacation
       if (status && typeof status === 'object' && status.status === 'vacation') {
@@ -549,8 +569,13 @@ class Room {
       gameLog: this.gameLog,
       playersOrdered: this.players.map(p => ({ id: p.id, name: p.name, color: p.color, isBot: p.isBot, isOnline: p.isOnline })),
       trades: Object.values(this.trades),
+      // Bankruptcy and vote-kick states
+      bankruptedPlayers: Array.from(this.bankruptedPlayers),
+      votekickedPlayers: Array.from(this.votekickedPlayers),
+      activeVoteKick: this.activeVoteKick,
       // add more fields if needed
     };
+    // console.log('[DEBUG SERVER] getGameState activeVoteKick:', this.activeVoteKick);
     // console.log('[DEBUG] getGameState propertyOwnership:', JSON.stringify(gameState.propertyOwnership));
     return gameState;
   }
@@ -823,6 +848,215 @@ class Room {
       }
     }
     return ownedProperties;
+  }
+  
+  // Bankruptcy functionality
+  bankruptPlayer(playerId, reason = 'bankrupt') {
+    const player = this.players.find(p => p.id === playerId);
+    if (!player) return false;
+
+    // Mark player as bankrupt or vote-kicked
+    if (reason === 'votekick') {
+      this.votekickedPlayers.add(playerId);
+    } else {
+      this.bankruptedPlayers.add(playerId);
+    }
+
+    // Transfer all properties to the bank
+    const playerProperties = [];
+    for (const [propertyName, ownership] of Object.entries(this.propertyOwnership)) {
+      if (ownership.owner === playerId) {
+        playerProperties.push(propertyName);
+      }
+    }
+
+    // Remove all properties from ownership (return to bank)
+    playerProperties.forEach(propertyName => {
+      delete this.propertyOwnership[propertyName];
+    });
+
+    // Set player money to 0
+    this.playerMoney[playerId] = 0;
+
+    // Remove player from board (this will make their avatar disappear)
+    delete this.playerPositions[playerId];
+    delete this.playerStatuses[playerId];
+    delete this.playerJailCards[playerId];
+    delete this.playerJailRounds[playerId];
+    delete this.playerDoublesCount[playerId];
+
+    // Log the bankruptcy (but not for vote-kick since we already logged the kick message)
+    if (reason !== 'votekick') {
+      this.addGameLog({
+        type: 'bankruptcy',
+        playerId,
+        message: `${player.name} bankrupted all their properties and assets to the bank and ended their game.`
+      });
+    }
+
+    return { properties: playerProperties, playerName: player.name };
+  }
+
+  // Vote-kick functionality
+  startVoteKick(targetPlayerId, initiatorId) {
+    // console.log('[DEBUG SERVER] startVoteKick called:', { targetPlayerId, initiatorId });
+    // Can't vote-kick if already in progress
+    if (this.activeVoteKick) return false;
+    
+    // Can't vote-kick bankrupt or already kicked players
+    if (this.bankruptedPlayers.has(targetPlayerId) || this.votekickedPlayers.has(targetPlayerId)) {
+      return false;
+    }
+
+    const targetPlayer = this.players.find(p => p.id === targetPlayerId);
+    const initiatorPlayer = this.players.find(p => p.id === initiatorId);
+    
+    if (!targetPlayer || !initiatorPlayer) return false;
+
+    const now = Date.now();
+    this.activeVoteKick = {
+      targetPlayerId,
+      targetPlayerName: targetPlayer.name,
+      votes: new Set([initiatorId]), // Initiator automatically votes
+      startTime: now,
+      endTime: now + 1 * 60 * 1000, // 5 minutes
+      initiatorName: initiatorPlayer.name
+    };
+
+    // Add log for vote-kick start
+    const logEntry = {
+      type: 'votekick',
+      message: `${initiatorPlayer.name} decided to votekick ${targetPlayer.name}, 1/${this.getRequiredVotes()} votekicks logged.`
+    };
+    this.addGameLog(logEntry);
+
+    // Set timer for auto-kick
+    if (this.voteKickTimer) {
+      clearTimeout(this.voteKickTimer);
+    }
+    
+    this.voteKickTimer = setTimeout(() => {
+      this.executeVoteKick();
+    }, 5 * 60 * 1000);
+
+    return { success: true, logEntry };
+  }
+
+  addVoteKick(voterId) {
+    if (!this.activeVoteKick) return false;
+    
+    // Can't vote for yourself or if already voted
+    if (voterId === this.activeVoteKick.targetPlayerId || this.activeVoteKick.votes.has(voterId)) {
+      return false;
+    }
+
+    // Can't vote if bankrupt or kicked
+    if (this.bankruptedPlayers.has(voterId) || this.votekickedPlayers.has(voterId)) {
+      return false;
+    }
+
+    const voterPlayer = this.players.find(p => p.id === voterId);
+    if (!voterPlayer) return false;
+
+    this.activeVoteKick.votes.add(voterId);
+    
+    const currentVotes = this.activeVoteKick.votes.size;
+    const requiredVotes = this.getRequiredVotes();
+
+    // Add log for additional vote
+    const logEntry = {
+      type: 'votekick',
+      message: `${voterPlayer.name} decided to votekick ${this.activeVoteKick.targetPlayerName}, ${currentVotes}/${requiredVotes} votekicks logged.`
+    };
+    this.addGameLog(logEntry);
+
+    // Check if we have enough votes
+    if (currentVotes >= requiredVotes) {
+      const targetPlayerId = this.activeVoteKick.targetPlayerId;
+      const executeResult = this.executeVoteKick();
+      return { 
+        executed: true, 
+        targetPlayerId, 
+        logEntry, 
+        kickLog: executeResult.kickLog,
+        wasCurrentPlayer: executeResult.wasCurrentPlayer
+      };
+    }
+
+    return { executed: false, votes: currentVotes, required: requiredVotes, logEntry };
+  }
+
+  getRequiredVotes() {
+    // Half of active players + 1 (including bankrupt but not kicked players for voting)
+    const activePlayers = this.players.filter(p => !this.votekickedPlayers.has(p.id));
+    return Math.floor(activePlayers.length / 2) + 1;
+  }
+
+  executeVoteKick() {
+    if (!this.activeVoteKick) return false;
+
+    const targetPlayerId = this.activeVoteKick.targetPlayerId;
+    const targetPlayerName = this.activeVoteKick.targetPlayerName;
+    
+    // Clear timer
+    if (this.voteKickTimer) {
+      clearTimeout(this.voteKickTimer);
+      this.voteKickTimer = null;
+    }
+
+    // Add kick message before bankrupting
+    const kickLog = {
+      type: 'votekick',
+      message: `${targetPlayerName} was kicked out of the game.`
+    };
+    this.addGameLog(kickLog);
+
+    // Check if the kicked player is the current player
+    const isCurrentPlayer = this.players[this.turnIndex]?.id === targetPlayerId;
+    
+    // If kicked player had a pending dice roll, clear it
+    if (isCurrentPlayer && this.lastDiceRoll && this.lastDiceRoll.playerId === targetPlayerId) {
+      this.lastDiceRoll = null;
+    }
+
+    // Bankrupt the player with vote-kick reason
+    this.bankruptPlayer(targetPlayerId, 'votekick');
+
+    // Clear active vote-kick
+    this.activeVoteKick = null;
+
+    return { kickLog, wasCurrentPlayer: isCurrentPlayer };
+  }
+
+  cancelVoteKick() {
+    if (!this.activeVoteKick) return false;
+
+    // console.log('[DEBUG SERVER] cancelVoteKick called for target:', this.activeVoteKick.targetPlayerName);
+
+    // Clear timer
+    if (this.voteKickTimer) {
+      clearTimeout(this.voteKickTimer);
+      this.voteKickTimer = null;
+      // console.log('[DEBUG SERVER] cancelVoteKick: cleared voteKickTimer');
+    }
+
+    this.addGameLog({
+      type: 'system',
+      message: `Vote-kick against ${this.activeVoteKick.targetPlayerName} was cancelled.`
+    });
+
+    this.activeVoteKick = null;
+    return true;
+  }
+
+  // Check if player can play (not bankrupt or kicked)
+  canPlayerPlay(playerId) {
+    return !this.bankruptedPlayers.has(playerId) && !this.votekickedPlayers.has(playerId);
+  }
+
+  // Get active playing players only
+  getActivePlayers() {
+    return this.players.filter(p => this.canPlayerPlay(p.id));
   }
 }
 

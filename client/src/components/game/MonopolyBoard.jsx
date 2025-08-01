@@ -207,8 +207,22 @@ const MonopolyBoard = (props) => {
     isShufflingPlayers = false,
     onPropertyClick = () => { },
     auctionEnded = false,
-    auctionCurrentPlayerId = null
+    auctionCurrentPlayerId = null,
+    activeVoteKick = null,
+    voteKickTimeRemaining = 0
   } = props;
+  
+  // Debug vote-kick props - access directly from props
+  // console.log('[DEBUG MonopolyBoard] Raw props:', { 
+  //   activeVoteKick: props.activeVoteKick, 
+  //   voteKickTimeRemaining: props.voteKickTimeRemaining 
+  // });
+  
+  // console.log('[DEBUG MonopolyBoard] Destructured props:', { 
+  //   activeVoteKick, 
+  //   voteKickTimeRemaining 
+  // });
+  
   const [showModal, setShowModal] = useState(false);
   const [modalContent, setModalContent] = useState('');
   const [spaceArrivalOrder, setSpaceArrivalOrder] = useState({}); // Track arrival order for each space
@@ -1890,6 +1904,9 @@ const MonopolyBoard = (props) => {
                           {entry.type === 'bankruptcy' && (
                             <FiberManualRecord sx={{ color: '#ef4444', fontSize: '8px' }} />
                           )}
+                          {entry.type === 'votekick' && (
+                            <FiberManualRecord sx={{ color: '#f97316', fontSize: '8px' }} />
+                          )}
                           {entry.type === 'trade' && (
                             <FiberManualRecord sx={{ color: '#10b981', fontSize: '8px' }} />
                           )}
@@ -1915,9 +1932,9 @@ const MonopolyBoard = (props) => {
                               <Typography
                                 component="span"
                                 sx={{
-                                  color: entry.type === 'bankruptcy' ? '#fca5a5' : '#d1d5db',
+                                  color: (entry.type === 'bankruptcy' || entry.type === 'votekick') ? '#fca5a5' : '#d1d5db',
                                   fontSize: '13px',
-                                  fontWeight: entry.type === 'bankruptcy' ? 'bold' : 'normal'
+                                  fontWeight: (entry.type === 'bankruptcy' || entry.type === 'votekick') ? 'bold' : 'normal'
                                 }}
                               >
                                 {entry.type === 'trade' && entry.tradeId ? (
@@ -2394,6 +2411,9 @@ const MonopolyBoard = (props) => {
                           {entry.type === 'bankruptcy' && (
                             <FiberManualRecord sx={{ color: '#ef4444', fontSize: '8px' }} />
                           )}
+                          {entry.type === 'votekick' && (
+                            <FiberManualRecord sx={{ color: '#f97316', fontSize: '8px' }} />
+                          )}
                           {entry.type === 'trade' && (
                             <FiberManualRecord sx={{ color: '#10b981', fontSize: '8px' }} />
                           )}
@@ -2419,9 +2439,9 @@ const MonopolyBoard = (props) => {
                               <Typography
                                 component="span"
                                 sx={{
-                                  color: entry.type === 'bankruptcy' ? '#fca5a5' : '#d1d5db',
+                                  color: (entry.type === 'bankruptcy' || entry.type === 'votekick') ? '#fca5a5' : '#d1d5db',
                                   fontSize: '13px',
-                                  fontWeight: entry.type === 'bankruptcy' ? 'bold' : 'normal'
+                                  fontWeight: (entry.type === 'bankruptcy' || entry.type === 'votekick') ? 'bold' : 'normal'
                                 }}
                               >
                                 {entry.type === 'trade' && entry.tradeId ? (
@@ -2479,24 +2499,44 @@ const MonopolyBoard = (props) => {
 
             {/* Current Player Info */}
             {getCurrentPlayer() && (
-              <StyledCurrentPlayer>
-                <Box
-                  sx={{
-                    width: 16,
-                    height: 16,
-                    borderRadius: '50%',
-                    backgroundColor: getCurrentPlayer().color,
-                    border: '1px solid white',
-                    mr: 1
-                  }}
-                />
-                <Typography
-                  variant="body2"
-                  sx={{ color: '#22c55e', fontSize: '14px' }}
-                >
-                  {getCurrentPlayer().name}'s turn
-                </Typography>
-              </StyledCurrentPlayer>
+              <Box>
+                <StyledCurrentPlayer>
+                  <Box
+                    sx={{
+                      width: 16,
+                      height: 16,
+                      borderRadius: '50%',
+                      backgroundColor: getCurrentPlayer().color,
+                      border: '1px solid white',
+                      mr: 1
+                    }}
+                  />
+                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <Typography
+                      variant="body2"
+                      sx={{ color: '#22c55e', fontSize: '14px' }}
+                    >
+                      {getCurrentPlayer().name}'s turn
+                    </Typography>
+                    
+                    {/* Vote-kick timer display - only show when it's the target player's turn */}
+                    {activeVoteKick && activeVoteKick.targetPlayerId === getCurrentPlayer().id && (
+                      <Typography
+                        variant="body2"
+                        sx={{ 
+                          color: '#f97316', 
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          mt: 0.5,
+                          textAlign: 'center'
+                        }}
+                      >
+                        ⚠️ You will be kicked out in {Math.floor(voteKickTimeRemaining / 60000)}:{String(Math.floor((voteKickTimeRemaining % 60000) / 1000)).padStart(2, '0')} if you do not end turn
+                      </Typography>
+                    )}
+                  </Box>
+                </StyledCurrentPlayer>
+              </Box>
             )}
           </Box>
         )}

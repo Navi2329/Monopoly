@@ -58,7 +58,7 @@ const StyledAvatar = styled(Avatar)(({ playercolor }) => ({
   }
 }));
 
-const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = false, onKickPlayer, onChangeAppearance, playerJoined = true, playerStatuses = {}, isShuffling = false, syncedPlayerMoney = {} }) => {
+const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = false, onKickPlayer, onChangeAppearance, playerJoined = true, playerStatuses = {}, isShuffling = false, syncedPlayerMoney = {}, bankruptedPlayers = [], votekickedPlayers = [] }) => {
   const hasPlayers = players.length > 0;
 
   return (
@@ -66,8 +66,23 @@ const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = fa
       {/* Players List */}
       {hasPlayers && (
         <Box>
-          {players.map((player) => (
-            <StyledPlayerCard key={player.id} elevation={0} isshuffling={isShuffling.toString()} className="player-list-item">
+          {players.map((player) => {
+            const isBankrupt = bankruptedPlayers.includes(player.id);
+            const isVoteKicked = votekickedPlayers.includes(player.id);
+            const isInactive = isBankrupt || isVoteKicked;
+            
+            return (
+            <StyledPlayerCard 
+              key={player.id} 
+              elevation={0} 
+              isshuffling={isShuffling.toString()} 
+              className="player-list-item"
+              sx={{
+                opacity: isInactive ? 0.5 : 1,
+                filter: isInactive ? 'grayscale(70%)' : 'none',
+                border: isInactive ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(255, 255, 255, 0.1)',
+              }}
+            >
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 {/* Left side - Avatar and player info */}
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flex: 1 }}>
@@ -268,7 +283,7 @@ const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = fa
                     <Typography
                       variant="body2"
                       sx={{
-                        color: 'rgba(255, 255, 255, 0.9)',
+                        color: isInactive ? 'rgba(255, 255, 255, 0.4)' : 'rgba(255, 255, 255, 0.9)',
                         fontSize: '0.875rem',
                         fontWeight: 600,
                         minWidth: '60px',
@@ -280,8 +295,30 @@ const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = fa
                   )}
                 </Box>
               </Box>
+              
+              {/* Bankruptcy/Vote-kick status indicators */}
+              {isInactive && (
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    top: 8,
+                    right: 8,
+                    backgroundColor: isVoteKicked ? 'rgba(239, 68, 68, 0.8)' : 'rgba(107, 114, 128, 0.8)',
+                    color: 'white',
+                    fontSize: '0.6rem',
+                    fontWeight: 700,
+                    padding: '2px 6px',
+                    borderRadius: '8px',
+                    textTransform: 'uppercase',
+                    border: '1px solid rgba(255, 255, 255, 0.2)'
+                  }}
+                >
+                  {isVoteKicked ? 'KICKED' : 'BANKRUPT'}
+                </Box>
+              )}
             </StyledPlayerCard>
-          ))}
+            );
+          })}
         </Box>
       )}
     </Box>
