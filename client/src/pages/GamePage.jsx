@@ -46,6 +46,7 @@ import { PlayerSelectionModal, CreateTradeModal, ViewTradeModal } from '../compo
 import { useUser } from '../contexts/UserContext';
 import socket from '../socket';
 import PropertyPopup from '../components/game/PropertyPopup';
+import GameOverModal from '../components/game/GameOverModal';
 
 const StyledSidebar = styled(Paper)(({ theme }) => ({
   background: 'linear-gradient(145deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.95))',
@@ -201,6 +202,10 @@ const GamePage = () => {
   const [activeVoteKick, setActiveVoteKick] = useState(null);
   const [voteKickTimeRemaining, setVoteKickTimeRemaining] = useState(0);
 
+  // Game over state
+  const [gameOverModalOpen, setGameOverModalOpen] = useState(false);
+  const [gameWinner, setGameWinner] = useState(null);
+
   // Debug activeVoteKick state changes
   useEffect(() => {
     // console.log('[DEBUG] activeVoteKick state changed:', activeVoteKick);
@@ -355,6 +360,12 @@ const GamePage = () => {
       alert(message);
     });
 
+    // Game over handler
+    socket.on('gameOver', ({ winner }) => {
+      setGameWinner(winner);
+      setGameOverModalOpen(true);
+    });
+
     // Optionally: fetch initial state if needed
     return () => {
       socket.off('playerListUpdated');
@@ -370,6 +381,7 @@ const GamePage = () => {
       socket.off('shufflingPlayers');
       socket.off('voteKickTimer');
       socket.off('voteKickError');
+      socket.off('gameOver');
     };
   }, [roomId, onGameStateUpdated, players]);
 
@@ -2605,6 +2617,120 @@ const GamePage = () => {
     };
   }, [roomId]);
 
+  // Handle "Another Game" button - resets all game state and stays in same room
+  const handlePlayAgain = () => {
+    // Reset all game state variables to their initial values
+    setGameStarted(false);
+    setPlayerJoined(false); // This will show the color selection modal again
+    setCurrentPlayer(null);
+    setIsHost(false);
+    setGameLog([]);
+    
+    // Reset game phase and turns
+    setCurrentPlayerIndex(0);
+    setGamePhase('waiting');
+    setSyncedTurnIndex(0);
+    setSyncedRound(1);
+    setLastDiceRoll(null);
+    setSyncedLastDiceRoll(null);
+    setSyncedSpecialAction(null);
+    setCurrentTurnSocketId(null);
+    
+    // Reset positions and statuses
+    setPlayerPositions({});
+    setSyncedPositions({});
+    setSyncedStatuses({});
+    setSyncedPlayerMoney({});
+    setSyncedPlayersOrdered([]);
+    
+    // Reset dice rolling states
+    setGlobalDiceRolling(false);
+    setLocalDiceRolling(false);
+    
+    // Reset property ownership and related states
+    setSyncedPropertyOwnership({});
+    setPropertyLandingState(null);
+    setPropertyPopupOpen(false);
+    setSelectedProperty(null);
+    
+    // Reset map preview states
+    setMapPreviewOpen(false);
+    setMapFullPreviewOpen(false);
+    setPreviewingMap(null);
+    
+    // Reset appearance change state
+    setChangeAppearanceOpen(false);
+    
+    // Reset trade system
+    setTrades([]);
+    setAllTrades([]);
+    setPlayerSelectionModalOpen(false);
+    setCreateTradeModalOpen(false);
+    setViewTradeModalOpen(false);
+    setSelectedTradePartner(null);
+    setSelectedTrade(null);
+    setPlayerProperties({});
+    
+    // Reset bankruptcy and vote-kick
+    setBankruptedPlayers([]);
+    setVotekickedPlayers([]);
+    setActiveVoteKick(null);
+    setVoteKickTimeRemaining(0);
+    
+    // Reset game over state
+    setGameOverModalOpen(false);
+    setGameWinner(null);
+    
+    // Reset player statuses and special states
+    setPlayerStatuses({});
+    setPlayerDoublesCount({});
+    setPlayerJailCards({});
+    setPlayerJailRounds({});
+    setCollectedMoney({});
+    setVacationCash(0);
+    
+    // Reset dev options
+    setDevDiceEnabled(false);
+    setDevDice1(1);
+    setDevDice2(1);
+    
+    // Reset bots and shuffling
+    setBots([]);
+    setIsAddingBots(false);
+    setShuffledOrder([]);
+    setIsShufflingPlayers(false);
+    setWasRandomized(false);
+    
+    // Reset auction state
+    setAuctionActive(false);
+    setAuctionEnded(false);
+    setAuctionProperty(null);
+    
+    // Reset chat messages
+    setMessages([]);
+    
+    // Reset player move request
+    setPlayerMoveRequest(null);
+    
+    // Reset log counter
+    setLogIdCounter(0);
+    
+    // Reset shuffling overlay
+    setShufflingOverlayVisible(false);
+    
+    // Clear refs
+    isProcessingLanding.current = false;
+    shuffledOrderRef.current = null;
+    gameStartedRef.current = false;
+    prevPropertyOwnershipRef.current = {};
+    
+    // Stay in the same room but emit a request to reset the room state on server
+    socket.emit('resetRoom', { roomId });
+    
+    // Request the player list again to rejoin
+    socket.emit('requestPlayerList', { roomId });
+  };
+
   return (
     <Box sx={{
       height: '100dvh',
@@ -3352,6 +3478,19 @@ const GamePage = () => {
         onCancelTrade={handleCancelTrade}
         onNegotiateTrade={handleNegotiateTrade}
         canInteract={gameStarted}
+      />
+
+      {/* Game Over Modal */}
+      <GameOverModal
+        isOpen={gameOverModalOpen}
+        winner={gameWinner}
+        onPlayAgain={() => {
+          handlePlayAgain();
+        }}
+        onBackToLobby={() => {
+          setGameOverModalOpen(false);
+          window.location.assign('/');
+        }}
       />
     </Box>
   );

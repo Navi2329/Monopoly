@@ -27,6 +27,14 @@ const addPlayerToRoom = (roomId, socketId, playerName, color) => {
   const isHost = room.players.length === 0;
   const player = { id: socketId, name: playerName, isHost, color };
   room.addPlayer(player);
+  
+  // If this is the first player and there's no host, make them the host
+  if (isHost || (!room.hostId && !room.hostName)) {
+    room.hostId = socketId;
+    room.hostName = playerName;
+    player.isHost = true;
+  }
+  
   // Print player list after
   const joinedPlayer = room.players.find(p => p.name === playerName);
   if (joinedPlayer) {

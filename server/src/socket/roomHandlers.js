@@ -1275,11 +1275,21 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
     // Execute bankruptcy
     const result = room.bankruptPlayer(playerId);
     if (result) {
+      // Check if game should end after bankruptcy
+      const gameEndResult = room.checkGameEnd();
+      
+      if (gameEndResult.gameOver) {
+        // Emit game over event to all players
+        io.to(roomId).emit('gameOver', {
+          winner: gameEndResult.winner
+        });
+      }
+      
       // Emit updated game state to all players
       emitGameStateUpdated(room, io, roomId);
       
-      // If it was current player's turn, advance turn
-      if (room.players[room.turnIndex]?.id === playerId) {
+      // If it was current player's turn, advance turn (only if game didn't end)
+      if (!gameEndResult.gameOver && room.players[room.turnIndex]?.id === playerId) {
         const turnResult = room.advanceTurn(socket.id);
         emitAdvanceTurnLogs(room, turnResult, io);
         emitGameStateUpdated(room, io, roomId);
@@ -1335,10 +1345,20 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
             io.to(roomId).emit('gameLogUpdated', executeResult.kickLog);
           }
           
-          // If the kicked player was the current player, advance turn
-          if (executeResult && executeResult.wasCurrentPlayer) {
-            const turnResult = room.advanceTurn(socket.id);
-            emitAdvanceTurnLogs(room, turnResult, io);
+          // Check if game should end after vote-kick
+          const gameEndResult = room.checkGameEnd();
+          
+          if (gameEndResult.gameOver) {
+            // Emit game over event to all players
+            io.to(roomId).emit('gameOver', {
+              winner: gameEndResult.winner
+            });
+          } else {
+            // If the kicked player was the current player, advance turn (only if game didn't end)
+            if (executeResult && executeResult.wasCurrentPlayer) {
+              const turnResult = room.advanceTurn(socket.id);
+              emitAdvanceTurnLogs(room, turnResult, io);
+            }
           }
           
           emitGameStateUpdated(room, io, roomId);
@@ -1377,10 +1397,20 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
           io.to(roomId).emit('gameLogUpdated', result.kickLog);
         }
         
-        // Vote-kick was executed, advance turn if the kicked player was the current player
-        if (result.wasCurrentPlayer) {
-          const turnResult = room.advanceTurn(socket.id);
-          emitAdvanceTurnLogs(room, turnResult, io);
+        // Check if game should end after vote-kick execution
+        const gameEndResult = room.checkGameEnd();
+        
+        if (gameEndResult.gameOver) {
+          // Emit game over event to all players
+          io.to(roomId).emit('gameOver', {
+            winner: gameEndResult.winner
+          });
+        } else {
+          // Vote-kick was executed, advance turn if the kicked player was the current player (only if game didn't end)
+          if (result.wasCurrentPlayer) {
+            const turnResult = room.advanceTurn(socket.id);
+            emitAdvanceTurnLogs(room, turnResult, io);
+          }
         }
         
         emitGameStateUpdated(room, io, roomId);
@@ -1401,4 +1431,24 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
   socket.on('bankruptPlayer', bankruptPlayer);
   socket.on('startVoteKick', startVoteKick);
   socket.on('addVoteKick', addVoteKick);
+
+  // Reset room handler for "Another Game" functionality
+  const resetRoom = ({ roomId }) => {
+    const room = roomService.getRoomById(roomId);
+    if (!room) return;
+
+    // Reset the room to pre-game state
+    room.resetForNewGame();
+
+    // Emit updated player list to all clients (first player joining becomes host)
+    io.to(roomId).emit('playerListUpdated', room.getPlayerList());
+    
+    // Emit room settings
+    io.to(roomId).emit('roomSettingsUpdated', room.settings);
+    
+    // Clear game state
+    emitGameStateUpdated(room, io, roomId);
+  };
+
+  socket.on('resetRoom', resetRoom);
 };

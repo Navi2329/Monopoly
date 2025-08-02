@@ -897,6 +897,47 @@ class Room {
     return { properties: playerProperties, playerName: player.name };
   }
 
+  // Check if game should end (only one active player remaining)
+  checkGameEnd() {
+    const activePlayers = this.getActivePlayers();
+    
+    if (activePlayers.length <= 1 && this.gameState === 'in-progress') {
+      this.gameState = 'finished';
+      
+      if (activePlayers.length === 1) {
+        const winner = activePlayers[0];
+        this.addGameLog({
+          type: 'game-over',
+          playerId: winner.id,
+          message: `${winner.name} wins the game! All other players have been eliminated.`
+        });
+        
+        return {
+          gameOver: true,
+          winner: {
+            id: winner.id,
+            name: winner.name,
+            color: winner.color,
+            money: this.playerMoney[winner.id] || winner.money
+          }
+        };
+      } else {
+        // No winners (shouldn't happen, but handle gracefully)
+        this.addGameLog({
+          type: 'game-over',
+          message: 'Game ended with no remaining players.'
+        });
+        
+        return {
+          gameOver: true,
+          winner: null
+        };
+      }
+    }
+    
+    return { gameOver: false };
+  }
+
   // Vote-kick functionality
   startVoteKick(targetPlayerId, initiatorId) {
     // console.log('[DEBUG SERVER] startVoteKick called:', { targetPlayerId, initiatorId });
@@ -919,7 +960,7 @@ class Room {
       targetPlayerName: targetPlayer.name,
       votes: new Set([initiatorId]), // Initiator automatically votes
       startTime: now,
-      endTime: now + 1 * 60 * 1000, // 5 minutes
+      endTime: now + 3 * 60 * 1000, // 3 minutes
       initiatorName: initiatorPlayer.name
     };
 
@@ -1057,6 +1098,52 @@ class Room {
   // Get active playing players only
   getActivePlayers() {
     return this.players.filter(p => this.canPlayerPlay(p.id));
+  }
+
+  // Reset room for new game while keeping same room ID and settings
+  resetForNewGame() {
+    // Clear all players - they need to rejoin for the new game
+    this.players = [];
+    
+    // Clear hostId and hostName so first player to rejoin becomes new host
+    this.hostId = null;
+    this.hostName = null;
+    
+    // Reset game state to initial values
+    this.gameState = 'waiting';
+    this.turnIndex = 0;
+    this.roundNumber = 1;
+    this.playerPositions = {};
+    this.playerMoney = {};
+    this.playerStatuses = {};
+    this.playerJailCards = {};
+    this.playerJailRounds = {};
+    this.playerDoublesCount = {};
+    this.propertyOwnership = {};
+    this.lastDiceRoll = null;
+    this.gameLog = [];
+    this.collectedMoney = {};
+    this.vacationCash = 0;
+    
+    // Reset trade system
+    this.trades = {};
+    this.tradeCounter = 0;
+    
+    // Reset bankruptcy and vote-kick system
+    this.bankruptedPlayers.clear();
+    this.votekickedPlayers.clear();
+    this.activeVoteKick = null;
+    
+    // Clear vote-kick timer if it exists
+    if (this.voteKickTimer) {
+      clearTimeout(this.voteKickTimer);
+      this.voteKickTimer = null;
+    }
+    
+    // Other game state resets
+    this.allowRollAgain = false;
+    this.doublesSequenceActive = false;
+    this.pendingSpecialAction = null;
   }
 }
 

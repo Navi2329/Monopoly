@@ -58,7 +58,20 @@ const StyledAvatar = styled(Avatar)(({ playercolor }) => ({
   }
 }));
 
-const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = false, onKickPlayer, onChangeAppearance, playerJoined = true, playerStatuses = {}, isShuffling = false, syncedPlayerMoney = {}, bankruptedPlayers = [], votekickedPlayers = [] }) => {
+const PlayerList = ({ 
+  players, 
+  currentPlayerId, 
+  gameStarted = false, 
+  isHost = false, 
+  onKickPlayer, 
+  onChangeAppearance, 
+  playerJoined = true, 
+  playerStatuses = {}, 
+  isShuffling = false, 
+  syncedPlayerMoney = {}, 
+  bankruptedPlayers = [], 
+  votekickedPlayers = []
+}) => {
   const hasPlayers = players.length > 0;
 
   return (
@@ -283,14 +296,15 @@ const PlayerList = ({ players, currentPlayerId, gameStarted = false, isHost = fa
                     <Typography
                       variant="body2"
                       sx={{
-                        color: isInactive ? 'rgba(255, 255, 255, 0.4)' : 'rgba(255, 255, 255, 0.9)',
+                        color: isInactive ? 'rgba(255, 255, 255, 0.4)' : 
+                               (syncedPlayerMoney[player.id] < 0 ? '#ef4444' : 'rgba(255, 255, 255, 0.9)'),
                         fontSize: '0.875rem',
                         fontWeight: 600,
                         minWidth: '60px',
                         textAlign: 'right'
                       }}
                     >
-                      ${typeof syncedPlayerMoney[player.id] === 'number' ? syncedPlayerMoney[player.id].toLocaleString() : (player.money?.toLocaleString() || '1,500')}
+                      {syncedPlayerMoney[player.id] < 0 ? '-' : ''}${Math.abs(typeof syncedPlayerMoney[player.id] === 'number' ? syncedPlayerMoney[player.id] : (player.money || 1500)).toLocaleString()}
                     </Typography>
                   )}
                 </Box>

@@ -774,6 +774,15 @@ const MonopolyBoard = (props) => {
       console.warn('[GUARD] handleEndTurn called while already awaiting roll after doubles or endTurnClicked. Ignoring.');
       return;
     }
+    
+    // Check if current player has negative cash - prevent ending turn
+    const currentPlayer = getCurrentPlayer();
+    if (currentPlayer && syncedPlayerMoney[currentPlayer.id] < 0) {
+      // Show a notification or alert that player cannot end turn with negative cash
+      alert(`You cannot end your turn with negative cash. Current balance: $${syncedPlayerMoney[currentPlayer.id].toLocaleString()}. You must sell properties, houses, or take other actions to reach $0 or more.`);
+      return;
+    }
+    
     setEndTurnClicked(true);
     setAwaitingRollAfterDoubles(true);
     // console.log('[DEBUG][handleEndTurn][CALL STACK]', new Error().stack);
@@ -782,7 +791,6 @@ const MonopolyBoard = (props) => {
       return;
     }
     setHasRolledSinceLastEndTurn(false);
-    const currentPlayer = getCurrentPlayer();
     const currentPosition = syncedPositions && currentPlayer ? syncedPositions[currentPlayer.id] : null;
     // Set doubles state if last roll was doubles and not the third double (not going to jail)
     if (
