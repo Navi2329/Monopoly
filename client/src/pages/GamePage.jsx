@@ -201,6 +201,7 @@ const GamePage = () => {
   const [votekickedPlayers, setVotekickedPlayers] = useState([]);
   const [activeVoteKick, setActiveVoteKick] = useState(null);
   const [voteKickTimeRemaining, setVoteKickTimeRemaining] = useState(0);
+  const [playerNegativeBalance, setPlayerNegativeBalance] = useState({}); // Track players with negative balance
 
   // Game over state
   const [gameOverModalOpen, setGameOverModalOpen] = useState(false);
@@ -976,9 +977,11 @@ const GamePage = () => {
 
   // Handle jail escape with card
   const handleUseJailCard = () => {
-    const currentPlayer = allPlayers[currentPlayerIndex];
-    if (!currentPlayer || !playerJailCards[currentPlayer.id] || playerJailCards[currentPlayer.id] <= 0) return;
+    const currentPlayer = allPlayers[syncedTurnIndex]; // Use syncedTurnIndex instead of currentPlayerIndex
 
+    if (!currentPlayer || !playerJailCards[currentPlayer.id] || playerJailCards[currentPlayer.id] <= 0) {
+      return;
+    }
     // Send use jail card request to server
     socket.emit('useJailCard', { roomId });
 
@@ -1495,11 +1498,14 @@ const GamePage = () => {
     }
   };
 
-  // Get properties owned by a player
+  // Get properties owned by a player (excluding those with buildings for trading)
   const getPlayerOwnedProperties = (playerId) => {
     return classicMap.filter(property => 
       ['property', 'airport', 'utility', 'company'].includes(property.type) &&
-      syncedPropertyOwnership[property.name]?.owner === playerId
+      syncedPropertyOwnership[property.name]?.owner === playerId &&
+      // Exclude properties with buildings (houses or hotels) from trading
+      (syncedPropertyOwnership[property.name]?.houses === 0 || !syncedPropertyOwnership[property.name]?.houses) &&
+      !syncedPropertyOwnership[property.name]?.hotel
     ).map(property => ({
       name: property.name,
       price: property.price || 0,
@@ -2392,8 +2398,9 @@ const GamePage = () => {
     }
 
     function handleAuctionEnded(auctionData) {
-      // console.log('[CLIENT] Received auctionEnded event:', auctionData);
-      // console.log('[CLIENT] Current socket.id:', socket.id, 'auctionData.currentPlayerId:', auctionData.currentPlayerId);
+      console.log('[CLIENT] Received auctionEnded event:', auctionData);
+      console.log('[CLIENT] Current socket.id:', socket.id, 'auctionData.currentPlayerId:', auctionData.currentPlayerId);
+      console.log('[CLIENT] currentPlayer?.id:', currentPlayer?.id, 'Match:', socket.id === auctionData.currentPlayerId);
       setAuctionEnded(true);
       setAuctionActive(false);
       setAuctionWinner(auctionData.winner);
@@ -2452,7 +2459,29 @@ const GamePage = () => {
     };
 
     const handleTradeError = ({ message }) => {
-      alert(message); // You can replace this with a proper notification system
+      // Create a more visible error notification
+      setGameLog(prev => [{
+        id: generateLogId(),
+        type: 'system',
+        message: `❌ Trade Error: ${message}`,
+        timestamp: Date.now()
+      }, ...prev]);
+      
+      // Also show alert for immediate attention
+      alert(`Trade Error: ${message}`);
+    };
+
+    const handleEndTurnError = ({ message }) => {
+      // Create a visible error notification
+      setGameLog(prev => [{
+        id: generateLogId(),
+        type: 'system',
+        message: `❌ ${message}`,
+        timestamp: Date.now()
+      }, ...prev]);
+      
+      // Also show alert for immediate attention
+      alert(message);
     };
 
     socket.on('tradeCreated', handleTradeCreated);
@@ -2460,6 +2489,7 @@ const GamePage = () => {
     socket.on('tradeDeclined', handleTradeDeclined);
     socket.on('tradeCancelled', handleTradeCancelled);
     socket.on('tradeError', handleTradeError);
+    socket.on('endTurnError', handleEndTurnError);
     
     return () => {
       socket.off('auctionStarted', handleAuctionStarted);
@@ -2470,6 +2500,7 @@ const GamePage = () => {
       socket.off('tradeDeclined', handleTradeDeclined);
       socket.off('tradeCancelled', handleTradeCancelled);
       socket.off('tradeError', handleTradeError);
+      socket.off('endTurnError', handleEndTurnError);
     };
   }, []);
 
@@ -2550,11 +2581,15 @@ const GamePage = () => {
       setSyncedVacationCash(state.vacationCash || 0);
       setSyncedPlayersOrdered(state.playersOrdered || []);
       
+      // Update pardon cards
+      setPlayerJailCards(state.playerJailCards || {});
+      
       // Update bankruptcy and vote-kick states
       setBankruptedPlayers(state.bankruptedPlayers || []);
       setVotekickedPlayers(state.votekickedPlayers || []);
       // console.log('[DEBUG] Vote-kick state update:', state.activeVoteKick);
       setActiveVoteKick(state.activeVoteKick || null);
+      setPlayerNegativeBalance(state.playerNegativeBalance || {});
       
       // Update trades from server state
       if (state.trades) {
@@ -2676,6 +2711,7 @@ const GamePage = () => {
     setVotekickedPlayers([]);
     setActiveVoteKick(null);
     setVoteKickTimeRemaining(0);
+    setPlayerNegativeBalance({});
     
     // Reset game over state
     setGameOverModalOpen(false);
@@ -2874,6 +2910,7 @@ const GamePage = () => {
             activeVoteKick={activeVoteKick}
             voteKickTimeRemaining={voteKickTimeRemaining}
             onTradeClick={handleTradeClick}
+            playerNegativeBalance={playerNegativeBalance}
           />
 
           {/* Property Popup */}
@@ -3017,7 +3054,11 @@ const GamePage = () => {
                   startIcon={<PersonRemove />}
                   onClick={handleVotekick}
                   size="small"
-                  disabled={currentTurnSocketId === socket.id} // Disable for current turn player
+                  disabled={
+                    currentTurnSocketId === socket.id ||  // Disable for current turn player
+                    (activeVoteKick && activeVoteKick.votes && activeVoteKick.votes.includes && activeVoteKick.votes.includes(socket.id)) ||  // Already voted
+                    bankruptedPlayers.includes(socket.id) || votekickedPlayers.includes(socket.id)  // Player is bankrupt or kicked
+                  }
                   sx={{
                     flex: 1,
                     background: 'linear-gradient(135deg, #6b7280, #4b5563)',
@@ -3038,7 +3079,7 @@ const GamePage = () => {
                     }
                   }}
                 >
-                  Vote Kick
+                  {activeVoteKick ? 'Add Vote' : 'Vote Kick'}
                 </Button>
                 <Button
                   startIcon={<MoneyOff />}
@@ -3195,7 +3236,7 @@ const GamePage = () => {
                 <Typography variant="subtitle2" sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
                   My properties ({classicMap.filter(
                     (prop) => ['property', 'airport', 'utility', 'company'].includes(prop.type) && syncedPropertyOwnership[prop.name]?.owner === currentPlayer?.id
-                  ).length})
+                  ).length + (currentPlayer && playerJailCards[currentPlayer.id] ? playerJailCards[currentPlayer.id] : 0)})
                 </Typography>
               </Box>
               <Paper
@@ -3379,7 +3420,7 @@ const GamePage = () => {
                   })}
                   {classicMap.filter(
                     (prop) => ['property', 'airport', 'utility', 'company'].includes(prop.type) && syncedPropertyOwnership[prop.name]?.owner === currentPlayer?.id
-                  ).length === 0 && (
+                  ).length === 0 && (!currentPlayer || !playerJailCards[currentPlayer.id] || playerJailCards[currentPlayer.id] === 0) && (
                       <ListItem>
                         <ListItemText
                           primary={
@@ -3392,12 +3433,76 @@ const GamePage = () => {
                                 py: 2
                               }}
                             >
-                              No properties owned
+                              No properties or pardon cards owned
                             </Typography>
                           }
                         />
                       </ListItem>
                     )}
+
+                  {/* Pardon Cards integrated with properties */}
+                  {currentPlayer && playerJailCards[currentPlayer.id] > 0 && 
+                    Array.from({ length: playerJailCards[currentPlayer.id] }, (_, index) => (
+                      <ListItem
+                        key={`pardon-${index}`}
+                        className="property-item"
+                        sx={{
+                          px: 1,
+                          py: 0.75,
+                          borderRadius: '8px',
+                          background: 'rgba(168, 85, 247, 0.2)',
+                          mb: 0.5,
+                          transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                          border: '1px solid rgba(168, 85, 247, 0.3)',
+                          cursor: 'pointer',
+                          '&:hover': {
+                            background: 'rgba(168, 85, 247, 0.4)',
+                            transform: 'translateY(-1px)',
+                            boxShadow: '0 4px 12px rgba(168, 85, 247, 0.3)',
+                            border: '1px solid rgba(168, 85, 247, 0.6)',
+                          }
+                        }}
+                      >
+                        <ListItemIcon sx={{ minWidth: 'auto', mr: 1 }}>
+                          <Box
+                            sx={{
+                              fontSize: '1.25rem',
+                              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                              filter: 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3))',
+                            }}
+                          >
+                            🎫
+                          </Box>
+                        </ListItemIcon>
+                        <ListItemText
+                          primary={
+                            <Typography
+                              variant="body2"
+                              sx={{
+                                color: 'rgba(255, 255, 255, 0.95)',
+                                fontSize: '0.8rem',
+                                fontWeight: 600,
+                              }}
+                            >
+                              Pardon Card #{index + 1}
+                            </Typography>
+                          }
+                          secondary={
+                            <Typography
+                              variant="caption"
+                              sx={{
+                                color: 'rgba(255, 255, 255, 0.7)',
+                                fontSize: '0.7rem',
+                                fontStyle: 'italic'
+                              }}
+                            >
+                              Get out of jail free
+                            </Typography>
+                          }
+                        />
+                      </ListItem>
+                    ))
+                  }
                 </List>
               </Paper>
             </Box>
@@ -3463,6 +3568,7 @@ const GamePage = () => {
         syncedPlayerMoney={syncedPlayerMoney}
         playerProperties={currentPlayer ? getPlayerOwnedProperties(currentPlayer.id) : []}
         targetProperties={selectedTradePartner ? getPlayerOwnedProperties(selectedTradePartner.id) : []}
+        playerJailCards={playerJailCards}
         onCreateTrade={handleCreateTradeSubmit}
         existingTrade={selectedTrade}
       />

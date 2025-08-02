@@ -163,6 +163,7 @@ export const CreateTradeModal = ({
   syncedPlayerMoney,
   playerProperties,
   targetProperties,
+  playerJailCards,
   onCreateTrade,
   existingTrade = null // For editing/negotiating
 }) => {
@@ -170,6 +171,8 @@ export const CreateTradeModal = ({
   const [targetPlayerMoney, setTargetPlayerMoney] = useState(0);
   const [selectedCurrentProperties, setSelectedCurrentProperties] = useState([]);
   const [selectedTargetProperties, setSelectedTargetProperties] = useState([]);
+  const [currentPlayerPardonCards, setCurrentPlayerPardonCards] = useState(0);
+  const [targetPlayerPardonCards, setTargetPlayerPardonCards] = useState(0);
   const [note, setNote] = useState('');
   const [showNoteField, setShowNoteField] = useState(false);
 
@@ -234,11 +237,13 @@ export const CreateTradeModal = ({
       offers: {
         [currentPlayer.id]: {
           money: currentPlayerMoney,
-          properties: selectedCurrentProperties
+          properties: selectedCurrentProperties,
+          pardonCards: currentPlayerPardonCards
         },
         [targetPlayer.id]: {
           money: targetPlayerMoney,
-          properties: selectedTargetProperties
+          properties: selectedTargetProperties,
+          pardonCards: targetPlayerPardonCards
         }
       },
       note: note.trim(),
@@ -250,8 +255,8 @@ export const CreateTradeModal = ({
   };
 
   const isTradeValid = () => {
-    const currentOffer = currentPlayerMoney > 0 || selectedCurrentProperties.length > 0;
-    const targetOffer = targetPlayerMoney > 0 || selectedTargetProperties.length > 0;
+    const currentOffer = currentPlayerMoney > 0 || selectedCurrentProperties.length > 0 || currentPlayerPardonCards > 0;
+    const targetOffer = targetPlayerMoney > 0 || selectedTargetProperties.length > 0 || targetPlayerPardonCards > 0;
     return currentOffer || targetOffer; // At least one side must offer something
   };
 
@@ -414,9 +419,9 @@ export const CreateTradeModal = ({
           </Box>
         </Box>
 
-        {/* Properties */}
+        {/* Properties and Pardon Cards */}
         <Box sx={{ display: 'flex', gap: 3, mb: 3 }}>
-          {/* Current Player Properties */}
+          {/* Current Player Properties and Pardon Cards */}
           <TradeSection sx={{ flex: 1 }}>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
               {playerProperties.map((property) => (
@@ -436,10 +441,60 @@ export const CreateTradeModal = ({
                   </Typography>
                 </PropertyCard>
               ))}
+              
+              {/* Current Player Pardon Cards */}
+              {Array.from({ length: (playerJailCards && playerJailCards[currentPlayer?.id]) || 0 }, (_, index) => (
+                <Button
+                  key={`current-pardon-${index}`}
+                  variant={currentPlayerPardonCards > index ? "contained" : "outlined"}
+                  onClick={() => {
+                    if (currentPlayerPardonCards > index) {
+                      // Deselect this card and all above it
+                      setCurrentPlayerPardonCards(index);
+                    } else {
+                      // Select this card and all below it
+                      setCurrentPlayerPardonCards(index + 1);
+                    }
+                  }}
+                  sx={{
+                    background: currentPlayerPardonCards > index 
+                      ? 'linear-gradient(135deg, #8b5cf6, #7c3aed)'
+                      : 'linear-gradient(135deg, rgba(168, 85, 247, 0.1), rgba(139, 92, 246, 0.1))',
+                    border: currentPlayerPardonCards > index ? '2px solid #a855f7' : '1px solid rgba(168, 85, 247, 0.3)',
+                    borderRadius: '8px',
+                    padding: 1.5,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    color: 'white',
+                    textTransform: 'none',
+                    width: '100%',
+                    marginBottom: 1,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    '&:hover': {
+                      transform: 'translateY(-2px)',
+                      boxShadow: '0 4px 15px rgba(168, 85, 247, 0.3)',
+                      background: currentPlayerPardonCards > index 
+                        ? 'linear-gradient(135deg, #7c3aed, #6d28d9)'
+                        : 'linear-gradient(135deg, rgba(168, 85, 247, 0.2), rgba(139, 92, 246, 0.2))',
+                    }
+                  }}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 500, color: '#a855f7' }}>
+                      🎫 Pardon Card #{index + 1}
+                    </Typography>
+                  </Box>
+                  <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)', fontStyle: 'italic' }}>
+                    Get out of jail free
+                  </Typography>
+                </Button>
+              ))}
             </Box>
           </TradeSection>
 
-          {/* Target Player Properties */}
+          {/* Target Player Properties and Pardon Cards */}
           <TradeSection sx={{ flex: 1 }}>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
               {targetProperties.map((property) => (
@@ -458,6 +513,56 @@ export const CreateTradeModal = ({
                     ${property.price}
                   </Typography>
                 </PropertyCard>
+              ))}
+              
+              {/* Target Player Pardon Cards */}
+              {Array.from({ length: (playerJailCards && playerJailCards[targetPlayer?.id]) || 0 }, (_, index) => (
+                <Button
+                  key={`target-pardon-${index}`}
+                  variant={targetPlayerPardonCards > index ? "contained" : "outlined"}
+                  onClick={() => {
+                    if (targetPlayerPardonCards > index) {
+                      // Deselect this card and all above it
+                      setTargetPlayerPardonCards(index);
+                    } else {
+                      // Select this card and all below it
+                      setTargetPlayerPardonCards(index + 1);
+                    }
+                  }}
+                  sx={{
+                    background: targetPlayerPardonCards > index 
+                      ? 'linear-gradient(135deg, #8b5cf6, #7c3aed)'
+                      : 'linear-gradient(135deg, rgba(168, 85, 247, 0.1), rgba(139, 92, 246, 0.1))',
+                    border: targetPlayerPardonCards > index ? '2px solid #a855f7' : '1px solid rgba(168, 85, 247, 0.3)',
+                    borderRadius: '8px',
+                    padding: 1.5,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    color: 'white',
+                    textTransform: 'none',
+                    width: '100%',
+                    marginBottom: 1,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    '&:hover': {
+                      transform: 'translateY(-2px)',
+                      boxShadow: '0 4px 15px rgba(168, 85, 247, 0.3)',
+                      background: targetPlayerPardonCards > index 
+                        ? 'linear-gradient(135deg, #7c3aed, #6d28d9)'
+                        : 'linear-gradient(135deg, rgba(168, 85, 247, 0.2), rgba(139, 92, 246, 0.2))',
+                    }
+                  }}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 500, color: '#a855f7' }}>
+                      🎫 Pardon Card #{index + 1}
+                    </Typography>
+                  </Box>
+                  <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)', fontStyle: 'italic' }}>
+                    Get out of jail free
+                  </Typography>
+                </Button>
               ))}
             </Box>
           </TradeSection>
@@ -573,8 +678,8 @@ export const ViewTradeModal = ({
   const creatorPlayer = players.find(p => p.id === trade.createdBy);
   const targetPlayer = players.find(p => p.id === trade.targetPlayerId);
   
-  const creatorOffer = trade.offers[trade.createdBy] || { money: 0, properties: [] };
-  const targetOffer = trade.offers[trade.targetPlayerId] || { money: 0, properties: [] };
+  const creatorOffer = trade.offers[trade.createdBy] || { money: 0, properties: [], pardonCards: 0 };
+  const targetOffer = trade.offers[trade.targetPlayerId] || { money: 0, properties: [], pardonCards: 0 };
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -733,6 +838,31 @@ export const ViewTradeModal = ({
             ))}
           </Box>
         </Box>
+
+        {/* Pardon Cards Display */}
+        {(creatorOffer.pardonCards > 0 || targetOffer.pardonCards > 0) && (
+          <Box sx={{ display: 'flex', gap: 3, mb: 3, alignItems: 'center' }}>
+            <Box sx={{ flex: 1, textAlign: 'center' }}>
+              <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)', mb: 1 }}>
+                Pardon Cards
+              </Typography>
+              <Typography variant="h6" sx={{ fontWeight: 600, color: '#a855f7' }}>
+                {creatorOffer.pardonCards}
+              </Typography>
+            </Box>
+            
+            <SwapHoriz sx={{ fontSize: 24, color: 'rgba(255, 255, 255, 0.4)' }} />
+            
+            <Box sx={{ flex: 1, textAlign: 'center' }}>
+              <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)', mb: 1 }}>
+                Pardon Cards
+              </Typography>
+              <Typography variant="h6" sx={{ fontWeight: 600, color: '#a855f7' }}>
+                {targetOffer.pardonCards}
+              </Typography>
+            </Box>
+          </Box>
+        )}
 
         {/* Actions */}
         <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2 }}>

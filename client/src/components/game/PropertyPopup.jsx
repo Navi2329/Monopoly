@@ -146,10 +146,10 @@ const PropertyPopup = ({
 
     const ownership = propertyOwnership[propertyName];
     const currentPlayer = players && players[currentPlayerIndex];
-    // Use syncedPlayerMoney if currentPlayer.money is undefined (multiplayer)
-    const currentPlayerMoney = (currentPlayer && typeof currentPlayer.money === 'number')
-        ? currentPlayer.money
-        : (syncedPlayerMoney ? syncedPlayerMoney[currentUserId] : undefined);
+    // Use syncedPlayerMoney first as it's the real-time server state
+    const currentPlayerMoney = (syncedPlayerMoney && syncedPlayerMoney[currentUserId] !== undefined)
+        ? syncedPlayerMoney[currentUserId]
+        : (currentPlayer && typeof currentPlayer.money === 'number' ? currentPlayer.money : 0);
     const isOwner = ownership && ownership.owner === currentUserId;
     const isOwnerTurn = isOwner && currentPlayer && currentPlayer.id === currentUserId;
 
@@ -182,9 +182,12 @@ const PropertyPopup = ({
 
         if (property.type === 'property') {
             if (ownedSet && !anyMortgaged && !(currentHouses === 4 && hasHotel) && currentPlayer && currentPlayerMoney >= property.buildCost) {
-                // Check if houses are built evenly across the set (only if even build rule is enabled)
-                let canBuildEvenly = true;
-                if (gameSettings?.evenBuild) {
+                // If even build is OFF, allow building without house count restrictions
+                if (!gameSettings?.evenBuild) {
+                    canBuild = true;
+                } else {
+                    // Check if houses are built evenly across the set (only if even build rule is enabled)
+                    let canBuildEvenly = true;
                     // For even build calculation, treat hotels as 4 houses
                     const setHouseCounts = setProperties.map(p => {
                         const propHouses = propertyOwnership[p.name]?.houses || 0;
@@ -216,17 +219,20 @@ const PropertyPopup = ({
                     } else {
                         canBuildEvenly = false;
                     }
-                }
 
-                if (canBuildEvenly) {
-                    canBuild = true;
+                    if (canBuildEvenly) {
+                        canBuild = true;
+                    }
                 }
             }
         }
         if (property.type === 'property' && (currentHouses > 0 || hasHotel)) {
-            // Check if houses are destroyed evenly across the set (only if even build rule is enabled)
-            let canDestroyEvenly = true;
-            if (gameSettings?.evenBuild) {
+            // If even build is OFF, allow destroying without restrictions
+            if (!gameSettings?.evenBuild) {
+                canDestroy = true;
+            } else {
+                // Check if houses are destroyed evenly across the set (only if even build rule is enabled)
+                let canDestroyEvenly = true;
                 if (hasHotel) {
                     // Check if all properties in the set have hotels before destroying
                     const allHaveHotels = setProperties.every(p => propertyOwnership[p.name]?.hotel);
@@ -242,10 +248,10 @@ const PropertyPopup = ({
                         canDestroyEvenly = false;
                     }
                 }
-            }
 
-            if (canDestroyEvenly) {
-                canDestroy = true;
+                if (canDestroyEvenly) {
+                    canDestroy = true;
+                }
             }
         }
         if (property.type === 'property' && !anyHousesOrHotels && !isMortgaged) canSell = true;
@@ -462,7 +468,7 @@ const PropertyPopup = ({
             {isOwner ? (
                 <>
                     <div style={{ display: 'flex', gap: 4, marginTop: 6, justifyContent: 'center' }}>
-                        <button style={actionBtn(isOwnerTurn && canBuildFinal && !isOnVacation)} disabled={!isOwnerTurn || !canBuildFinal || isOnVacation} onClick={handleBuildHouse} title="Build House">
+                        <button style={actionBtn(isOwnerTurn && canBuildFinal && !isOnVacation)} disabled={!isOwnerTurn || !canBuildFinal || isOnVacation} onClick={handleBuildHouse} title={currentPlayerMoney < property.buildCost ? `Need $${property.buildCost - currentPlayerMoney} more to build` : !canBuildFinal ? "Cannot build house" : "Build House"}>
                             <Home sx={{ fontSize: 16, verticalAlign: 'middle', color: isOwnerTurn && canBuildFinal && !isOnVacation ? '#fff' : '#a78bfa', opacity: isOwnerTurn && canBuildFinal && !isOnVacation ? 1 : 0.5 }} />
                         </button>
                         <button style={actionBtn(isOwnerTurn && canDestroy && !isOnVacation)} disabled={!isOwnerTurn || !canDestroy || isOnVacation} onClick={handleDestroyHouse} title="Destroy House">

@@ -194,6 +194,130 @@ module.exports = (io, socket) => {
     }
   };
 
+  // Helper function to handle landing space actions (rent, taxes, treasure, surprise)
+  const handleLandingSpaceAction = (room, player, position, io, roomId, isJailEscape = false) => {
+    // Handle special spaces after movement
+    if (position === 4) { // Income Tax
+      const taxAmount = Math.floor(room.playerMoney[player.id] / 9);
+      room.playerMoney[player.id] -= taxAmount;
+      if (room.settings.vacationCash) {
+        room.vacationCash += taxAmount;
+        pushGameLog(room, {
+          type: 'info',
+          player: player.name,
+          message: `paid $${taxAmount} income tax (added to vacation cash)`
+        }, io);
+      } else {
+        pushGameLog(room, {
+          type: 'info',
+          player: player.name,
+          message: `paid $${taxAmount} income tax`
+        }, io);
+      }
+    } else if (position === 38) { // Luxury Tax
+      const taxAmount = 75;
+      room.playerMoney[player.id] -= taxAmount;
+      if (room.settings.vacationCash) {
+        room.vacationCash += taxAmount;
+        pushGameLog(room, {
+          type: 'info',
+          player: player.name,
+          message: `paid $${taxAmount} luxury tax (added to vacation cash)`
+        }, io);
+      } else {
+        pushGameLog(room, {
+          type: 'info',
+          player: player.name,
+          message: `paid $${taxAmount} luxury tax`
+        }, io);
+      }
+    } else if ([2, 17, 33].includes(position)) { // Treasure spaces
+      const cardResult = room.drawTreasureCard(player.id);
+      if (cardResult) {
+        cardResult.logs.forEach(log => {
+          pushGameLog(room, log, io);
+        });
+        
+        // Handle movement if card requires it (but not during jail escape)
+        if (!isJailEscape && cardResult.movement) {
+          room.pendingSpecialAction = { 
+            type: 'treasure-movement', 
+            playerId: player.id, 
+            movement: cardResult.movement
+          };
+          emitGameStateUpdated(room, io, roomId);
+          return true; // Indicates movement is pending
+        }
+      }
+    } else if ([7, 22, 36].includes(position)) { // Surprise spaces
+      const cardResult = room.drawSurpriseCard(player.id);
+      if (cardResult) {
+        cardResult.logs.forEach(log => {
+          pushGameLog(room, log, io);
+        });
+        
+        // Handle movement if card requires it (but not during jail escape)
+        if (!isJailEscape && cardResult.movement) {
+          room.pendingSpecialAction = { 
+            type: 'surprise-movement', 
+            playerId: player.id, 
+            movement: cardResult.movement
+          };
+          emitGameStateUpdated(room, io, roomId);
+          return true; // Indicates movement is pending
+        }
+      }
+    } else {
+      // Check if it's a property space and handle rent
+      const propertyName = room.getPropertyNameByPosition(position);
+      if (propertyName && room.propertyOwnership[propertyName] && room.propertyOwnership[propertyName].owner !== player.id) {
+        const rent = room.calculateRent(propertyName);
+        if (rent > 0) {
+          // Use new debt tracking system for rent payment
+          const rentResult = room.payRentWithDebt(player.id, room.propertyOwnership[propertyName].owner, propertyName, rent);
+          
+          // Log rent payment with actual amounts
+          if (rentResult.actualPayment > 0) {
+            pushGameLog(room, {
+              type: 'rent',
+              player: player.name,
+              owner: room.propertyOwnership[propertyName].ownerName,
+              property: propertyName,
+              amount: rentResult.actualPayment,
+              message: `paid $${rentResult.actualPayment} rent to ${room.propertyOwnership[propertyName].ownerName} for ${propertyName}`
+            }, io);
+          }
+          
+          // Log remaining debt if any
+          if (rentResult.remainingDebt > 0) {
+            pushGameLog(room, {
+              type: 'debt',
+              player: player.name,
+              owner: room.propertyOwnership[propertyName].ownerName,
+              property: propertyName,
+              amount: rentResult.remainingDebt,
+              message: `owes $${rentResult.remainingDebt} in rent to ${room.propertyOwnership[propertyName].ownerName} for ${propertyName}`
+            }, io);
+          }
+          
+          // Check if player has negative money (but don't declare bankruptcy yet)
+          if (room.playerMoney[player.id] < 0) {
+            pushGameLog(room, {
+              type: 'warning',
+              player: player.name,
+              message: `has negative balance ($${room.playerMoney[player.id]}) - must sell properties, mortgage, or trade to recover`
+            }, io);
+            
+            // Set a flag to prevent ending turn until money is positive or player declares bankruptcy
+            room.playerNegativeBalance = room.playerNegativeBalance || {};
+            room.playerNegativeBalance[player.id] = true;
+          }
+        }
+      }
+    }
+    return false; // No pending movement
+  };
+
   // --- Enhanced Game Logic Handlers ---
   const rollDice = async ({ roomId, devDice1, devDice2 }) => {
     const room = roomService.getRoomById(roomId);
@@ -240,7 +364,18 @@ module.exports = (io, socket) => {
           player: currentPlayer.name,
           message: `got out of jail with doubles`
         }, io);
+        
+        // Reset doubles count and mark that jail escape occurred
         room.playerDoublesCount[currentPlayer.id] = 0;
+        room.jailEscapeThisTurn = true; // Flag to prevent additional roll after doubles
+        
+        // After jail escape, check for property actions on landing space
+        // But do NOT advance turn here - let the normal flow handle it
+        const landingPosition = room.playerPositions[currentPlayer.id];
+        handleLandingSpaceAction(room, currentPlayer, landingPosition, io, roomId, true); // true = jail escape mode
+        
+        // Do NOT call advanceTurn here - let endTurn handle it normally
+        // The jailEscapeThisTurn flag will prevent the doubles logic from giving another roll
       } else if (result.action === 'jail-auto-release') {
         pushGameLog(room, {
           type: 'special',
@@ -260,6 +395,15 @@ module.exports = (io, socket) => {
           player: currentPlayer.name,
           message: `passed START and collected $200!`
         }, io);
+        
+        // After passing START, check for actions on the landing space
+        const landingPosition = room.playerPositions[currentPlayer.id];
+        const hasPendingMovement = handleLandingSpaceAction(room, currentPlayer, landingPosition, io, roomId);
+        
+        // If there's pending movement from treasure/surprise cards, return early
+        if (hasPendingMovement) {
+          return;
+        }
       } else if (result.action === 'vacation') {
         // Vacation: End turn immediately, reset doubles, log event
         pushGameLog(room, {
@@ -313,6 +457,48 @@ module.exports = (io, socket) => {
             player: currentPlayer.name,
             message: `paid $${taxAmount} luxury tax`
           }, io);
+        }
+      } else if (result.action === 'treasure') {
+        // Handle treasure card
+        const cardResult = room.drawTreasureCard(currentPlayer.id);
+        if (cardResult) {
+          // Log all messages from the card result
+          cardResult.logs.forEach(log => {
+            pushGameLog(room, log, io);
+          });
+          
+          // Handle movement if card requires it
+          if (cardResult.movement) {
+            room.pendingSpecialAction = { 
+              type: 'treasure-movement', 
+              playerId: currentPlayer.id, 
+              movement: cardResult.movement,
+              dice: { dice1: result.dice1, dice2: result.dice2, total: result.total } 
+            };
+            emitGameStateUpdated(room, io, roomId, { debug: 'SERVER-UNIQUE-123' });
+            return;
+          }
+        }
+      } else if (result.action === 'surprise') {
+        // Handle surprise card
+        const cardResult = room.drawSurpriseCard(currentPlayer.id);
+        if (cardResult) {
+          // Log all messages from the card result
+          cardResult.logs.forEach(log => {
+            pushGameLog(room, log, io);
+          });
+          
+          // Handle movement if card requires it
+          if (cardResult.movement) {
+            room.pendingSpecialAction = { 
+              type: 'surprise-movement', 
+              playerId: currentPlayer.id, 
+              movement: cardResult.movement,
+              dice: { dice1: result.dice1, dice2: result.dice2, total: result.total } 
+            };
+            emitGameStateUpdated(room, io, roomId, { debug: 'SERVER-UNIQUE-123' });
+            return;
+          }
         }
       } else if (result.action === 'jail-move') {
         // Determine if this is from landing on Go to Jail or from 3 doubles
@@ -378,16 +564,57 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
     return;
   }
 
+  // GUARD: Prevent ending turn if player has negative balance or outstanding debts
+  if (room.playerMoney[currentPlayer.id] < 0) {
+    socket.emit('endTurnError', { 
+      message: `Cannot end turn with negative balance ($${room.playerMoney[currentPlayer.id]}). You must sell properties, mortgage assets, trade, or declare bankruptcy.` 
+    });
+    return;
+  }
+  
+  // Check for any outstanding debts
+  if (room.playerDebts && room.playerDebts[currentPlayer.id]) {
+    const totalDebt = Object.values(room.playerDebts[currentPlayer.id]).reduce((sum, debt) => sum + debt, 0);
+    if (totalDebt > 0) {
+      socket.emit('endTurnError', { 
+        message: `Cannot end turn with outstanding debts ($${totalDebt}). You must pay your debts first.` 
+      });
+      return;
+    }
+  }
+
   // Check if player rolled doubles
   const lastRoll = room.lastDiceRoll;
   const isDoubles = lastRoll && lastRoll.dice1 === lastRoll.dice2;
   const doublesCount = room.playerDoublesCount[currentPlayer.id] || 0;
   
-  // Handle doubles logic
+  // Handle doubles logic (but not if player just escaped jail)
   // Check if player is on vacation space (position 20) even if status not set yet
   const isOnVacationSpace = room.playerPositions[currentPlayer.id] === 20;
+  const justEscapedJail = room.jailEscapeThisTurn === true;
 
-  if (isDoubles && !isOnVacationSpace) {
+  // Handle jail escape case first - if player just escaped jail, end turn immediately
+  if (justEscapedJail) {
+    // Player escaped jail with doubles but should not get another turn
+    room.doublesSequenceActive = false;
+    room.allowRollAgain = false;
+    room.playerDoublesCount[currentPlayer.id] = 0;
+    room.jailEscapeThisTurn = false; // Reset jail escape flag
+    
+    pushGameLog(room, {
+      type: 'info',
+      player: currentPlayer.name,
+      message: `ended turn after escaping jail`
+    }, io);
+
+    const turnResult = room.advanceTurn('user-action', vacationEndTurnPlayerId);
+    room.lastDiceRoll = null;
+    emitAdvanceTurnLogs(room, turnResult, io);
+    emitGameStateUpdated(room, io, roomId);
+    return;
+  }
+
+  if (isDoubles && !isOnVacationSpace && !justEscapedJail) {
     if (doublesCount === 3) {
       // THIRD DOUBLE: Go to jail, reset doubles state, advance turn
       room.doublesSequenceActive = false;
@@ -420,6 +647,7 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
   room.doublesSequenceActive = false;
   room.allowRollAgain = false;
   room.playerDoublesCount[currentPlayer.id] = 0; // Only reset here, when turn advances
+  room.jailEscapeThisTurn = false; // Reset jail escape flag
 
   // Check if player is being sent to jail (either by landing on Go to Jail or rolling 3 doubles)
   const isBeingSentToJail = room.pendingSpecialAction &&
@@ -491,25 +719,48 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
     } else if (room.propertyOwnership[propertyName].owner !== socket.id) {
       // Debug: Log property ownership and rent attempt
       // console.log(`[DEBUG] handlePropertyLanding: Property ${propertyName} is owned by ${room.propertyOwnership[propertyName].ownerName} (${room.propertyOwnership[propertyName].owner})`);
-      const rent = room.payRent(socket.id, propertyName);
+      const rent = room.calculateRent(propertyName);
       if (rent > 0) {
-        // (`[DEBUG] handlePropertyLanding: Rent of $${rent} paid by ${currentPlayer.name} to ${room.propertyOwnership[propertyName].ownerName}`);
-        pushGameLog(room, {
-          type: 'rent',
-          player: currentPlayer.name,
-          owner: room.propertyOwnership[propertyName].ownerName,
-          property: propertyName,
-          amount: rent,
-          message: `paid $${rent} rent to ${room.propertyOwnership[propertyName].ownerName} for ${propertyName}`
-        }, io);
-        // Check if player went bankrupt
-        if (room.playerMoney[socket.id] <= 0) {
+        // Use new debt tracking system for rent payment
+        const rentResult = room.payRentWithDebt(socket.id, room.propertyOwnership[propertyName].owner, propertyName, rent);
+        
+        // Log rent payment with actual amounts
+        if (rentResult.actualPayment > 0) {
           pushGameLog(room, {
-            type: 'bankruptcy',
+            type: 'rent',
             player: currentPlayer.name,
-            message: `went bankrupt!`
+            owner: room.propertyOwnership[propertyName].ownerName,
+            property: propertyName,
+            amount: rentResult.actualPayment,
+            message: `paid $${rentResult.actualPayment} rent to ${room.propertyOwnership[propertyName].ownerName} for ${propertyName}`
           }, io);
         }
+        
+        // Log remaining debt if any
+        if (rentResult.remainingDebt > 0) {
+          pushGameLog(room, {
+            type: 'debt',
+            player: currentPlayer.name,
+            owner: room.propertyOwnership[propertyName].ownerName,
+            property: propertyName,
+            amount: rentResult.remainingDebt,
+            message: `owes $${rentResult.remainingDebt} in rent to ${room.propertyOwnership[propertyName].ownerName} for ${propertyName}`
+          }, io);
+        }
+        
+        // Check if player has negative money (but don't declare bankruptcy yet)
+        if (room.playerMoney[socket.id] < 0) {
+          pushGameLog(room, {
+            type: 'warning',
+            player: currentPlayer.name,
+            message: `has negative balance ($${room.playerMoney[socket.id]}) - must sell properties, mortgage, or trade to recover`
+          }, io);
+          
+          // Set a flag to prevent ending turn until money is positive or player declares bankruptcy
+          room.playerNegativeBalance = room.playerNegativeBalance || {};
+          room.playerNegativeBalance[socket.id] = true;
+        }
+        
         emitGameStateUpdated(room, io, roomId);
       } else {
         // console.log(`[DEBUG] handlePropertyLanding: No rent paid for ${propertyName} (rent=$${rent})`);
@@ -800,12 +1051,23 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
 
   const useJailCard = ({ roomId }) => {
     const room = roomService.getRoomById(roomId);
-    if (!room || room.gameState !== 'in-progress') return;
+    if (!room || room.gameState !== 'in-progress') {
+      // console.log('[DEBUG] useJailCard failed: room not found or not in progress');
+      return;
+    }
 
     const currentPlayer = room.players[room.turnIndex];
-    if (!currentPlayer || socket.id !== currentPlayer.id) return;
-    if (room.playerStatuses[socket.id] !== 'jail') return;
-    if (room.playerJailCards[socket.id] <= 0) return;
+    if (!currentPlayer || socket.id !== currentPlayer.id) {
+      return;
+    }
+    
+    if (room.playerStatuses[socket.id] !== 'jail') {
+      return;
+    }
+    
+    if (room.playerJailCards[socket.id] <= 0) {
+      return;
+    }
 
     room.playerJailCards[socket.id]--;
     room.playerStatuses[socket.id] = null;
@@ -814,7 +1076,7 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
     pushGameLog(room, {
       type: 'special',
       player: currentPlayer.name,
-      message: `used a jail card to get out of jail`
+      message: `used a Pardon Card to get out of jail`
     }, io);
 
     // End turn immediately after using jail card
@@ -830,14 +1092,37 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
     const room = roomService.getRoomById(roomId);
     const currentPlayer = room && room.players[room.turnIndex];
     if (!room || room.gameState !== 'in-progress' || !currentPlayer || socket.id !== currentPlayer.id) return;
-    const success = room.sellProperty(socket.id, propertyName);
-    if (success) {
+    
+    const result = room.sellPropertyWithDebtPayment(socket.id, propertyName);
+    if (result.success) {
       pushGameLog(room, {
         type: 'special',
         player: currentPlayer.name,
         property: propertyName,
-        message: `sold ${propertyName}`
+        message: `sold ${propertyName} for $${result.salePrice}`
       }, io);
+      
+      // Log debt payments if any occurred
+      result.payments.forEach(payment => {
+        pushGameLog(room, {
+          type: 'debt-payment',
+          player: currentPlayer.name,
+          creditor: payment.creditorName,
+          amount: payment.amount,
+          message: `paid $${payment.amount} debt to ${payment.creditorName}${payment.remainingDebt > 0 ? ` (remaining debt: $${payment.remainingDebt})` : ''}`
+        }, io);
+      });
+      
+      // Check if player recovered from negative balance
+      if (room.playerMoney[socket.id] >= 0 && room.playerNegativeBalance && room.playerNegativeBalance[socket.id]) {
+        room.playerNegativeBalance[socket.id] = false;
+        pushGameLog(room, {
+          type: 'info',
+          player: currentPlayer.name,
+          message: `recovered from negative balance!`
+        }, io);
+      }
+      
       emitGameStateUpdated(room, io, roomId);
     } else {
       socket.emit('propertyActionError', { message: 'Cannot sell property' });
@@ -849,14 +1134,37 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
     const room = roomService.getRoomById(roomId);
     const currentPlayer = room && room.players[room.turnIndex];
     if (!room || room.gameState !== 'in-progress' || !currentPlayer || socket.id !== currentPlayer.id) return;
-    const success = room.mortgageProperty(socket.id, propertyName);
-    if (success) {
+    
+    const result = room.mortgagePropertyWithDebtPayment(socket.id, propertyName);
+    if (result.success) {
       pushGameLog(room, {
         type: 'special',
         player: currentPlayer.name,
         property: propertyName,
-        message: `mortgaged ${propertyName}`
+        message: `mortgaged ${propertyName} for $${result.mortgageAmount}`
       }, io);
+      
+      // Log debt payments if any occurred
+      result.payments.forEach(payment => {
+        pushGameLog(room, {
+          type: 'debt-payment',
+          player: currentPlayer.name,
+          creditor: payment.creditorName,
+          amount: payment.amount,
+          message: `paid $${payment.amount} debt to ${payment.creditorName}${payment.remainingDebt > 0 ? ` (remaining debt: $${payment.remainingDebt})` : ''}`
+        }, io);
+      });
+      
+      // Check if player recovered from negative balance
+      if (room.playerMoney[socket.id] >= 0 && room.playerNegativeBalance && room.playerNegativeBalance[socket.id]) {
+        room.playerNegativeBalance[socket.id] = false;
+        pushGameLog(room, {
+          type: 'info',
+          player: currentPlayer.name,
+          message: `recovered from negative balance!`
+        }, io);
+      }
+      
       emitGameStateUpdated(room, io, roomId);
     } else {
       socket.emit('propertyActionError', { message: 'Cannot mortgage property' });
@@ -935,6 +1243,57 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
     }
   };
 
+  // Declare bankruptcy handler
+  const declareBankruptcy = ({ roomId }) => {
+    const room = roomService.getRoomById(roomId);
+    const currentPlayer = room && room.players[room.turnIndex];
+    if (!room || room.gameState !== 'in-progress' || !currentPlayer || socket.id !== currentPlayer.id) return;
+    
+    // Only allow bankruptcy if player has negative balance
+    if (room.playerMoney[socket.id] >= 0) {
+      socket.emit('propertyActionError', { message: 'Cannot declare bankruptcy with positive balance' });
+      return;
+    }
+    
+    // Process automatic bankruptcy with asset liquidation
+    const bankruptcyResult = room.processBankruptcy(socket.id);
+    
+    if (bankruptcyResult.success) {
+      // Log liquidation details
+      bankruptcyResult.liquidationLog.forEach(log => {
+        pushGameLog(room, {
+          type: 'bankruptcy-liquidation',
+          player: currentPlayer.name,
+          message: log
+        }, io);
+      });
+      
+      // Log debt payments
+      bankruptcyResult.debtPayments.forEach(payment => {
+        pushGameLog(room, {
+          type: 'debt-payment',
+          player: currentPlayer.name,
+          creditor: payment.creditorName,
+          amount: payment.amount,
+          message: `paid $${payment.amount} debt to ${payment.creditorName} (bankruptcy liquidation)`
+        }, io);
+      });
+      
+      // Final bankruptcy message
+      pushGameLog(room, {
+        type: 'bankruptcy',
+        player: currentPlayer.name,
+        message: `declared bankruptcy and left the game! (Total assets liquidated: $${bankruptcyResult.totalLiquidated})`
+      }, io);
+    }
+    
+    // Advance turn to next player
+    const turnResult = room.advanceTurn('user-action');
+    room.lastDiceRoll = null;
+    emitAdvanceTurnLogs(room, turnResult, io);
+    emitGameStateUpdated(room, io, roomId);
+  };
+
   // Add skipVacationTurn handler
   const skipVacationTurn = ({ roomId, playerId }) => {
     const room = roomService.getRoomById(roomId);
@@ -979,6 +1338,7 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
   socket.on('auctionPass', auctionPass);
   socket.on('buildHouse', buildHouse);
   socket.on('destroyHouse', destroyHouse);
+  socket.on('declareBankruptcy', declareBankruptcy);
   socket.on('disconnect', handleDisconnect);
   socket.on('requestGameLog', handleRequestGameLog);
   socket.on('requestPlayerList', handleRequestPlayerList);
@@ -1017,6 +1377,47 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
         room.pendingSpecialAction = null; // <-- Move this up to prevent double-processing
         emitAdvanceTurnLogs(room, turnResult, io);
         emitGameStateUpdated(room, io, roomId);
+      } else if (type === 'treasure-movement' || type === 'surprise-movement') {
+        // Handle treasure/surprise card movement
+        const { movement } = room.pendingSpecialAction;
+        
+        if (movement.goToJail) {
+          // Go to jail movement
+          room.playerPositions[playerId] = 10;
+          room.playerStatuses[playerId] = 'jail';
+          room.playerJailRounds[playerId] = 0;
+          room.playerDoublesCount[playerId] = 0;
+          const turnResult = room.advanceTurn();
+          room.lastDiceRoll = null;
+          room.pendingSpecialAction = null;
+          emitAdvanceTurnLogs(room, turnResult, io);
+          emitGameStateUpdated(room, io, roomId);
+        } else {
+          // Regular movement - check if player needs to handle landing space actions
+          const currentPosition = room.playerPositions[playerId];
+          
+          // Handle all types of landing space actions
+          const hasPendingMovement = handleLandingSpaceAction(room, room.players.find(p => p.id === playerId), currentPosition, io, roomId);
+          
+          // Reset special action
+          room.pendingSpecialAction = null;
+          
+          // If no new pending movement from nested cards, emit property landing for unowned properties
+          if (!hasPendingMovement && movement.propertyLanding) {
+            const currentPlayer = room.players.find(p => p.id === playerId);
+            if (currentPlayer && !room.propertyOwnership[movement.propertyLanding]) {
+              // Only emit property landing for unowned properties
+              socket.emit('propertyLanding', {
+                propertyName: movement.propertyLanding,
+                price: room.propertyData[movement.propertyLanding]?.price || 0,
+                canAfford: room.playerMoney[playerId] >= (room.propertyData[movement.propertyLanding]?.price || 0),
+                action: 'buy'
+              });
+            }
+          }
+          
+          emitGameStateUpdated(room, io, roomId);
+        }
       }
     }
   });
@@ -1037,19 +1438,29 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
     }
 
     // Validate trade offers
-    const creatorOffer = offers[socket.id] || { money: 0, properties: [] };
-    const targetOffer = offers[targetPlayerId] || { money: 0, properties: [] };
+    const creatorOffer = offers[socket.id] || { money: 0, properties: [], pardonCards: 0 };
+    const targetOffer = offers[targetPlayerId] || { money: 0, properties: [], pardonCards: 0 };
 
-    // Check if creator has sufficient resources
-    if (creatorOffer.money > room.playerMoney[socket.id]) {
-      socket.emit('tradeError', { message: 'You do not have enough money' });
-      return;
+    // Check if creator has sufficient resources - only check money if they're actually offering money
+    if (creatorOffer.money > 0) {
+      const creatorAvailableMoney = Math.max(0, room.playerMoney[socket.id]); // Only positive money can be offered
+      if (creatorOffer.money > creatorAvailableMoney) {
+        socket.emit('tradeError', { message: 'You do not have enough money' });
+        return;
+      }
     }
 
     // Check if creator owns all properties they're offering
     for (const propertyName of creatorOffer.properties) {
       if (!room.propertyOwnership[propertyName] || room.propertyOwnership[propertyName].owner !== socket.id) {
         socket.emit('tradeError', { message: `You do not own ${propertyName}` });
+        return;
+      }
+      
+      // Check if property has buildings (houses or hotels) - cannot be traded
+      const property = room.propertyOwnership[propertyName];
+      if (property.houses > 0 || property.hotel) {
+        socket.emit('tradeError', { message: `Cannot trade ${propertyName} - property has buildings. Sell all buildings first.` });
         return;
       }
     }
@@ -1060,11 +1471,31 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
         socket.emit('tradeError', { message: `${targetPlayer.name} does not own ${propertyName}` });
         return;
       }
+      
+      // Check if property has buildings (houses or hotels) - cannot be traded
+      const property = room.propertyOwnership[propertyName];
+      if (property.houses > 0 || property.hotel) {
+        socket.emit('tradeError', { message: `Cannot trade ${propertyName} - ${targetPlayer.name}'s property has buildings.` });
+        return;
+      }
     }
 
-    // Check if target has sufficient money
-    if (targetOffer.money > room.playerMoney[targetPlayerId]) {
-      socket.emit('tradeError', { message: `${targetPlayer.name} does not have enough money` });
+    // Check if target has sufficient money - only check money if they're actually offering money
+    if (targetOffer.money > 0) {
+      const targetAvailableMoney = Math.max(0, room.playerMoney[targetPlayerId]); // Only positive money can be offered
+      if (targetOffer.money > targetAvailableMoney) {
+        socket.emit('tradeError', { message: `${targetPlayer.name} does not have enough money` });
+        return;
+      }
+    }
+
+    // Check pardon card availability
+    if (creatorOffer.pardonCards > (room.playerJailCards[socket.id] || 0)) {
+      socket.emit('tradeError', { message: 'You do not have enough pardon cards' });
+      return;
+    }
+    if (targetOffer.pardonCards > (room.playerJailCards[targetPlayerId] || 0)) {
+      socket.emit('tradeError', { message: `${targetPlayer.name} does not have enough pardon cards` });
       return;
     }
 
@@ -1110,16 +1541,62 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
       const result = room.executeTrade(tradeId);
       
       if (result.success) {
+        // Log debt payments if any occurred
+        if (result.debtPayments.creator && result.debtPayments.creator.length > 0) {
+          result.debtPayments.creator.forEach(payment => {
+            pushGameLog(room, {
+              type: 'debt-payment',
+              player: creatorPlayer.name,
+              creditor: payment.creditorName,
+              amount: payment.amount,
+              message: `paid $${payment.amount} debt to ${payment.creditorName} from trade${payment.remainingDebt > 0 ? ` (remaining debt: $${payment.remainingDebt})` : ''}`
+            }, io);
+          });
+        }
+        
+        if (result.debtPayments.target && result.debtPayments.target.length > 0) {
+          const targetPlayer = room.players.find(p => p.id === trade.targetPlayerId);
+          result.debtPayments.target.forEach(payment => {
+            pushGameLog(room, {
+              type: 'debt-payment',
+              player: targetPlayer.name,
+              creditor: payment.creditorName,
+              amount: payment.amount,
+              message: `paid $${payment.amount} debt to ${payment.creditorName} from trade${payment.remainingDebt > 0 ? ` (remaining debt: $${payment.remainingDebt})` : ''}`
+            }, io);
+          });
+        }
+        
+        // Check if either player recovered from negative balance
+        if (room.playerMoney[trade.createdBy] >= 0 && room.playerNegativeBalance && room.playerNegativeBalance[trade.createdBy]) {
+          room.playerNegativeBalance[trade.createdBy] = false;
+          pushGameLog(room, {
+            type: 'info',
+            player: creatorPlayer.name,
+            message: `recovered from negative balance through trade!`
+          }, io);
+        }
+        
+        if (room.playerMoney[trade.targetPlayerId] >= 0 && room.playerNegativeBalance && room.playerNegativeBalance[trade.targetPlayerId]) {
+          room.playerNegativeBalance[trade.targetPlayerId] = false;
+          const targetPlayer = room.players.find(p => p.id === trade.targetPlayerId);
+          pushGameLog(room, {
+            type: 'info',
+            player: targetPlayer.name,
+            message: `recovered from negative balance through trade!`
+          }, io);
+        }
+        
         pushGameLog(room, {
           type: 'trade',
           player: responsePlayer.name,
           target: creatorPlayer.name,
-          tradeId: tradeId, // Add trade ID for clickable functionality
-          message: `${responsePlayer.name} accepted the trade from ${creatorPlayer.name}`
+          tradeId: tradeId,
+          message: `accepted the trade from ${creatorPlayer.name}`
         }, io);
-
-        // Emit trade accepted
-        io.to(roomId).emit('tradeAccepted', { tradeId, trade: result.trade });
+        
+        // Emit trade executed
+        io.to(roomId).emit('tradeExecuted', { tradeId, result });
         emitGameStateUpdated(room, io, roomId);
       } else {
         socket.emit('tradeError', { message: result.error });
@@ -1199,8 +1676,8 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
     const newCreatorId = socket.id;
 
     // Validate the new offers
-    const creatorOffer = offers[newCreatorId] || { money: 0, properties: [] };
-    const targetOffer = offers[newTargetId] || { money: 0, properties: [] };
+    const creatorOffer = offers[newCreatorId] || { money: 0, properties: [], pardonCards: 0 };
+    const targetOffer = offers[newTargetId] || { money: 0, properties: [], pardonCards: 0 };
 
     // Validation checks (similar to createTrade)
     if (creatorOffer.money > room.playerMoney[newCreatorId]) {
@@ -1213,6 +1690,13 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
         socket.emit('tradeError', { message: `You do not own ${propertyName}` });
         return;
       }
+      
+      // Check if property has buildings (houses or hotels) - cannot be traded
+      const property = room.propertyOwnership[propertyName];
+      if (property.houses > 0 || property.hotel) {
+        socket.emit('tradeError', { message: `Cannot trade ${propertyName} - property has buildings. Sell all buildings first.` });
+        return;
+      }
     }
 
     for (const propertyName of targetOffer.properties) {
@@ -1221,11 +1705,30 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
         socket.emit('tradeError', { message: `${targetPlayer.name} does not own ${propertyName}` });
         return;
       }
+      
+      // Check if property has buildings (houses or hotels) - cannot be traded
+      const property = room.propertyOwnership[propertyName];
+      if (property.houses > 0 || property.hotel) {
+        const targetPlayer = room.players.find(p => p.id === newTargetId);
+        socket.emit('tradeError', { message: `Cannot trade ${propertyName} - ${targetPlayer.name}'s property has buildings.` });
+        return;
+      }
     }
 
     if (targetOffer.money > room.playerMoney[newTargetId]) {
       const targetPlayer = room.players.find(p => p.id === newTargetId);
       socket.emit('tradeError', { message: `${targetPlayer.name} does not have enough money` });
+      return;
+    }
+
+    // Check pardon card availability
+    if (creatorOffer.pardonCards > (room.playerJailCards[newCreatorId] || 0)) {
+      socket.emit('tradeError', { message: 'You do not have enough pardon cards' });
+      return;
+    }
+    if (targetOffer.pardonCards > (room.playerJailCards[newTargetId] || 0)) {
+      const targetPlayer = room.players.find(p => p.id === newTargetId);
+      socket.emit('tradeError', { message: `${targetPlayer.name} does not have enough pardon cards` });
       return;
     }
 
@@ -1256,8 +1759,8 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
     const room = roomService.getRoomById(roomId);
     if (!room) return;
 
-    const properties = room.getPlayerProperties(playerId);
-    socket.emit('playerProperties', { playerId, properties });
+    const assets = room.getPlayerTradeableAssets(playerId);
+    socket.emit('playerTradeableAssets', { playerId, assets });
   };
 
   // Bankruptcy handlers

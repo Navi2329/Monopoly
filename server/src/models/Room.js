@@ -1,4 +1,7 @@
 // server/src/models/Room.js
+const treasureCards = require('../data/treasureCards');
+const surpriseCards = require('../data/surpriseCards');
+
 class Room {
   constructor(hostId, hostName, settings = {}) {
     this.id = `game-${Math.random().toString(36).substr(2, 6)}`;
@@ -32,47 +35,51 @@ class Room {
     this.votekickedPlayers = new Set(); // Set of player IDs who are vote-kicked
     this.activeVoteKick = null; // { targetPlayerId, votes: Set(), startTime, endTime }
     this.voteKickTimer = null; // Timer reference for auto-kick
+    this.playerNegativeBalance = {}; // { playerId: boolean } for tracking negative balance state
+    
+    // Debt tracking system
+    this.playerDebts = {}; // { debtorPlayerId: { creditorPlayerId: amount } } for tracking unpaid debts
 
     // Property data from classic map
     this.propertyData = {
       // Brazil set
-      'Salvador': { type: 'property', set: 'Brazil', price: 60, rent: [2, 10, 30, 90, 160, 250], buildCost: 50, hotelCost: 250 },
-      'Rio': { type: 'property', set: 'Brazil', price: 60, rent: [4, 20, 60, 180, 320, 450], buildCost: 50, hotelCost: 250 },
+      'Salvador': { type: 'property', set: 'Brazil', price: 60, rent: [2, 10, 10, 90, 160, 250], buildCost: 50, hotelCost: 50 },
+      'Rio': { type: 'property', set: 'Brazil', price: 60, rent: [4, 20, 60, 180, 320, 450], buildCost: 50, hotelCost: 50 },
       // Airport
       'TLV Airport': { type: 'airport', set: 'Airport', price: 200, rent: [25, 50, 100, 200] },
       // Israel set
-      'Tel Aviv': { type: 'property', set: 'Israel', price: 100, rent: [6, 30, 90, 270, 400, 550], buildCost: 50, hotelCost: 250 },
-      'Haifa': { type: 'property', set: 'Israel', price: 100, rent: [6, 30, 90, 270, 400, 550], buildCost: 50, hotelCost: 250 },
-      'Jerusalem': { type: 'property', set: 'Israel', price: 120, rent: [8, 40, 100, 300, 450, 600], buildCost: 50, hotelCost: 250 },
+      'Tel Aviv': { type: 'property', set: 'Israel', price: 100, rent: [6, 30, 90, 270, 400, 550], buildCost: 50, hotelCost: 50 },
+      'Haifa': { type: 'property', set: 'Israel', price: 100, rent: [6, 30, 90, 270, 400, 550], buildCost: 50, hotelCost: 50 },
+      'Jerusalem': { type: 'property', set: 'Israel', price: 120, rent: [8, 40, 100, 300, 450, 600], buildCost: 50, hotelCost: 50 },
       // Italy set
-      'Venice': { type: 'property', set: 'Italy', price: 140, rent: [10, 50, 150, 450, 625, 750], buildCost: 100, hotelCost: 500 },
-      'Milan': { type: 'property', set: 'Italy', price: 140, rent: [10, 50, 150, 450, 625, 750], buildCost: 50, hotelCost: 250 },
-      'Rome': { type: 'property', set: 'Italy', price: 160, rent: [12, 60, 180, 500, 700, 900], buildCost: 100, hotelCost: 500 },
+      'Venice': { type: 'property', set: 'Italy', price: 140, rent: [10, 50, 150, 450, 625, 750], buildCost: 100, hotelCost: 100 },
+      'Milan': { type: 'property', set: 'Italy', price: 140, rent: [10, 50, 150, 450, 625, 750], buildCost: 100, hotelCost: 100 },
+      'Rome': { type: 'property', set: 'Italy', price: 160, rent: [12, 60, 180, 500, 700, 900], buildCost: 100, hotelCost: 100 },
       // Airport
       'MUC Airport': { type: 'airport', set: 'Airport', price: 200, rent: [25, 50, 100, 200] },
       // Germany set
-      'Frankfurt': { type: 'property', set: 'Germany', price: 180, rent: [14, 70, 200, 550, 750, 950], buildCost: 100, hotelCost: 500 },
-      'Munich': { type: 'property', set: 'Germany', price: 180, rent: [14, 70, 200, 550, 750, 950], buildCost: 100, hotelCost: 500 },
-      'Berlin': { type: 'property', set: 'Germany', price: 200, rent: [16, 80, 220, 600, 800, 1000], buildCost: 100, hotelCost: 500 },
+      'Frankfurt': { type: 'property', set: 'Germany', price: 180, rent: [14, 70, 200, 550, 750, 950], buildCost: 100, hotelCost: 100 },
+      'Munich': { type: 'property', set: 'Germany', price: 180, rent: [14, 70, 200, 550, 750, 950], buildCost: 100, hotelCost: 100 },
+      'Berlin': { type: 'property', set: 'Germany', price: 200, rent: [16, 80, 220, 600, 800, 1000], buildCost: 100, hotelCost: 100 },
       // China set
-      'Shenzhen': { type: 'property', set: 'China', price: 220, rent: [18, 90, 250, 700, 875, 1050], buildCost: 150, hotelCost: 750 },
-      'Beijing': { type: 'property', set: 'China', price: 220, rent: [18, 90, 250, 700, 875, 1050], buildCost: 150, hotelCost: 750 },
-      'Shanghai': { type: 'property', set: 'China', price: 240, rent: [20, 100, 300, 750, 925, 1100], buildCost: 150, hotelCost: 750 },
+      'Shenzhen': { type: 'property', set: 'China', price: 220, rent: [18, 90, 250, 700, 875, 1050], buildCost: 150, hotelCost: 150 },
+      'Beijing': { type: 'property', set: 'China', price: 220, rent: [18, 90, 250, 700, 875, 1050], buildCost: 150, hotelCost: 150 },
+      'Shanghai': { type: 'property', set: 'China', price: 240, rent: [20, 100, 300, 750, 925, 1100], buildCost: 150, hotelCost: 150 },
       // Airport
       'CDG Airport': { type: 'airport', set: 'Airport', price: 200, rent: [25, 50, 100, 200] },
       // France set
-      'Lyon': { type: 'property', set: 'France', price: 260, rent: [22, 110, 330, 800, 975, 1150], buildCost: 150, hotelCost: 750 },
-      'Toulouse': { type: 'property', set: 'France', price: 260, rent: [22, 110, 330, 800, 975, 1150], buildCost: 150, hotelCost: 750 },
-      'Paris': { type: 'property', set: 'France', price: 280, rent: [24, 120, 360, 850, 1025, 1200], buildCost: 150, hotelCost: 750 },
+      'Lyon': { type: 'property', set: 'France', price: 260, rent: [22, 110, 330, 800, 975, 1150], buildCost: 150, hotelCost: 150 },
+      'Toulouse': { type: 'property', set: 'France', price: 260, rent: [22, 110, 330, 800, 975, 1150], buildCost: 150, hotelCost: 150 },
+      'Paris': { type: 'property', set: 'France', price: 280, rent: [24, 120, 360, 850, 1025, 1200], buildCost: 150, hotelCost: 150 },
       // UK set
-      'Liverpool': { type: 'property', set: 'UK', price: 300, rent: [26, 130, 390, 900, 1100, 1275], buildCost: 200, hotelCost: 1000 },
-      'Manchester': { type: 'property', set: 'UK', price: 300, rent: [26, 130, 390, 900, 1100, 1275], buildCost: 200, hotelCost: 1000 },
-      'London': { type: 'property', set: 'UK', price: 320, rent: [28, 150, 450, 1000, 1200, 1400], buildCost: 200, hotelCost: 1000 },
+      'Liverpool': { type: 'property', set: 'UK', price: 300, rent: [26, 130, 390, 900, 1100, 1275], buildCost: 200, hotelCost: 200 },
+      'Manchester': { type: 'property', set: 'UK', price: 300, rent: [26, 130, 390, 900, 1100, 1275], buildCost: 200, hotelCost: 200 },
+      'London': { type: 'property', set: 'UK', price: 320, rent: [28, 150, 450, 1000, 1200, 1400], buildCost: 200, hotelCost: 200 },
       // Airport
       'JFK Airport': { type: 'airport', set: 'Airport', price: 200, rent: [25, 50, 100, 200] },
       // USA set
-      'California': { type: 'property', set: 'USA', price: 350, rent: [35, 175, 500, 1100, 1300, 1500], buildCost: 200, hotelCost: 1000 },
-      'New York': { type: 'property', set: 'USA', price: 400, rent: [50, 200, 600, 1400, 1700, 2000], buildCost: 200, hotelCost: 1000 },
+      'California': { type: 'property', set: 'USA', price: 350, rent: [35, 175, 500, 1100, 1300, 1500], buildCost: 200, hotelCost: 200 },
+      'New York': { type: 'property', set: 'USA', price: 400, rent: [50, 200, 600, 1400, 1700, 2000], buildCost: 200, hotelCost: 200 },
       // Companies
       'Electric Company': { type: 'company', set: 'Company', price: 150, rent: [4, 10] },
       'Water Company': { type: 'company', set: 'Company', price: 150, rent: [4, 10] }
@@ -332,9 +339,298 @@ class Room {
         this.collectedMoney[playerId] += taxAmount;
       }
       action = 'luxury-tax';
+    } else if ([2, 17, 33].includes(newPos)) { // Treasure spaces
+      action = 'treasure';
+    } else if ([7, 22, 36].includes(newPos)) { // Surprise spaces
+      action = 'surprise';
     }
 
     return { action, position: newPos, passedStart };
+  }
+
+  // Helper method to get property position on board
+  getPropertyPosition(propertyName) {
+    const propertyMap = {
+      'Salvador': 1, 'Rio': 3, 'Tel Aviv': 6, 'Haifa': 8, 'Jerusalem': 9,
+      'Venice': 11, 'Milan': 13, 'Rome': 14, 'Frankfurt': 16, 'Munich': 18, 
+      'Berlin': 19, 'Shenzhen': 21, 'Beijing': 23, 'Shanghai': 24,
+      'Lyon': 26, 'Toulouse': 27, 'Paris': 29, 'Liverpool': 31, 
+      'Manchester': 32, 'London': 34, 'California': 37, 'New York': 39
+    };
+    return propertyMap[propertyName] || null;
+  }
+
+  // Helper method to get property name by position on board
+  getPropertyNameByPosition(position) {
+    const positionMap = {
+      1: 'Salvador', 2: 'Treasure', 3: 'Rio', 4: 'Income Tax', 5: 'TLV Airport',
+      6: 'Tel Aviv', 7: 'Surprise', 8: 'Haifa', 9: 'Jerusalem', 10: 'Jail',
+      11: 'Venice', 12: 'Electric Company', 13: 'Milan', 14: 'Rome', 15: 'MUC Airport',
+      16: 'Frankfurt', 17: 'Treasure', 18: 'Munich', 19: 'Berlin', 20: 'Vacation',
+      21: 'Shenzhen', 22: 'Surprise', 23: 'Beijing', 24: 'Shanghai', 25: 'CDG Airport',
+      26: 'Lyon', 27: 'Toulouse', 28: 'Water Company', 29: 'Paris', 30: 'Go to Jail',
+      31: 'Liverpool', 32: 'Manchester', 33: 'Treasure', 34: 'London', 35: 'JFK Airport',
+      36: 'Surprise', 37: 'California', 38: 'Luxury Tax', 39: 'New York', 0: 'START'
+    };
+    return positionMap[position] || null;
+  }
+
+  // Method to draw and execute a treasure card
+  drawTreasureCard(playerId) {
+    const card = treasureCards[Math.floor(Math.random() * treasureCards.length)];
+    const player = this.players.find(p => p.id === playerId);
+    if (!player) return null;
+
+    const result = {
+      card,
+      playerId,
+      playerName: player.name,
+      logs: []
+    };
+
+    // Add the main card message
+    result.logs.push({
+      type: 'treasure',
+      player: player.name,
+      message: `got a treasure card: ${card.message}`
+    });
+
+    // Execute card action
+    switch (card.action) {
+      case 'payMoney':
+        this.playerMoney[playerId] -= card.amount;
+        break;
+
+      case 'receiveMoney':
+        this.playerMoney[playerId] += card.amount;
+        break;
+
+      case 'collectFromPlayers':
+        // Collect money from all other players
+        this.players.forEach(otherPlayer => {
+          if (otherPlayer.id !== playerId) {
+            const amountToCollect = Math.min(card.amount, this.playerMoney[otherPlayer.id]);
+            this.playerMoney[otherPlayer.id] -= amountToCollect;
+            this.playerMoney[playerId] += amountToCollect;
+            result.logs.push({
+              type: 'transaction',
+              player: otherPlayer.name,
+              message: `paid $${amountToCollect} to ${player.name}`
+            });
+          }
+        });
+        break;
+
+      case 'receiveJailCard':
+        this.playerJailCards[playerId] = (this.playerJailCards[playerId] || 0) + 1;
+        break;
+
+      case 'moveToPosition':
+        const oldPosition = this.playerPositions[playerId];
+        this.playerPositions[playerId] = card.position;
+        
+        // Check if passed START
+        if (oldPosition > card.position && card.position === 0) {
+          // Moved to START, collect $300
+          if (card.collectStart) {
+            this.playerMoney[playerId] += 300;
+            result.logs.push({
+              type: 'movement',
+              player: player.name,
+              message: `moved to START and collected $300`
+            });
+          }
+        } else if (oldPosition > card.position) {
+          // Passed START while moving backward, collect $200
+          this.playerMoney[playerId] += 200;
+          result.logs.push({
+            type: 'movement',
+            player: player.name,
+            message: `passed START and collected $200`
+          });
+        }
+        
+        result.movement = {
+          fromPosition: oldPosition,
+          toPosition: card.position,
+          passedStart: oldPosition > card.position
+        };
+        break;
+    }
+
+    return result;
+  }
+
+  // Method to draw and execute a surprise card
+  drawSurpriseCard(playerId) {
+    const card = surpriseCards[Math.floor(Math.random() * surpriseCards.length)];
+    const player = this.players.find(p => p.id === playerId);
+    if (!player) return null;
+
+    const result = {
+      card,
+      playerId,
+      playerName: player.name,
+      logs: []
+    };
+
+    // Add the main card message
+    result.logs.push({
+      type: 'surprise',
+      player: player.name,
+      message: `got a surprise card: ${card.message}`
+    });
+
+    // Execute card action
+    switch (card.action) {
+      case 'receiveJailCard':
+        this.playerJailCards[playerId] = (this.playerJailCards[playerId] || 0) + 1;
+        break;
+
+      case 'payForBuildings':
+        let totalCost = 0;
+        Object.values(this.propertyOwnership).forEach(property => {
+          if (property.owner === playerId) {
+            if (property.houses > 0) {
+              totalCost += property.houses * card.houseCost;
+            }
+            if (property.hotel) {
+              totalCost += card.hotelCost;
+            }
+          }
+        });
+        this.playerMoney[playerId] -= totalCost;
+        if (totalCost > 0) {
+          result.logs.push({
+            type: 'transaction',
+            player: player.name,
+            message: `paid $${totalCost} for property improvements`
+          });
+        }
+        break;
+
+      case 'payToPlayers':
+        // Pay money to all other players
+        this.players.forEach(otherPlayer => {
+          if (otherPlayer.id !== playerId) {
+            const amountToPay = Math.min(card.amount, this.playerMoney[playerId]);
+            if (amountToPay > 0) {
+              this.playerMoney[playerId] -= amountToPay;
+              this.playerMoney[otherPlayer.id] += amountToPay;
+              result.logs.push({
+                type: 'transaction',
+                player: player.name,
+                message: `paid $${amountToPay} to ${otherPlayer.name}`
+              });
+            }
+          }
+        });
+        break;
+
+      case 'payMoney':
+        this.playerMoney[playerId] -= card.amount;
+        break;
+
+      case 'receiveMoney':
+        this.playerMoney[playerId] += card.amount;
+        break;
+
+      case 'moveToProperty':
+        const targetPosition = this.getPropertyPosition(card.propertyName);
+        if (targetPosition !== null) {
+          const oldPosition = this.playerPositions[playerId];
+          this.playerPositions[playerId] = targetPosition;
+          
+          // Check if passed START
+          if (oldPosition > targetPosition) {
+            // Passed START while moving
+            this.playerMoney[playerId] += 200;
+            result.logs.push({
+              type: 'movement',
+              player: player.name,
+              message: `passed START and collected $200`
+            });
+          }
+          
+          result.movement = {
+            fromPosition: oldPosition,
+            toPosition: targetPosition,
+            passedStart: oldPosition > targetPosition,
+            propertyLanding: card.propertyName
+          };
+        }
+        break;
+
+      case 'moveToPosition':
+        const oldPos = this.playerPositions[playerId];
+        this.playerPositions[playerId] = card.position;
+        
+        // Check if passed START or landed on START
+        if (card.position === 0) {
+          // Moved to START, collect $300
+          if (card.collectStart) {
+            this.playerMoney[playerId] += 300;
+            result.logs.push({
+              type: 'movement',
+              player: player.name,
+              message: `moved to START and collected $300`
+            });
+          }
+        } else if (oldPos > card.position) {
+          // Passed START while moving
+          this.playerMoney[playerId] += 200;
+          result.logs.push({
+            type: 'movement',
+            player: player.name,
+            message: `passed START and collected $200`
+          });
+        }
+        
+        result.movement = {
+          fromPosition: oldPos,
+          toPosition: card.position,
+          passedStart: oldPos > card.position || card.position === 0
+        };
+        break;
+
+      case 'goToJail':
+        this.playerPositions[playerId] = 10;
+        this.playerStatuses[playerId] = 'jail';
+        this.playerJailRounds[playerId] = 0;
+        this.playerDoublesCount[playerId] = 0;
+        result.movement = {
+          fromPosition: this.playerPositions[playerId],
+          toPosition: 10,
+          goToJail: true
+        };
+        break;
+
+      case 'moveBackward':
+        const currentPos = this.playerPositions[playerId];
+        let newPos = currentPos - card.steps;
+        
+        // Handle wrapping around the board
+        if (newPos < 0) {
+          newPos = 40 + newPos; // Go around the board
+          // Passed START while going backward
+          this.playerMoney[playerId] += 200;
+          result.logs.push({
+            type: 'movement',
+            player: player.name,
+            message: `passed START and collected $200`
+          });
+        }
+        
+        this.playerPositions[playerId] = newPos;
+        result.movement = {
+          fromPosition: currentPos,
+          toPosition: newPos,
+          passedStart: newPos > currentPos
+        };
+        break;
+    }
+
+    return result;
   }
 
   // Add a new method to handle vacation end turn
@@ -573,6 +869,9 @@ class Room {
       bankruptedPlayers: Array.from(this.bankruptedPlayers),
       votekickedPlayers: Array.from(this.votekickedPlayers),
       activeVoteKick: this.activeVoteKick,
+      playerNegativeBalance: this.playerNegativeBalance,
+      // Debt tracking
+      playerDebts: this.playerDebts,
       // add more fields if needed
     };
     // console.log('[DEBUG SERVER] getGameState activeVoteKick:', this.activeVoteKick);
@@ -606,27 +905,53 @@ class Room {
 
   // Even build enforcement for houses/hotels
   canBuildHouse(playerId, propertyName) {
-    if (!this.settings.evenBuild) return true;
     const property = this.propertyOwnership[propertyName];
-    if (!property || property.owner !== playerId) return false;
     const data = this.propertyData[propertyName];
+    
+    // Basic requirements
+    if (!property || property.owner !== playerId) return false;
     if (!data || data.type !== 'property') return false;
+    if (property.mortgaged) return false;
+    if (property.hotel) return false; // Can't build on a hotel
+    
+    // Check if player has enough money
+    if (!this.playerMoney[playerId] || this.playerMoney[playerId] < data.buildCost) return false;
+    
+    // Check if player owns all properties in the set
     const set = data.set;
     const setProps = Object.keys(this.propertyData).filter(
       k => this.propertyData[k].set === set && this.propertyData[k].type === 'property'
     );
+    const ownsAllInSet = setProps.every(k => {
+      const p = this.propertyOwnership[k];
+      return p && p.owner === playerId;
+    });
+    if (!ownsAllInSet) return false;
+
+    // Check if any property in set is mortgaged
+    const anyMortgaged = setProps.some(k => {
+      const p = this.propertyOwnership[k];
+      return p && p.mortgaged;
+    });
+    if (anyMortgaged) return false;
+
+    // If even build is OFF, allow building without restrictions (as long as basic requirements are met)
+    if (!this.settings.evenBuild) return true;
+
+    // Even build logic - only applies when setting is ON
     const houseCounts = setProps.map(k => {
       const p = this.propertyOwnership[k];
       if (p && p.hotel) return 5; // treat hotel as 5 for strict even build
       return p ? p.houses : 0;
     });
     const minHouses = Math.min(...houseCounts);
+    
     // Only allow building if this property has the minimum number of houses
-    if (property.hotel) return false;
     if (property.houses < 4) {
       return property.houses === minHouses;
     }
-    // For hotel, all others must have 4 houses or a hotel
+    
+    // For hotel (when property has 4 houses), all others must have 4 houses or a hotel
     if (property.houses === 4) {
       return setProps.every(k => {
         if (k === propertyName) return true;
@@ -634,21 +959,35 @@ class Room {
         return p && (p.houses === 4 || p.hotel);
       });
     }
+    
     return false;
   }
   canDestroyHouse(playerId, propertyName) {
-    if (!this.settings.evenBuild) return true;
     const property = this.propertyOwnership[propertyName];
-    if (!property || property.owner !== playerId) return false;
     const data = this.propertyData[propertyName];
+    
+    // Basic requirements
+    if (!property || property.owner !== playerId) return false;
     if (!data || data.type !== 'property') return false;
+    if (property.mortgaged) return false;
+    if (property.houses === 0 && !property.hotel) return false; // Nothing to destroy
+    
+    // If even build is OFF, allow destroying without restrictions
+    if (!this.settings.evenBuild) return true;
+
+    // Even build logic - only applies when setting is ON
     const set = data.set;
     const setProps = Object.keys(this.propertyData).filter(
       k => this.propertyData[k].set === set && this.propertyData[k].type === 'property'
     );
-    const houseCounts = setProps.map(k => this.propertyOwnership[k]?.houses || 0);
+    const houseCounts = setProps.map(k => {
+      const p = this.propertyOwnership[k];
+      if (p && p.hotel) return 5; // treat hotel as 5 for even build
+      return p ? p.houses : 0;
+    });
     const maxHouses = Math.max(...houseCounts);
-    return property.houses >= maxHouses;
+    const currentCount = property.hotel ? 5 : property.houses;
+    return currentCount >= maxHouses;
   }
 
   // Sell property
@@ -668,23 +1007,19 @@ class Room {
   buildHouse(playerId, propertyName) {
     const property = this.propertyOwnership[propertyName];
     const data = this.propertyData[propertyName];
-    if (!property || property.owner !== playerId) return false;
-    if (!data || data.type !== 'property') return false;
-    if (property.mortgaged) return false;
-    if (property.hotel) return false;
-    // Enforce even build only if enabled
-    if (this.settings.evenBuild && !this.canBuildHouse(playerId, propertyName)) return false;
+    
+    // Use the comprehensive canBuildHouse check
+    if (!this.canBuildHouse(playerId, propertyName)) return false;
+    
     // Build hotel
     if (property.houses === 4) {
-      if (this.settings.evenBuild) {
-        // Already checked in canBuildHouse
-      }
       if (this.playerMoney[playerId] < data.hotelCost) return false;
       property.houses = 0;
       property.hotel = true;
       this.playerMoney[playerId] -= data.hotelCost;
       return true;
     }
+    
     // Build house
     if (property.houses < 4) {
       if (this.playerMoney[playerId] < data.buildCost) return false;
@@ -692,17 +1027,17 @@ class Room {
       this.playerMoney[playerId] -= data.buildCost;
       return true;
     }
+    
     return false;
   }
   // Destroy house or hotel
   destroyHouse(playerId, propertyName) {
     const property = this.propertyOwnership[propertyName];
     const data = this.propertyData[propertyName];
-    if (!property || property.owner !== playerId) return false;
-    if (!data || data.type !== 'property') return false;
-    if (property.mortgaged) return false;
-    // Enforce even build
+    
+    // Use the comprehensive canDestroyHouse check
     if (!this.canDestroyHouse(playerId, propertyName)) return false;
+    
     // Destroy hotel
     if (property.hotel) {
       property.hotel = false;
@@ -710,12 +1045,14 @@ class Room {
       this.playerMoney[playerId] += Math.floor(data.hotelCost / 2);
       return true;
     }
+    
     // Destroy house
     if (property.houses > 0) {
       property.houses -= 1;
       this.playerMoney[playerId] += Math.floor(data.buildCost / 2);
       return true;
     }
+    
     return false;
   }
 
@@ -726,7 +1063,7 @@ class Room {
       id: tradeId,
       createdBy,
       targetPlayerId,
-      offers, // { playerId: { money: number, properties: [propertyName] } }
+      offers, // { playerId: { money: number, properties: [propertyName], pardonCards: number } }
       note,
       status: 'pending', // pending, accepted, declined, cancelled
       createdAt: Date.now(),
@@ -754,8 +1091,8 @@ class Room {
 
     const creatorId = trade.createdBy;
     const targetId = trade.targetPlayerId;
-    const creatorOffer = trade.offers[creatorId] || { money: 0, properties: [] };
-    const targetOffer = trade.offers[targetId] || { money: 0, properties: [] };
+    const creatorOffer = trade.offers[creatorId] || { money: 0, properties: [], pardonCards: 0 };
+    const targetOffer = trade.offers[targetId] || { money: 0, properties: [], pardonCards: 0 };
 
     // Validate players have sufficient resources
     const creatorPlayer = this.players.find(p => p.id === creatorId);
@@ -765,11 +1102,11 @@ class Room {
       return { success: false, error: 'One or both players not found' };
     }
 
-    // Check money availability
-    if (this.playerMoney[creatorId] < creatorOffer.money) {
+    // Check money availability - only validate if they're actually offering money
+    if (creatorOffer.money > 0 && this.playerMoney[creatorId] < creatorOffer.money) {
       return { success: false, error: 'Creator does not have sufficient money' };
     }
-    if (this.playerMoney[targetId] < targetOffer.money) {
+    if (targetOffer.money > 0 && this.playerMoney[targetId] < targetOffer.money) {
       return { success: false, error: 'Target does not have sufficient money' };
     }
 
@@ -785,16 +1122,48 @@ class Room {
       }
     }
 
+    // Check pardon card availability
+    if (creatorOffer.pardonCards > (this.playerJailCards[creatorId] || 0)) {
+      return { success: false, error: 'Creator does not have enough pardon cards' };
+    }
+    if (targetOffer.pardonCards > (this.playerJailCards[targetId] || 0)) {
+      return { success: false, error: 'Target does not have enough pardon cards' };
+    }
+
     // Execute the trade
-    // Transfer money
-    this.playerMoney[creatorId] -= creatorOffer.money;
-    this.playerMoney[creatorId] += targetOffer.money;
-    this.playerMoney[targetId] -= targetOffer.money;
-    this.playerMoney[targetId] += creatorOffer.money;
+    // Handle money transfers and debt payments
+    
+    // First, subtract money being offered
+    if (creatorOffer.money > 0) {
+      this.playerMoney[creatorId] -= creatorOffer.money;
+    }
+    if (targetOffer.money > 0) {
+      this.playerMoney[targetId] -= targetOffer.money;
+    }
+    
+    // Process debt payments for money received (before adding to player balance)
+    const creatorDebtResult = targetOffer.money > 0 ? this.processDebtPayments(creatorId, targetOffer.money) : { payments: [], remainingMoney: 0 };
+    const targetDebtResult = creatorOffer.money > 0 ? this.processDebtPayments(targetId, creatorOffer.money) : { payments: [], remainingMoney: 0 };
+    
+    // Add only remaining money after debt payments
+    if (targetOffer.money > 0) {
+      this.playerMoney[creatorId] += creatorDebtResult.remainingMoney;
+    }
+    if (creatorOffer.money > 0) {
+      this.playerMoney[targetId] += targetDebtResult.remainingMoney;
+    }
 
     // Update player money in players array
     creatorPlayer.money = this.playerMoney[creatorId];
     targetPlayer.money = this.playerMoney[targetId];
+    
+    // Check if players recovered from negative balance
+    if (this.playerMoney[creatorId] >= 0 && this.playerNegativeBalance[creatorId]) {
+      this.playerNegativeBalance[creatorId] = false;
+    }
+    if (this.playerMoney[targetId] >= 0 && this.playerNegativeBalance[targetId]) {
+      this.playerNegativeBalance[targetId] = false;
+    }
 
     // Transfer properties
     for (const propertyName of creatorOffer.properties) {
@@ -808,11 +1177,28 @@ class Room {
       this.propertyOwnership[propertyName].ownerColor = creatorPlayer.color;
     }
 
+    // Transfer pardon cards
+    if (creatorOffer.pardonCards > 0) {
+      this.playerJailCards[creatorId] = (this.playerJailCards[creatorId] || 0) - creatorOffer.pardonCards;
+      this.playerJailCards[targetId] = (this.playerJailCards[targetId] || 0) + creatorOffer.pardonCards;
+    }
+    if (targetOffer.pardonCards > 0) {
+      this.playerJailCards[targetId] = (this.playerJailCards[targetId] || 0) - targetOffer.pardonCards;
+      this.playerJailCards[creatorId] = (this.playerJailCards[creatorId] || 0) + targetOffer.pardonCards;
+    }
+
     // Mark trade as completed
     trade.status = 'completed';
     trade.updatedAt = Date.now();
 
-    return { success: true, trade };
+    return { 
+      success: true, 
+      trade,
+      debtPayments: {
+        creator: creatorDebtResult.payments,
+        target: targetDebtResult.payments
+      }
+    };
   }
 
   getTrades() {
@@ -848,6 +1234,27 @@ class Room {
       }
     }
     return ownedProperties;
+  }
+
+  // Get all tradeable assets for a player (properties + pardon cards)
+  getPlayerTradeableAssets(playerId) {
+    // Get properties (filter out those with buildings)
+    const properties = this.getPlayerProperties(playerId).filter(property => 
+      property.houses === 0 && !property.hotel
+    );
+    
+    // Get pardon cards
+    const pardonCards = this.playerJailCards[playerId] || 0;
+    
+    return {
+      properties: properties.map(p => ({
+        name: p.name,
+        price: p.price,
+        type: p.type,
+        set: p.set
+      })),
+      pardonCards
+    };
   }
   
   // Bankruptcy functionality
@@ -1100,6 +1507,244 @@ class Room {
     return this.players.filter(p => this.canPlayerPlay(p.id));
   }
 
+  // ===== DEBT MANAGEMENT SYSTEM =====
+  
+  // Add debt to a player (when they can't pay full rent)
+  addDebt(debtorId, creditorId, amount) {
+    if (!this.playerDebts[debtorId]) {
+      this.playerDebts[debtorId] = {};
+    }
+    this.playerDebts[debtorId][creditorId] = (this.playerDebts[debtorId][creditorId] || 0) + amount;
+  }
+
+  // Get total debt owed by a player
+  getTotalDebt(playerId) {
+    if (!this.playerDebts[playerId]) return 0;
+    return Object.values(this.playerDebts[playerId]).reduce((sum, debt) => sum + debt, 0);
+  }
+
+  // Process payment of debts when player gains money
+  processDebtPayments(playerId, moneyGained) {
+    if (!this.playerDebts[playerId] || moneyGained <= 0) return { payments: [], remainingMoney: moneyGained };
+
+    console.log(`[DEBUG] processDebtPayments: ${playerId} gained ${moneyGained} money, current debts:`, this.playerDebts[playerId]);
+
+    const payments = [];
+    let remainingMoney = moneyGained;
+    let totalPaidToDebts = 0;
+
+    // Pay debts in the order they were created (FIFO)
+    for (const creditorId in this.playerDebts[playerId]) {
+      if (remainingMoney <= 0) break;
+
+      const debtAmount = this.playerDebts[playerId][creditorId];
+      const paymentAmount = Math.min(debtAmount, remainingMoney);
+
+      console.log(`[DEBUG] Paying ${paymentAmount} to ${creditorId} (debt was ${debtAmount})`);
+
+      if (paymentAmount > 0) {
+        // Transfer money to creditor
+        this.playerMoney[creditorId] += paymentAmount;
+        
+        // Reduce debt
+        this.playerDebts[playerId][creditorId] -= paymentAmount;
+        if (this.playerDebts[playerId][creditorId] <= 0) {
+          delete this.playerDebts[playerId][creditorId];
+        }
+
+        // Track remaining money and total paid to debts
+        remainingMoney -= paymentAmount;
+        totalPaidToDebts += paymentAmount;
+
+        payments.push({
+          creditorId,
+          creditorName: this.players.find(p => p.id === creditorId)?.name,
+          amount: paymentAmount,
+          remainingDebt: this.playerDebts[playerId][creditorId] || 0
+        });
+      }
+    }
+
+    // IMPORTANT: Increase player's balance by the total amount paid to debts
+    // This handles negative balance scenarios correctly
+    if (totalPaidToDebts > 0) {
+      this.playerMoney[playerId] += totalPaidToDebts;
+      console.log(`[DEBUG] Increased player ${playerId} balance by ${totalPaidToDebts} for debt payments (new balance: ${this.playerMoney[playerId]})`);
+    }
+
+    // Clean up empty debt object
+    if (Object.keys(this.playerDebts[playerId]).length === 0) {
+      delete this.playerDebts[playerId];
+    }
+
+    console.log(`[DEBUG] Debt payments completed, remaining money: ${remainingMoney}, total paid to debts: ${totalPaidToDebts}, payments:`, payments);
+
+    return { payments, remainingMoney };
+  }
+
+  // Handle rent payment with debt tracking
+  payRentWithDebt(payerId, ownerId, propertyName, rentAmount) {
+    const availableMoney = this.playerMoney[payerId];
+    const actualPayment = Math.min(availableMoney, rentAmount);
+    const remainingDebt = rentAmount - actualPayment;
+
+    console.log(`[DEBUG] payRentWithDebt: ${payerId} owes ${rentAmount} rent, has ${availableMoney} money`);
+    console.log(`[DEBUG] Will pay ${actualPayment}, remaining debt ${remainingDebt}`);
+
+    // IMPORTANT: Deduct FULL rent amount from payer (creating negative balance if needed)
+    this.playerMoney[payerId] -= rentAmount;
+    
+    // Credit owner with only the available money (not full rent)
+    if (actualPayment > 0) {
+      this.playerMoney[ownerId] += actualPayment;
+    }
+
+    // Track remaining debt if any
+    if (remainingDebt > 0) {
+      this.addDebt(payerId, ownerId, remainingDebt);
+      this.playerNegativeBalance[payerId] = true;
+    }
+
+    console.log(`[DEBUG] After payment: ${payerId} has ${this.playerMoney[payerId]} money, ${ownerId} received ${actualPayment}`);
+
+    return {
+      actualPayment,
+      remainingDebt,
+      totalRent: rentAmount
+    };
+  }
+
+  // Handle property sale with debt payment
+  sellPropertyWithDebtPayment(playerId, propertyName) {
+    // Check if property can be sold first
+    const property = this.propertyOwnership[propertyName];
+    if (!property || property.owner !== playerId) return { success: false, payments: [] };
+    if (property.mortgaged) return { success: false, payments: [] };
+    if (property.houses > 0 || property.hotel) return { success: false, payments: [] };
+    const price = this.propertyData[propertyName]?.price || 0;
+    if (!price) return { success: false, payments: [] };
+
+    // Get money gained from sale (don't add to player yet)
+    const salePrice = Math.floor(price / 2);
+    
+    // Remove property ownership
+    delete this.propertyOwnership[propertyName];
+    
+    // Process debt payments first, then add only remaining money to player
+    const debtResult = this.processDebtPayments(playerId, salePrice);
+    
+    // Add only the remaining money to player after debt payments
+    this.playerMoney[playerId] += debtResult.remainingMoney;
+
+    // Check if player still has negative balance
+    if (this.playerMoney[playerId] >= 0) {
+      this.playerNegativeBalance[playerId] = false;
+    }
+
+    return { success: true, salePrice, payments: debtResult.payments };
+  }
+
+  // Handle mortgage with debt payment
+  mortgagePropertyWithDebtPayment(playerId, propertyName) {
+    // Check if property can be mortgaged first
+    if (!this.settings.mortgage) return { success: false, payments: [] };
+    const property = this.propertyOwnership[propertyName];
+    if (!property || property.owner !== playerId) return { success: false, payments: [] };
+    if (property.mortgaged) return { success: false, payments: [] };
+    if (property.houses > 0 || property.hotel) return { success: false, payments: [] };
+
+    // Get money gained from mortgage (don't add to player yet)
+    const mortgageAmount = Math.floor(this.propertyData[propertyName].price / 2);
+    
+    // Mortgage the property
+    property.mortgaged = true;
+    
+    // Process debt payments first, then add only remaining money to player
+    const debtResult = this.processDebtPayments(playerId, mortgageAmount);
+    
+    // Add only the remaining money to player after debt payments
+    this.playerMoney[playerId] += debtResult.remainingMoney;
+
+    // Check if player still has negative balance
+    if (this.playerMoney[playerId] >= 0) {
+      this.playerNegativeBalance[playerId] = false;
+    }
+
+    return { success: true, mortgageAmount, payments: debtResult.payments };
+  }
+
+  // Automatic bankruptcy handling when player cannot pay debts
+  processBankruptcy(playerId) {
+    console.log(`[DEBUG] Processing bankruptcy for player ${playerId}`);
+    
+    const player = this.players.find(p => p.id === playerId);
+    if (!player) return { success: false };
+
+    let totalLiquidated = 0;
+    const liquidationLog = [];
+
+    // 1. Destroy all houses/hotels and collect money
+    for (const propertyName in this.propertyOwnership) {
+      const property = this.propertyOwnership[propertyName];
+      if (property.owner === playerId) {
+        // Destroy houses/hotels
+        if (property.houses > 0) {
+          const houseValue = property.houses * Math.floor(this.propertyData[propertyName].housePrice / 2);
+          totalLiquidated += houseValue;
+          liquidationLog.push(`Destroyed ${property.houses} houses on ${propertyName} for $${houseValue}`);
+          property.houses = 0;
+        }
+        if (property.hotel) {
+          const hotelValue = Math.floor(this.propertyData[propertyName].housePrice * 5 / 2); // 5 houses worth
+          totalLiquidated += hotelValue;
+          liquidationLog.push(`Destroyed hotel on ${propertyName} for $${hotelValue}`);
+          property.hotel = false;
+        }
+
+        // Sell unmortgaged properties
+        if (!property.mortgaged) {
+          const saleValue = Math.floor(this.propertyData[propertyName].price / 2);
+          totalLiquidated += saleValue;
+          liquidationLog.push(`Sold ${propertyName} for $${saleValue}`);
+          delete this.propertyOwnership[propertyName];
+        } else {
+          // Mortgaged properties go back to bank with no value
+          liquidationLog.push(`${propertyName} (mortgaged) returned to bank`);
+          delete this.propertyOwnership[propertyName];
+        }
+      }
+    }
+
+    // 2. Process debt payments with liquidated assets
+    const debtResult = this.processDebtPayments(playerId, totalLiquidated);
+    
+    // 3. Mark player as bankrupt
+    this.bankruptedPlayers = this.bankruptedPlayers || new Set();
+    this.bankruptedPlayers.add(playerId);
+    
+    // 4. Clear remaining debts (if any)
+    if (this.playerDebts[playerId]) {
+      delete this.playerDebts[playerId];
+    }
+    
+    // 5. Clear negative balance flag
+    if (this.playerNegativeBalance[playerId]) {
+      this.playerNegativeBalance[playerId] = false;
+    }
+
+    // 6. Set player money to 0
+    this.playerMoney[playerId] = 0;
+
+    console.log(`[DEBUG] Bankruptcy processed: liquidated $${totalLiquidated}, paid ${debtResult.payments.length} debts`);
+
+    return {
+      success: true,
+      totalLiquidated,
+      debtPayments: debtResult.payments,
+      liquidationLog
+    };
+  }
+
   // Reset room for new game while keeping same room ID and settings
   resetForNewGame() {
     // Clear all players - they need to rejoin for the new game
@@ -1133,6 +1778,10 @@ class Room {
     this.bankruptedPlayers.clear();
     this.votekickedPlayers.clear();
     this.activeVoteKick = null;
+    this.playerNegativeBalance = {};
+    
+    // Reset debt system
+    this.playerDebts = {};
     
     // Clear vote-kick timer if it exists
     if (this.voteKickTimer) {

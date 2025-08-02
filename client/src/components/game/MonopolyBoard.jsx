@@ -209,7 +209,8 @@ const MonopolyBoard = (props) => {
     auctionEnded = false,
     auctionCurrentPlayerId = null,
     activeVoteKick = null,
-    voteKickTimeRemaining = 0
+    voteKickTimeRemaining = 0,
+    playerNegativeBalance = {}
   } = props;
   
   // Debug vote-kick props - access directly from props
@@ -1921,6 +1922,18 @@ const MonopolyBoard = (props) => {
                           {entry.type === 'bot' && (
                             <FiberManualRecord sx={{ color: '#06b6d4', fontSize: '8px' }} />
                           )}
+                          {entry.type === 'treasure' && (
+                            <FiberManualRecord sx={{ color: '#f59e0b', fontSize: '8px' }} />
+                          )}
+                          {entry.type === 'surprise' && (
+                            <FiberManualRecord sx={{ color: '#ec4899', fontSize: '8px' }} />
+                          )}
+                          {entry.type === 'transaction' && (
+                            <FiberManualRecord sx={{ color: '#10b981', fontSize: '8px' }} />
+                          )}
+                          {entry.type === 'movement' && (
+                            <FiberManualRecord sx={{ color: '#8b5cf6', fontSize: '8px' }} />
+                          )}
                         </ListItemIcon>
                         <ListItemText
                           primary={
@@ -2035,11 +2048,15 @@ const MonopolyBoard = (props) => {
                     lastRoll &&
                     lastRoll.action === 'jail-move'
                   ) {
+                    const currentPlayer = getCurrentPlayer();
+                    const hasNegativeBalance = currentPlayer && playerNegativeBalance[currentPlayer.id];
+                    const currentMoney = currentPlayer ? syncedPlayerMoney[currentPlayer.id] : 0;
+                    // console.log('[DEBUG] End Turn button (jail-move) - hasNegativeBalance:', hasNegativeBalance, 'currentMoney:', currentMoney);
                     return (
                       <UniformButton
                         variant="purple"
                         onClick={handleEndTurn}
-                        disabled={endTurnClicked || globalDiceRolling || localDiceRolling}
+                        disabled={endTurnClicked || globalDiceRolling || localDiceRolling || hasNegativeBalance}
                         sx={{ minWidth: 120 }}
                       >
                         End Turn
@@ -2053,6 +2070,14 @@ const MonopolyBoard = (props) => {
                     auctionCurrentPlayerId === currentUserId &&
                     isMyTurn
                   ) {
+                    // console.log('[DEBUG] Auction End Turn button conditions:', {
+                    //   gamePhase, 
+                    //   auctionEnded, 
+                    //   auctionCurrentPlayerId, 
+                    //   currentUserId, 
+                    //   isMyTurn,
+                    //   match: auctionCurrentPlayerId === currentUserId
+                    // });
                     return (
                       <UniformButton
                         variant="purple"
@@ -2076,18 +2101,22 @@ const MonopolyBoard = (props) => {
                           }
                           handleEndTurn();
                         }}
-                        disabled={endTurnClicked || globalDiceRolling || localDiceRolling}
+                        disabled={endTurnClicked || globalDiceRolling || localDiceRolling || (getCurrentPlayer() && playerNegativeBalance[getCurrentPlayer().id])}
                       >
                         End Turn
                       </UniformButton>
                     );
                   }
                   if (isMyTurn && isOnVacation) {
+                    const currentPlayer = getCurrentPlayer();
+                    const hasNegativeBalance = currentPlayer && playerNegativeBalance[currentPlayer.id];
+                    const currentMoney = currentPlayer ? syncedPlayerMoney[currentPlayer.id] : 0;
+                    // console.log('[DEBUG] Skip Turn button - playerNegativeBalance:', hasNegativeBalance, 'syncedPlayerMoney:', currentMoney);
                     return (
                       <UniformButton
                         variant="purple"
                         onClick={handleSkipVacationTurn}
-                        disabled={endTurnClicked || globalDiceRolling || localDiceRolling}
+                        disabled={endTurnClicked || globalDiceRolling || localDiceRolling || hasNegativeBalance}
                         sx={{ minWidth: 80 }}
                       >
                         Skip Turn
@@ -2161,7 +2190,21 @@ const MonopolyBoard = (props) => {
                         onClick={() => {
                           handleEndTurn();
                         }}
-                        disabled={endTurnClicked || globalDiceRolling || localDiceRolling}
+                        disabled={(() => {
+                          const currentPlayer = getCurrentPlayer();
+                          const hasNegativeBalance = currentPlayer && playerNegativeBalance[currentPlayer.id];
+                          const currentMoney = currentPlayer ? syncedPlayerMoney[currentPlayer.id] : 0;
+                          const disabled = endTurnClicked || globalDiceRolling || localDiceRolling || hasNegativeBalance;
+                          // console.log('[DEBUG] End Turn button (property landing) - disabled:', disabled, 'reasons:', {
+                          //   endTurnClicked,
+                          //   globalDiceRolling,
+                          //   localDiceRolling,
+                          //   hasNegativeBalance,
+                          //   currentMoney,
+                          //   playerNegativeBalance: playerNegativeBalance[currentPlayer?.id]
+                          // });
+                          return disabled;
+                        })()}
                       >
                         End Turn
                       </UniformButton>
@@ -2173,12 +2216,30 @@ const MonopolyBoard = (props) => {
                       if (lastButtonLogRef.current !== 'end-turn-after-purchase') {
                         lastButtonLogRef.current = 'end-turn-after-purchase';
                       }
-                      return <UniformButton variant="purple" onClick={() => {
-                        // console.log('[DEBUG] End Turn clicked after purchasing property, showing Roll Dice button');
-                        setJustPurchasedProperty(false);
-                        // Always call handleEndTurn to properly handle the turn end
-                        handleEndTurn();
-                      }}>End Turn</UniformButton>;
+                      return <UniformButton 
+                        variant="purple" 
+                        onClick={() => {
+                          // console.log('[DEBUG] End Turn clicked after purchasing property, showing Roll Dice button');
+                          setJustPurchasedProperty(false);
+                          // Always call handleEndTurn to properly handle the turn end
+                          handleEndTurn();
+                        }}
+                        disabled={(() => {
+                          const currentPlayer = getCurrentPlayer();
+                          const hasNegativeBalance = currentPlayer && playerNegativeBalance[currentPlayer.id];
+                          const currentMoney = currentPlayer ? syncedPlayerMoney[currentPlayer.id] : 0;
+                          const disabled = endTurnClicked || globalDiceRolling || localDiceRolling || hasNegativeBalance;
+                          // console.log('[DEBUG] End Turn button (after purchase) - disabled:', disabled, 'reasons:', {
+                          //   endTurnClicked,
+                          //   globalDiceRolling,
+                          //   localDiceRolling,
+                          //   hasNegativeBalance,
+                          //   currentMoney,
+                          //   playerNegativeBalance: playerNegativeBalance[currentPlayer?.id]
+                          // });
+                          return disabled;
+                        })()}
+                      >End Turn</UniformButton>;
                     }
 
                     // Jail Escape Actions - Show when player is in jail
@@ -2194,12 +2255,12 @@ const MonopolyBoard = (props) => {
                       const hasJailCard = playerJailCards[currentPlayer.id] && playerJailCards[currentPlayer.id] > 0;
                       const canAffordFine = syncedPlayerMoney[currentPlayer.id] >= 50;
 
+
                       return (
                         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', justifyContent: 'center' }}>
                           <UniformButton
                             variant="green"
                             onClick={() => {
-                              // console.log('[DEBUG] Pay jail fine clicked');
                               // Clear doubles sequence when paying fine
                               setHasEndedTurnAfterDoubles(false);
                               setIsInDoublesSequence(false);
@@ -2207,7 +2268,7 @@ const MonopolyBoard = (props) => {
                               setHasRolledBefore(false);
                               if (onPayJailFine) onPayJailFine();
                             }}
-                            disabled={endTurnClicked || globalDiceRolling || localDiceRolling || isOnVacation}
+                            disabled={endTurnClicked || globalDiceRolling || localDiceRolling || isOnVacation || !canAffordFine}
                           >
                             Pay $50
                           </UniformButton>
@@ -2317,10 +2378,28 @@ const MonopolyBoard = (props) => {
                           // console.log('[DEBUG] Showing End Turn button after landing on special space during doubles');
                           lastButtonLogRef.current = 'end-turn-doubles';
                         }
-                        return <UniformButton variant="purple" onClick={() => {
-                          // console.log('[DEBUG] End Turn clicked from special space during doubles, showing Roll Dice button');
-                          handleEndTurn();
-                        }}>End Turn</UniformButton>;
+                        return <UniformButton 
+                          variant="purple" 
+                          onClick={() => {
+                            // console.log('[DEBUG] End Turn clicked from special space during doubles, showing Roll Dice button');
+                            handleEndTurn();
+                          }}
+                          disabled={(() => {
+                            const currentPlayer = getCurrentPlayer();
+                            const hasNegativeBalance = currentPlayer && playerNegativeBalance[currentPlayer.id];
+                            const currentMoney = currentPlayer ? syncedPlayerMoney[currentPlayer.id] : 0;
+                            const disabled = endTurnClicked || globalDiceRolling || localDiceRolling || hasNegativeBalance;
+                            // console.log('[DEBUG] End Turn button (special space doubles) - disabled:', disabled, 'reasons:', {
+                            //   endTurnClicked,
+                            //   globalDiceRolling,
+                            //   localDiceRolling,
+                            //   hasNegativeBalance,
+                            //   currentMoney,
+                            //   playerNegativeBalance: playerNegativeBalance[currentPlayer?.id]
+                            // });
+                            return disabled;
+                          })()}
+                        >End Turn</UniformButton>;
                       } else {
                         if (lastButtonLogRef.current !== 'roll-again-doubles') {
                           // console.log('[DEBUG] Showing Roll Again button for doubles');
@@ -2356,10 +2435,28 @@ const MonopolyBoard = (props) => {
                         // console.log(`[DEBUG] ${specialSpaceMessage}`);
                         lastButtonLogRef.current = 'end-turn-normal';
                       }
-                      return <UniformButton variant="purple" onClick={() => {
-                        // console.log('[DEBUG] End Turn clicked from special space, showing Roll Dice button');
-                        handleEndTurn();
-                      }}>End Turn</UniformButton>;
+                      return <UniformButton 
+                        variant="purple" 
+                        onClick={() => {
+                          // console.log('[DEBUG] End Turn clicked from special space, showing Roll Dice button');
+                          handleEndTurn();
+                        }}
+                        disabled={(() => {
+                          const currentPlayer = getCurrentPlayer();
+                          const hasNegativeBalance = currentPlayer && playerNegativeBalance[currentPlayer.id];
+                          const currentMoney = currentPlayer ? syncedPlayerMoney[currentPlayer.id] : 0;
+                          const disabled = endTurnClicked || globalDiceRolling || localDiceRolling || hasNegativeBalance;
+                          // console.log('[DEBUG] End Turn button (normal) - disabled:', disabled, 'reasons:', {
+                          //   endTurnClicked,
+                          //   globalDiceRolling,
+                          //   localDiceRolling,
+                          //   hasNegativeBalance,
+                          //   currentMoney,
+                          //   playerNegativeBalance: playerNegativeBalance[currentPlayer?.id]
+                          // });
+                          return disabled;
+                        })()}
+                      >End Turn</UniformButton>;
                     }
                     // After the block for showing Roll Again and Roll Dice, add this logic:
                     // Show End Turn button after a non-double roll following a doubles sequence
@@ -2370,10 +2467,28 @@ const MonopolyBoard = (props) => {
                         // console.log('[DEBUG] Showing End Turn button after non-double roll following doubles sequence');
                         lastButtonLogRef.current = 'end-turn-after-doubles-sequence';
                       }
-                      return <UniformButton variant="purple" onClick={() => {
-                        // console.log('[DEBUG] End Turn clicked after doubles sequence, advancing to next player');
-                        handleEndTurn();
-                      }}>End Turn</UniformButton>;
+                      return <UniformButton 
+                        variant="purple" 
+                        onClick={() => {
+                          // console.log('[DEBUG] End Turn clicked after doubles sequence, advancing to next player');
+                          handleEndTurn();
+                        }}
+                        disabled={(() => {
+                          const currentPlayer = getCurrentPlayer();
+                          const hasNegativeBalance = currentPlayer && playerNegativeBalance[currentPlayer.id];
+                          const currentMoney = currentPlayer ? syncedPlayerMoney[currentPlayer.id] : 0;
+                          const disabled = endTurnClicked || globalDiceRolling || localDiceRolling || hasNegativeBalance;
+                          console.log('[DEBUG] End Turn button (after doubles sequence) - disabled:', disabled, 'reasons:', {
+                            endTurnClicked,
+                            globalDiceRolling,
+                            localDiceRolling,
+                            hasNegativeBalance,
+                            currentMoney,
+                            playerNegativeBalance: playerNegativeBalance[currentPlayer?.id]
+                          });
+                          return disabled;
+                        })()}
+                      >End Turn</UniformButton>;
                     }
                     return null;
                   }
@@ -2427,6 +2542,18 @@ const MonopolyBoard = (props) => {
                           )}
                           {entry.type === 'bot' && (
                             <FiberManualRecord sx={{ color: '#06b6d4', fontSize: '8px' }} />
+                          )}
+                          {entry.type === 'treasure' && (
+                            <FiberManualRecord sx={{ color: '#f97316', fontSize: '8px' }} />
+                          )}
+                          {entry.type === 'surprise' && (
+                            <FiberManualRecord sx={{ color: '#ec4899', fontSize: '8px' }} />
+                          )}
+                          {entry.type === 'transaction' && (
+                            <FiberManualRecord sx={{ color: '#22c55e', fontSize: '8px' }} />
+                          )}
+                          {entry.type === 'movement' && (
+                            <FiberManualRecord sx={{ color: '#8b5cf6', fontSize: '8px' }} />
                           )}
                         </ListItemIcon>
                         <ListItemText
