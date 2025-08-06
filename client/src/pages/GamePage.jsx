@@ -1536,12 +1536,12 @@ const GamePage = () => {
     handleSettingsChange({ boardMap: selectedMap });
   };
 
-  // const handleMapFullPreview = (mapName) => {
-  //   console.log('[DEBUG] handleMapFullPreview called with mapName:', mapName);
-  //   setPreviewingMap(mapName);
-  //   setMapFullPreviewOpen(true);
-  //   setMapPreviewOpen(false); // Close the browser modal
-  // };
+  const handleMapFullPreview = (mapName) => {
+    // console.log('[DEBUG] handleMapFullPreview called with mapName:', mapName);
+    setPreviewingMap(mapName);
+    setMapFullPreviewOpen(true);
+    setMapPreviewOpen(false); // Close the browser modal
+  };
 
   const handleMapFullPreviewClose = () => {
     setMapFullPreviewOpen(false);
