@@ -6,7 +6,7 @@ const app = express();
 
 // Middleware
 app.use(cors({
-    origin: ['http://localhost:5173', 'http://localhost:5174'], // Add your client ports here
+    origin: ['http://localhost:5173', 'http://localhost:5174', "https://tradenroll.web.app"], // Add your client ports here
     credentials: true
 }));
 app.use(express.json());

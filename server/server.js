@@ -7,7 +7,7 @@ const socketManager = require('./src/socket/socketManager');
 
 // Enable CORS for all routes and allow frontend origin
 app.use(cors({
-    origin: 'http://localhost:5173',
+    origin: ['http://localhost:5173',"http://localhost:5174", "https://tradenroll.web.app"],
     credentials: true
 }));
 

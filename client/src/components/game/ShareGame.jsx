@@ -128,7 +128,7 @@ const ShareGame = ({
     }
   };
 
-  const shareUrl = gameUrl || 'http://localhost:5173/game/example';
+  const shareUrl = gameUrl || 'https://tradenroll.web.app/game/example';
 
   const handleDevDiceToggle = () => {
     if (onDevDiceChange) {

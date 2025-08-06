@@ -7,7 +7,7 @@ let io;
 const init = (httpServer) => {
   io = new Server(httpServer, {
     cors: {
-      origin: ["http://localhost:5173", "http://localhost:5174"], // Make sure this matches your client
+      origin: ["http://localhost:5173", "http://localhost:5174", "https://tradenroll.web.app"], // Make sure this matches your client
       methods: ["GET", "POST"],
       credentials: true
     }
