@@ -2,10 +2,9 @@
   width: calc(100% - 20px);
   /* Small margin on all sides */
   height: calc(100% - 20px);
-  min-width: 600px;
-  min-height: 530px;
-  max-width: calc(100vw - 460px);
-  /* Account for sidebars + margins */
+  min-width: 400px; /* Reduced from 600px for better mobile support */
+  min-height: 350px; /* Reduced from 530px */
+  max-width: 100%; /* Responsive max-width */
   max-height: calc(100vh - 20px);
   aspect-ratio: 17/15;
   /* Maintain board proportions (850:750) */
@@ -19,6 +18,36 @@
   /* Small margin on all sides */
 }
 
+/* Responsive adjustments */
+@media (max-width: 1200px) {
+  .monopoly-board {
+    min-width: 350px;
+    min-height: 300px;
+  }
+}
+
+@media (max-width: 768px) {
+  .monopoly-board {
+    min-width: 300px;
+    min-height: 250px;
+    margin: 5px;
+    width: calc(100% - 10px);
+    height: calc(100% - 10px);
+    border: 2px solid #4c1d95; /* Thinner border on mobile */
+  }
+}
+
+@media (max-width: 480px) {
+  .monopoly-board {
+    min-width: 280px;
+    min-height: 200px;
+    margin: 2px;
+    width: calc(100% - 4px);
+    height: calc(100% - 4px);
+    border: 1px solid #4c1d95; /* Even thinner border */
+  }
+}
+
 /* Classic Map Layout (11x11 grid) */
 .monopoly-board.classic {
   grid-template-columns: 75px repeat(9, 1fr) 75px;
@@ -29,6 +58,31 @@
 .monopoly-board.worldwide {
   grid-template-columns: 75px repeat(11, 1fr) 75px;
   grid-template-rows: 75px repeat(11, 1fr) 75px;
+}
+
+/* Responsive grid adjustments */
+@media (max-width: 768px) {
+  .monopoly-board.classic {
+    grid-template-columns: 60px repeat(9, 1fr) 60px;
+    grid-template-rows: 60px repeat(9, 1fr) 60px;
+  }
+  
+  .monopoly-board.worldwide {
+    grid-template-columns: 60px repeat(11, 1fr) 60px;
+    grid-template-rows: 60px repeat(11, 1fr) 60px;
+  }
+}
+
+@media (max-width: 480px) {
+  .monopoly-board.classic {
+    grid-template-columns: 45px repeat(9, 1fr) 45px;
+    grid-template-rows: 45px repeat(9, 1fr) 45px;
+  }
+  
+  .monopoly-board.worldwide {
+    grid-template-columns: 45px repeat(11, 1fr) 45px;
+    grid-template-rows: 45px repeat(11, 1fr) 45px;
+  }
 }
 
 /* Board Rows and Columns (Unchanged) */
@@ -120,6 +174,43 @@
   cursor: pointer;
   box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
   transition: all 0.3s ease;
+}
+
+/* Responsive adjustments for game elements */
+@media (max-width: 768px) {
+  .dice {
+    font-size: 18px;
+    width: 32px;
+    height: 32px;
+  }
+  
+  .game-title {
+    font-size: 16px;
+    margin-bottom: 15px;
+  }
+  
+  .start-game-btn {
+    padding: 8px 16px;
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .dice {
+    font-size: 14px;
+    width: 24px;
+    height: 24px;
+  }
+  
+  .game-title {
+    font-size: 14px;
+    margin-bottom: 10px;
+  }
+  
+  .start-game-btn {
+    padding: 6px 12px;
+    font-size: 10px;
+  }
 }
 
 .start-game-btn:hover {
@@ -1546,4 +1637,95 @@
 
 .jail-avatar-exiting {
   animation: jailExit 0.4s ease-in-out;
+}
+
+/* Mobile responsive improvements */
+@media (max-width: 768px) {
+  /* Property space text */
+  .corner-space .property-name,
+  .property-space .property-name {
+    font-size: 8px !important;
+  }
+  
+  .corner-space .property-price,
+  .property-space .property-price {
+    font-size: 7px !important;
+  }
+  
+  /* Corner space elements */
+  .corner-space .corner-name {
+    font-size: 10px !important;
+  }
+  
+  /* Player avatars */
+  .player-avatar {
+    width: 18px !important;
+    height: 18px !important;
+    font-size: 10px !important;
+  }
+  
+  /* Property houses and hotels */
+  .house, .hotel {
+    width: 8px !important;
+    height: 8px !important;
+    font-size: 6px !important;
+  }
+  
+  .game-info {
+    padding: 10px;
+  }
+  
+  .dice-area {
+    gap: 5px;
+    margin-bottom: 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  /* Even smaller text for mobile */
+  .corner-space .property-name,
+  .property-space .property-name {
+    font-size: 6px !important;
+  }
+  
+  .corner-space .property-price,
+  .property-space .property-price {
+    font-size: 5px !important;
+  }
+  
+  .corner-space .corner-name {
+    font-size: 8px !important;
+  }
+  
+  /* Smaller player avatars */
+  .player-avatar {
+    width: 14px !important;
+    height: 14px !important;
+    font-size: 8px !important;
+  }
+  
+  /* Smaller houses and hotels */
+  .house, .hotel {
+    width: 6px !important;
+    height: 6px !important;
+    font-size: 4px !important;
+  }
+  
+  .game-info {
+    padding: 5px;
+  }
+  
+  .dice-area {
+    gap: 3px;
+    margin-bottom: 5px;
+  }
+}
+
+/* Touch-friendly hover effects for mobile */
+@media (hover: none) and (pointer: coarse) {
+  .property-space:hover,
+  .corner-space:hover {
+    transform: none;
+    box-shadow: initial;
+  }
 }

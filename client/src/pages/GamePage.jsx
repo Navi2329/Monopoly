@@ -54,6 +54,8 @@ const StyledSidebar = styled(Paper)(({ theme }) => ({
   backdropFilter: 'blur(20px)',
   border: '1px solid rgba(255, 255, 255, 0.08)',
   width: '380px',
+  minWidth: '280px',
+  maxWidth: '400px',
   height: '100dvh',
   display: 'flex',
   flexDirection: 'column',
@@ -61,6 +63,33 @@ const StyledSidebar = styled(Paper)(({ theme }) => ({
   overflow: 'hidden',
   paddingBottom: 0, // Remove bottom padding
   boxSizing: 'border-box',
+  flex: '0 0 380px',
+  [theme.breakpoints.down('lg')]: {
+    width: '300px',
+    flex: '0 0 300px',
+  },
+  [theme.breakpoints.down('md')]: {
+    width: '250px',
+    flex: '0 0 250px',
+  },
+  [theme.breakpoints.down('sm')]: {
+    position: 'fixed',
+    zIndex: 1300,
+    width: '280px',
+    flex: 'none',
+    transform: 'translateX(-100%)',
+    transition: 'transform 0.3s ease-in-out',
+    '&.mobile-open': {
+      transform: 'translateX(0)',
+    },
+    '&.right-sidebar': {
+      right: 0,
+      transform: 'translateX(100%)',
+      '&.mobile-open': {
+        transform: 'translateX(0)',
+      },
+    },
+  },
 }));
 
 const StyledMainArea = styled(Box)(({ theme }) => ({
@@ -75,7 +104,8 @@ const StyledMainArea = styled(Box)(({ theme }) => ({
   minHeight: 0,
   overflow: 'hidden',
   height: '100dvh',
-  maxHeight: '100dvh'
+  maxHeight: '100dvh',
+  minWidth: '300px', // Ensure board area doesn't get too small
 }));
 
 const StyledHeader = styled(Box)(({ theme }) => ({
@@ -204,6 +234,10 @@ const GamePage = () => {
   const [selectedTradePartner, setSelectedTradePartner] = useState(null);
   const [selectedTrade, setSelectedTrade] = useState(null);
   const [playerProperties, setPlayerProperties] = useState({});
+
+  // Mobile responsive state
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState(false);
+  const [rightSidebarOpen, setRightSidebarOpen] = useState(false);
 
   // Bankruptcy and vote-kick state
   const [bankruptedPlayers, setBankruptedPlayers] = useState([]);
@@ -2942,12 +2976,105 @@ const GamePage = () => {
       background: 'linear-gradient(135deg, #0f172a, #1e293b, #0f172a)',
       overflow: 'hidden',
       display: 'flex',
-      maxWidth: '100vw'
+      maxWidth: '100vw',
+      position: 'relative',
+      '@media (max-width: 600px)': {
+        flexDirection: 'column',
+      }
     }}>
+      {/* Mobile backdrop */}
+      <Box
+        sx={{
+          display: { xs: 'block', sm: 'none' },
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          zIndex: 1200,
+          opacity: leftSidebarOpen || rightSidebarOpen ? 1 : 0,
+          visibility: leftSidebarOpen || rightSidebarOpen ? 'visible' : 'hidden',
+          transition: 'opacity 0.3s ease-in-out, visibility 0.3s ease-in-out',
+        }}
+        onClick={() => {
+          setLeftSidebarOpen(false);
+          setRightSidebarOpen(false);
+        }}
+      />
+
+      {/* Mobile control buttons */}
+      <Box
+        sx={{
+          display: { xs: 'flex', sm: 'none' },
+          position: 'fixed',
+          top: 16,
+          left: 16,
+          right: 16,
+          zIndex: 1400,
+          justifyContent: 'space-between',
+          pointerEvents: 'none',
+        }}
+      >
+        <IconButton
+          onClick={() => setLeftSidebarOpen(true)}
+          sx={{
+            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+            backdropFilter: 'blur(10px)',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            color: 'white',
+            pointerEvents: 'auto',
+            '&:hover': {
+              backgroundColor: 'rgba(30, 41, 59, 0.9)',
+            },
+          }}
+        >
+          <Settings />
+        </IconButton>
+        <IconButton
+          onClick={() => setRightSidebarOpen(true)}
+          sx={{
+            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+            backdropFilter: 'blur(10px)',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            color: 'white',
+            pointerEvents: 'auto',
+            '&:hover': {
+              backgroundColor: 'rgba(30, 41, 59, 0.9)',
+            },
+          }}
+        >
+          <PersonRemove />
+        </IconButton>
+      </Box>
       {/* Left Sidebar */}
-      <StyledSidebar elevation={24}>
+      <StyledSidebar 
+        elevation={24}
+        className={leftSidebarOpen ? 'mobile-open' : ''}
+        sx={{
+          display: { xs: 'flex', sm: 'flex' }, // Always show on desktop, controlled by transform on mobile
+        }}
+      >
         {/* Header with Logo */}
         <StyledHeader>
+          {/* Mobile close button */}
+          <Box
+            sx={{
+              display: { xs: 'block', sm: 'none' },
+              position: 'absolute',
+              right: 8,
+              top: 8,
+            }}
+          >
+            <IconButton
+              onClick={() => setLeftSidebarOpen(false)}
+              size="small"
+              sx={{ color: 'rgba(255, 255, 255, 0.7)' }}
+            >
+              <Close />
+            </IconButton>
+          </Box>
+
           <Tooltip title="Go to Lobby" arrow>
             <IconButton
               onClick={() => window.location.assign('/')}
@@ -3211,9 +3338,34 @@ const GamePage = () => {
       />
 
       {/* Right Sidebar */}
-      <StyledSidebar elevation={24}>
+      <StyledSidebar 
+        elevation={24}
+        className={`right-sidebar ${rightSidebarOpen ? 'mobile-open' : ''}`}
+        sx={{
+          display: { xs: 'flex', sm: 'flex' }, // Always show on desktop, controlled by transform on mobile
+        }}
+      >
         {/* Players Section - Fixed at top */}
-        <Box sx={{ flex: '0 0 auto', p: 2, borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+        <Box sx={{ flex: '0 0 auto', p: 2, borderBottom: '1px solid rgba(255, 255, 255, 0.08)', position: 'relative' }}>
+          {/* Mobile close button */}
+          <Box
+            sx={{
+              display: { xs: 'block', sm: 'none' },
+              position: 'absolute',
+              right: 8,
+              top: 8,
+              zIndex: 1,
+            }}
+          >
+            <IconButton
+              onClick={() => setRightSidebarOpen(false)}
+              size="small"
+              sx={{ color: 'rgba(255, 255, 255, 0.7)' }}
+            >
+              <Close />
+            </IconButton>
+          </Box>
+
           <PlayerList
             players={displayPlayers}
             currentPlayerId={currentPlayer?.id}
