@@ -23,3 +23,10 @@ dist-ssr
 *.sln
 *.sw?
 .env
+
+.firebaserc
+firebase.json
+.firebase/hosting.cHVibGlj.cache
+.firebase/hosting.ZGlzdA.cache
+public/404.html
+public/index.html
