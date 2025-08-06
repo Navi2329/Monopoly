@@ -32,6 +32,7 @@ import {
   Person
 } from '@mui/icons-material';
 import { styled } from '@mui/material/styles';
+import MapSelector from './MapSelector';
 
 const StyledSettingRow = styled(Box)(({ theme }) => ({
   display: 'flex',

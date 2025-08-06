@@ -1,6 +1,7 @@
 // server/src/models/Room.js
 const treasureCards = require('../data/treasureCards');
 const surpriseCards = require('../data/surpriseCards');
+const { getPropertyData } = require('../data/mapConfigurations');
 
 class Room {
   constructor(hostId, hostName, settings = {}) {
@@ -40,51 +41,11 @@ class Room {
     // Debt tracking system
     this.playerDebts = {}; // { debtorPlayerId: { creditorPlayerId: amount } } for tracking unpaid debts
 
-    // Property data from classic map
-    this.propertyData = {
-      // Brazil set
-      'Salvador': { type: 'property', set: 'Brazil', price: 60, rent: [2, 10, 10, 90, 160, 250], buildCost: 50, hotelCost: 50 },
-      'Rio': { type: 'property', set: 'Brazil', price: 60, rent: [4, 20, 60, 180, 320, 450], buildCost: 50, hotelCost: 50 },
-      // Airport
-      'TLV Airport': { type: 'airport', set: 'Airport', price: 200, rent: [25, 50, 100, 200] },
-      // Israel set
-      'Tel Aviv': { type: 'property', set: 'Israel', price: 100, rent: [6, 30, 90, 270, 400, 550], buildCost: 50, hotelCost: 50 },
-      'Haifa': { type: 'property', set: 'Israel', price: 100, rent: [6, 30, 90, 270, 400, 550], buildCost: 50, hotelCost: 50 },
-      'Jerusalem': { type: 'property', set: 'Israel', price: 120, rent: [8, 40, 100, 300, 450, 600], buildCost: 50, hotelCost: 50 },
-      // Italy set
-      'Venice': { type: 'property', set: 'Italy', price: 140, rent: [10, 50, 150, 450, 625, 750], buildCost: 100, hotelCost: 100 },
-      'Milan': { type: 'property', set: 'Italy', price: 140, rent: [10, 50, 150, 450, 625, 750], buildCost: 100, hotelCost: 100 },
-      'Rome': { type: 'property', set: 'Italy', price: 160, rent: [12, 60, 180, 500, 700, 900], buildCost: 100, hotelCost: 100 },
-      // Airport
-      'MUC Airport': { type: 'airport', set: 'Airport', price: 200, rent: [25, 50, 100, 200] },
-      // Germany set
-      'Frankfurt': { type: 'property', set: 'Germany', price: 180, rent: [14, 70, 200, 550, 750, 950], buildCost: 100, hotelCost: 100 },
-      'Munich': { type: 'property', set: 'Germany', price: 180, rent: [14, 70, 200, 550, 750, 950], buildCost: 100, hotelCost: 100 },
-      'Berlin': { type: 'property', set: 'Germany', price: 200, rent: [16, 80, 220, 600, 800, 1000], buildCost: 100, hotelCost: 100 },
-      // China set
-      'Shenzhen': { type: 'property', set: 'China', price: 220, rent: [18, 90, 250, 700, 875, 1050], buildCost: 150, hotelCost: 150 },
-      'Beijing': { type: 'property', set: 'China', price: 220, rent: [18, 90, 250, 700, 875, 1050], buildCost: 150, hotelCost: 150 },
-      'Shanghai': { type: 'property', set: 'China', price: 240, rent: [20, 100, 300, 750, 925, 1100], buildCost: 150, hotelCost: 150 },
-      // Airport
-      'CDG Airport': { type: 'airport', set: 'Airport', price: 200, rent: [25, 50, 100, 200] },
-      // France set
-      'Lyon': { type: 'property', set: 'France', price: 260, rent: [22, 110, 330, 800, 975, 1150], buildCost: 150, hotelCost: 150 },
-      'Toulouse': { type: 'property', set: 'France', price: 260, rent: [22, 110, 330, 800, 975, 1150], buildCost: 150, hotelCost: 150 },
-      'Paris': { type: 'property', set: 'France', price: 280, rent: [24, 120, 360, 850, 1025, 1200], buildCost: 150, hotelCost: 150 },
-      // UK set
-      'Liverpool': { type: 'property', set: 'UK', price: 300, rent: [26, 130, 390, 900, 1100, 1275], buildCost: 200, hotelCost: 200 },
-      'Manchester': { type: 'property', set: 'UK', price: 300, rent: [26, 130, 390, 900, 1100, 1275], buildCost: 200, hotelCost: 200 },
-      'London': { type: 'property', set: 'UK', price: 320, rent: [28, 150, 450, 1000, 1200, 1400], buildCost: 200, hotelCost: 200 },
-      // Airport
-      'JFK Airport': { type: 'airport', set: 'Airport', price: 200, rent: [25, 50, 100, 200] },
-      // USA set
-      'California': { type: 'property', set: 'USA', price: 350, rent: [35, 175, 500, 1100, 1300, 1500], buildCost: 200, hotelCost: 200 },
-      'New York': { type: 'property', set: 'USA', price: 400, rent: [50, 200, 600, 1400, 1700, 2000], buildCost: 200, hotelCost: 200 },
-      // Companies
-      'Electric Company': { type: 'company', set: 'Company', price: 150, rent: [4, 10] },
-      'Water Company': { type: 'company', set: 'Company', price: 150, rent: [4, 10] }
-    };
+    // Developer/Debug features
+    this.devTreasureCard = null; // Force next treasure card to be this specific card ID
+    this.devSurpriseCard = null; // Force next surprise card to be this specific card ID
 
+    // Initialize settings first before loading property data
     this.settings = {
       allowAuction: false,
       vacationCash: false,
@@ -94,8 +55,43 @@ class Room {
       evenBuild: false,           // enforce even build
       startingMoney: 1500,        // starting cash
       randomizePlayerOrder: false,// randomize player order
+      boardMap: 'classic',        // default map
       ...settings
     };
+
+    // Dynamic property data based on selected map
+    this.propertyData = this.getPropertyDataForMap();
+    // Store map type for easy access
+    this.mapType = this.settings.boardMap || 'classic';
+  }
+
+  // Get property data based on settings.boardMap or default to classic
+  getPropertyDataForMap() {
+    const mapType = this.settings.boardMap || 'classic';
+    try {
+      const propertyData = getPropertyData(mapType);
+      return propertyData;
+    } catch (error) {
+      console.warn(`Failed to load map "${mapType}", falling back to classic:`, error.message);
+      const fallbackData = getPropertyData('classic');
+      return fallbackData;
+    }
+  }
+
+  // Update property data when map changes
+  updateMapData() {
+    this.propertyData = this.getPropertyDataForMap();
+    this.mapType = this.settings.boardMap || 'classic';
+  }
+
+  // Get jail position based on map type
+  getJailPosition() {
+    return (this.mapType === 'Worldwide' || this.mapType === 'Mr. Worldwide') ? 12 : 10;
+  }
+
+  // Get vacation position based on map type
+  getVacationPosition() {
+    return (this.mapType === 'Worldwide' || this.mapType === 'Mr. Worldwide') ? 24 : 20;
   }
 
   addPlayer(player) {
@@ -150,7 +146,14 @@ class Room {
   }
 
   updateSettings(newSettings) {
+    const oldBoardMap = this.settings.boardMap;
     this.settings = { ...this.settings, ...newSettings };
+    
+    // If board map changed, reload property data
+    if (newSettings.boardMap && newSettings.boardMap !== oldBoardMap) {
+      this.propertyData = this.getPropertyDataForMap();
+      this.mapType = this.settings.boardMap || 'classic';
+    }
   }
 
   getPlayerList() {
@@ -206,10 +209,11 @@ class Room {
         this.playerStatuses[currentPlayer.id] = null;
         this.playerJailRounds[currentPlayer.id] = 0;
         this.playerDoublesCount[currentPlayer.id] = 0;
-        this.movePlayer(currentPlayer.id, total);
+        const moveResult = this.movePlayer(currentPlayer.id, total);
         const turnResult = this.advanceTurn(); // End turn immediately after escaping jail
-        this.lastDiceRoll = null; // Reset dice roll for the new player's turn
-        return { dice1, dice2, total, isDoubles, action: 'jail-escape', turnResult };
+        // IMPORTANT: Don't reset lastDiceRoll yet - property landing logic needs it for company rent calculations
+        // The dice roll will be reset by the server handlers after property landing is processed
+        return { dice1, dice2, total, isDoubles, action: 'jail-escape', position: moveResult.position, passedStart: moveResult.passedStart, turnResult };
       } else {
         // Stay in jail
         this.playerJailRounds[currentPlayer.id]++;
@@ -230,42 +234,45 @@ class Room {
     // Handle doubles
     if (isDoubles) {
       this.playerDoublesCount[currentPlayer.id]++;
-      // console.log('[DEBUG][SERVER][rollDice] Doubles count for', currentPlayer.id, ':', this.playerDoublesCount[currentPlayer.id]);
 
       if (this.playerDoublesCount[currentPlayer.id] >= 3) {
         // Go to jail for 3 doubles - move player to jail, set status, and ADVANCE TURN
-        this.playerPositions[currentPlayer.id] = 10;
+        const jailPosition = this.getJailPosition();
+        this.playerPositions[currentPlayer.id] = jailPosition;
         this.playerStatuses[currentPlayer.id] = 'jail';
         this.playerJailRounds[currentPlayer.id] = 0;
         this.playerDoublesCount[currentPlayer.id] = 0;
         const turnResult = this.advanceTurn();
         this.lastDiceRoll = null;
-        return { dice1, dice2, total, isDoubles, action: 'jail-move', position: 10, turnResult };
+        return { dice1, dice2, total, isDoubles, action: 'jail-move', position: jailPosition, turnResult };
       }
       // If doubles but less than 3, don't advance turn - player gets another roll after clicking End Turn
     } else {
+      // CRITICAL FIX: Reset doubles count immediately when non-doubles are rolled
       this.playerDoublesCount[currentPlayer.id] = 0;
-      // console.log('[DEBUG][SERVER][rollDice] Doubles count reset for', currentPlayer.id);
-      // Don't advance turn automatically - player must click End Turn
     }
 
     // Check for special spaces that end turn immediately
     if (result.action === 'jail') {
       // Move player to jail and set jail status, but do NOT end turn
-      this.playerPositions[currentPlayer.id] = 10;
+      const jailPosition = this.getJailPosition();
+      this.playerPositions[currentPlayer.id] = jailPosition;
       this.playerStatuses[currentPlayer.id] = 'jail';
       this.playerJailRounds[currentPlayer.id] = 0;
       // Return special action for frontend to show End Turn button
-      return { dice1, dice2, total, isDoubles, action: 'jail-move', position: 10, passedStart: result.passedStart };
+      return { dice1, dice2, total, isDoubles, action: 'jail-move', position: jailPosition, passedStart: result.passedStart };
     }
     // --- FIX: Handle Go to Jail (space 30) ---
     if (result.action === 'go-to-jail') {
-      // Move player to jail and set jail status, but do NOT end turn
-      this.playerPositions[currentPlayer.id] = 10;
+      // Reset doubles count immediately when going to jail from Go to Prison space
+      this.playerDoublesCount[currentPlayer.id] = 0;
+      // Move player to jail and set jail status
+      const jailPosition = this.getJailPosition();
+      this.playerPositions[currentPlayer.id] = jailPosition;
       this.playerStatuses[currentPlayer.id] = 'jail';
       this.playerJailRounds[currentPlayer.id] = 0;
-      // Return special action for frontend to show End Turn button
-      return { dice1, dice2, total, isDoubles, action: 'jail-move', position: 10, passedStart: result.passedStart };
+      // Return special action that will force turn end (no End Turn button)
+      return { dice1, dice2, total, isDoubles, action: 'go-to-jail', position: jailPosition, passedStart: result.passedStart };
     }
 
     // For vacation, do NOT end turn automatically. Just return the action and let the frontend show End Turn/Skip.
@@ -274,10 +281,11 @@ class Room {
 
   movePlayer(playerId, spaces) {
     const currentPos = this.playerPositions[playerId] || 0;
-    let newPos = (currentPos + spaces) % 40;
+    const totalSpaces = (this.mapType === 'Worldwide' || this.mapType === 'Mr. Worldwide') ? 48 : 40;
+    let newPos = (currentPos + spaces) % totalSpaces;
     let passedStart = false;
 
-    if (currentPos + spaces >= 40) {
+    if (currentPos + spaces >= totalSpaces) {
       passedStart = true;
       // Award money for passing START (but not landing on it)
       if (newPos !== 0) {
@@ -289,12 +297,13 @@ class Room {
 
     // Handle special spaces
     let action = null;
-    if (newPos === 30) { // Go to jail
+    const goToJailPosition = (this.mapType === 'Worldwide' || this.mapType === 'Mr. Worldwide') ? 36 : 30;
+    if (newPos === goToJailPosition) { // Go to jail
       // Do NOT move player or set status yet; handle in two-step flow
       action = 'go-to-jail';
-      // Return position 30 so the client can animate the move
-      return { action, position: 30 };
-    } else if (newPos === 20) { // Vacation
+      // Return position so the client can animate the move
+      return { action, position: goToJailPosition };
+    } else if (newPos === this.getVacationPosition()) { // Vacation
       // Only return action: 'vacation' if landed on vacation.
       // The status will be set after End Turn is clicked.
       action = 'vacation';
@@ -339,9 +348,9 @@ class Room {
         this.collectedMoney[playerId] += taxAmount;
       }
       action = 'luxury-tax';
-    } else if ([2, 17, 33].includes(newPos)) { // Treasure spaces
+    } else if (this.isTreasureSpace(newPos)) { // Treasure spaces
       action = 'treasure';
-    } else if ([7, 22, 36].includes(newPos)) { // Surprise spaces
+    } else if (this.isSurpriseSpace(newPos)) { // Surprise spaces
       action = 'surprise';
     }
 
@@ -350,34 +359,125 @@ class Room {
 
   // Helper method to get property position on board
   getPropertyPosition(propertyName) {
-    const propertyMap = {
-      'Salvador': 1, 'Rio': 3, 'Tel Aviv': 6, 'Haifa': 8, 'Jerusalem': 9,
-      'Venice': 11, 'Milan': 13, 'Rome': 14, 'Frankfurt': 16, 'Munich': 18, 
-      'Berlin': 19, 'Shenzhen': 21, 'Beijing': 23, 'Shanghai': 24,
-      'Lyon': 26, 'Toulouse': 27, 'Paris': 29, 'Liverpool': 31, 
-      'Manchester': 32, 'London': 34, 'California': 37, 'New York': 39
-    };
-    return propertyMap[propertyName] || null;
+    // Use different position maps based on the current map type
+    if (this.mapType === 'Mr. Worldwide' || this.mapType === 'worldwide') {
+      // Worldwide map positions (48 spaces) - 13x13 grid layout
+      const worldwidePropertyMap = {
+        // Top row (0-12): Start → Prison
+        'Salvador': 1, 'Rio': 3, 'Tel Aviv': 5, 'TLV Airport': 6, 'Haifa': 7, 'Jerusalem': 8, 'Mumbai': 10, 'New Delhi': 11,
+        
+        // Right column (13-23): Prison → Vacation
+        'Venice': 13, 'Bologna': 14, 'Electric Company': 15, 'Milan': 16, 'Rome': 17, 'MUC Airport': 18, 'Frankfurt': 19, 'Munich': 21, 'Gas Company': 22, 'Berlin': 23,
+        
+        // Bottom row (24-35): Vacation → Go to Prison (reversed)
+        'Shenzhen': 25, 'Beijing': 27, 'Shanghai': 29, 'CDG Airport': 30, 'Toulouse': 31, 'Paris': 32, 'Water Company': 33, 'Yokohama': 34, 'Tokyo': 35,
+        
+        // Left column (36-47): Go to Prison → Start (reversed)
+        'Liverpool': 37, 'Manchester': 38, 'Birmingham': 40, 'London': 41, 'JFK Airport': 42, 'Los Angeles': 43, 'California': 45, 'New York': 47
+      };
+      return worldwidePropertyMap[propertyName] || null;
+    } else {
+      // Classic map positions (40 spaces) - 11x11 grid layout
+      const classicPropertyMap = {
+        'Salvador': 1, 'Rio': 3, 'TLV Airport': 5, 'Tel Aviv': 6, 'Haifa': 8, 'Jerusalem': 9,
+        'Venice': 11, 'Electric Company': 12, 'Milan': 13, 'Rome': 14, 'MUC Airport': 15, 'Frankfurt': 16, 'Munich': 18, 
+        'Berlin': 19, 'Shenzhen': 21, 'Beijing': 23, 'Shanghai': 24, 'CDG Airport': 25,
+        'Lyon': 26, 'Toulouse': 27, 'Water Company': 28, 'Paris': 29, 'Liverpool': 31, 
+        'Manchester': 32, 'London': 34, 'JFK Airport': 36, 'California': 37, 'New York': 39
+      };
+      return classicPropertyMap[propertyName] || null;
+    }
+  }
+
+  // Helper method to check if a position is a treasure space
+  isTreasureSpace(position) {
+    if (this.mapType === 'Mr. Worldwide' || this.mapType === 'worldwide') {
+      // Worldwide map treasure positions
+      return [2, 20, 28, 39].includes(position);
+    } else {
+      // Classic map treasure positions
+      return [2, 17, 33].includes(position);
+    }
+  }
+
+  // Helper method to check if a position is a surprise space
+  isSurpriseSpace(position) {
+    if (this.mapType === 'Mr. Worldwide' || this.mapType === 'worldwide') {
+      // Worldwide map surprise positions
+      return [9, 26, 44].includes(position);
+    } else {
+      // Classic map surprise positions
+      return [7, 22, 36].includes(position);
+    }
   }
 
   // Helper method to get property name by position on board
   getPropertyNameByPosition(position) {
-    const positionMap = {
-      1: 'Salvador', 2: 'Treasure', 3: 'Rio', 4: 'Income Tax', 5: 'TLV Airport',
-      6: 'Tel Aviv', 7: 'Surprise', 8: 'Haifa', 9: 'Jerusalem', 10: 'Jail',
-      11: 'Venice', 12: 'Electric Company', 13: 'Milan', 14: 'Rome', 15: 'MUC Airport',
-      16: 'Frankfurt', 17: 'Treasure', 18: 'Munich', 19: 'Berlin', 20: 'Vacation',
-      21: 'Shenzhen', 22: 'Surprise', 23: 'Beijing', 24: 'Shanghai', 25: 'CDG Airport',
-      26: 'Lyon', 27: 'Toulouse', 28: 'Water Company', 29: 'Paris', 30: 'Go to Jail',
-      31: 'Liverpool', 32: 'Manchester', 33: 'Treasure', 34: 'London', 35: 'JFK Airport',
-      36: 'Surprise', 37: 'California', 38: 'Luxury Tax', 39: 'New York', 0: 'START'
-    };
-    return positionMap[position] || null;
+    
+    // Use different position maps based on the current map type
+    if (this.mapType === 'Mr. Worldwide' || this.mapType === 'worldwide') {
+      // Worldwide map positions (48 spaces) - 13x13 grid layout
+      const worldwidePositionMap = {
+        // Top row (0-12): Start → top right corner
+        0: 'START', 1: 'Salvador', 2: 'Treasure', 3: 'Rio', 4: 'Income Tax', 5: 'Tel Aviv',
+        6: 'TLV Airport', 7: 'Haifa', 8: 'Jerusalem', 9: 'Surprise', 10: 'Mumbai', 11: 'New Delhi', 12: 'Prison',
+        
+        // Right column (13-23): Prison → bottom right corner
+        13: 'Venice', 14: 'Bologna', 15: 'Electric Company', 16: 'Milan', 17: 'Rome', 18: 'MUC Airport',
+        19: 'Frankfurt', 20: 'Treasure', 21: 'Munich', 22: 'Gas Company', 23: 'Berlin',
+        
+        // Bottom row (24-35): bottom right → Vacation (reversed)
+        24: 'Vacation', 25: 'Shenzhen', 26: 'Surprise', 27: 'Beijing', 28: 'Treasure', 29: 'Shanghai',
+        30: 'CDG Airport', 31: 'Toulouse', 32: 'Paris', 33: 'Water Company', 34: 'Yokohama', 35: 'Tokyo',
+        
+        // Left column (36-47): Vacation → Start (reversed)  
+        36: 'Go to Prison', 37: 'Liverpool', 38: 'Manchester', 39: 'Treasure', 40: 'Birmingham', 41: 'London',
+        42: 'JFK Airport', 43: 'Los Angeles', 44: 'Surprise', 45: 'California', 46: 'Luxury Tax', 47: 'New York'
+      };
+      const propertyName = worldwidePositionMap[position] || null;
+      return propertyName;
+    } else {
+      // Classic map positions (40 spaces) - based on corrected classic.js properties
+      const classicPositionMap = {
+        // Top row (0-10): Start → Jail
+        0: 'START', 1: 'Salvador', 2: 'Treasure', 3: 'Rio', 4: 'Income Tax', 5: 'TLV Airport',
+        6: 'Tel Aviv', 7: 'Surprise', 8: 'Haifa', 9: 'Jerusalem', 10: 'Jail',
+        
+        // Right column (11-19): Jail → Vacation  
+        11: 'Venice', 12: 'Electric Company', 13: 'Milan', 14: 'Rome', 15: 'MUC Airport',
+        16: 'Frankfurt', 17: 'Treasure', 18: 'Munich', 19: 'Berlin',
+        
+        // Bottom row (20-29): Vacation → Go to Jail (reversed)
+        20: 'Vacation', 21: 'Shenzhen', 22: 'Surprise', 23: 'Beijing', 24: 'Shanghai', 
+        25: 'CDG Airport', 26: 'Lyon', 27: 'Toulouse', 28: 'Water Company', 29: 'Paris',
+        
+        // Left column (30-39): Go to Jail → Start (reversed)
+        30: 'Go to Jail', 31: 'Liverpool', 32: 'Manchester', 33: 'Treasure', 34: 'London', 
+        35: 'JFK Airport', 36: 'Surprise', 37: 'California', 38: 'Luxury Tax', 39: 'New York'
+      };
+      const propertyName = classicPositionMap[position] || null;
+      return propertyName;
+    }
   }
 
   // Method to draw and execute a treasure card
   drawTreasureCard(playerId) {
-    const card = treasureCards[Math.floor(Math.random() * treasureCards.length)];
+    // Check if there's a forced dev card
+    let card;
+    if (this.devTreasureCard) {
+      // Find the specific card
+      card = treasureCards.find(c => c.id === this.devTreasureCard);
+      if (card) {
+        // Reset the dev card after using it
+        this.devTreasureCard = null;
+      }
+    }
+    
+    // If no dev card or dev card not found, use random
+    if (!card) {
+      card = treasureCards[Math.floor(Math.random() * treasureCards.length)];
+    }
+    
     const player = this.players.find(p => p.id === playerId);
     if (!player) return null;
 
@@ -463,7 +563,22 @@ class Room {
 
   // Method to draw and execute a surprise card
   drawSurpriseCard(playerId) {
-    const card = surpriseCards[Math.floor(Math.random() * surpriseCards.length)];
+    // Check if there's a forced dev card
+    let card;
+    if (this.devSurpriseCard) {
+      // Find the specific card
+      card = surpriseCards.find(c => c.id === this.devSurpriseCard);
+      if (card) {
+        // Reset the dev card after using it
+        this.devSurpriseCard = null;
+      }
+    }
+    
+    // If no dev card or dev card not found, use random
+    if (!card) {
+      card = surpriseCards[Math.floor(Math.random() * surpriseCards.length)];
+    }
+    
     const player = this.players.find(p => p.id === playerId);
     if (!player) return null;
 
@@ -594,13 +709,14 @@ class Room {
         break;
 
       case 'goToJail':
-        this.playerPositions[playerId] = 10;
+        const jailPosition = this.getJailPosition();
+        this.playerPositions[playerId] = jailPosition;
         this.playerStatuses[playerId] = 'jail';
         this.playerJailRounds[playerId] = 0;
         this.playerDoublesCount[playerId] = 0;
         result.movement = {
           fromPosition: this.playerPositions[playerId],
-          toPosition: 10,
+          toPosition: jailPosition,
           goToJail: true
         };
         break;
@@ -710,13 +826,8 @@ class Room {
           });
           break; // Let this player roll
         } else {
-          // Still on vacation, require skip, but only one skip per turn
-          this.playerStatuses[playerId].justSkippedVacation = true;
-          orderedEvents.push({
-            type: 'vacation-skip',
-            playerId,
-            message: `${playerName} turn skipped. Still in vacation.`
-          });
+          // Still on vacation, but DON'T auto-skip - let the player click "Skip Turn" button
+          // Just break here so this player gets their turn to click Skip Turn
           break;
         }
       } else {
@@ -797,7 +908,19 @@ class Room {
       const multiplier = data.rent[Math.min(ownerCompanies - 1, data.rent.length - 1)] || 0;
       // Use dice roll value for company rent
       const diceValue = this.lastDiceRoll && this.lastDiceRoll.playerId ? this.lastDiceRoll.total : 0;
-      return multiplier * diceValue;
+      const calculatedRent = multiplier * diceValue;
+      
+      // DEBUG LOG: Company rent calculation details
+      // console.log('[DEBUG] Server company rent calculation:', {
+      //   propertyName: propertyName,
+      //   lastDiceRoll: this.lastDiceRoll,
+      //   diceValue: diceValue,
+      //   multiplier: multiplier,
+      //   ownerCompanies: ownerCompanies,
+      //   calculatedRent: calculatedRent
+      // });
+      
+      return calculatedRent;
     }
     if (data.type === 'property') {
       // Double rent for full set (any house/hotel level) if enabled
@@ -835,7 +958,10 @@ class Room {
   }
 
   getPropertyData(propertyName) {
-    return this.propertyData[propertyName];
+    const data = this.propertyData[propertyName];
+    if (!data && propertyName) {
+    }
+    return data;
   }
 
   isPropertyAvailable(propertyName) {
@@ -855,7 +981,7 @@ class Room {
       playerStatuses: this.playerStatuses,
       turnIndex: this.turnIndex,
       roundNumber: this.roundNumber,
-      specialAction: null, // or set as needed
+      specialAction: this.pendingSpecialAction?.type || null,
       playerMoney: this.playerMoney,
       currentTurnSocketId: this.players[this.turnIndex]?.id || null,
       propertyOwnership: this.propertyOwnership,
@@ -1527,7 +1653,6 @@ class Room {
   processDebtPayments(playerId, moneyGained) {
     if (!this.playerDebts[playerId] || moneyGained <= 0) return { payments: [], remainingMoney: moneyGained };
 
-    console.log(`[DEBUG] processDebtPayments: ${playerId} gained ${moneyGained} money, current debts:`, this.playerDebts[playerId]);
 
     const payments = [];
     let remainingMoney = moneyGained;
@@ -1540,7 +1665,6 @@ class Room {
       const debtAmount = this.playerDebts[playerId][creditorId];
       const paymentAmount = Math.min(debtAmount, remainingMoney);
 
-      console.log(`[DEBUG] Paying ${paymentAmount} to ${creditorId} (debt was ${debtAmount})`);
 
       if (paymentAmount > 0) {
         // Transfer money to creditor
@@ -1569,7 +1693,6 @@ class Room {
     // This handles negative balance scenarios correctly
     if (totalPaidToDebts > 0) {
       this.playerMoney[playerId] += totalPaidToDebts;
-      console.log(`[DEBUG] Increased player ${playerId} balance by ${totalPaidToDebts} for debt payments (new balance: ${this.playerMoney[playerId]})`);
     }
 
     // Clean up empty debt object
@@ -1577,7 +1700,6 @@ class Room {
       delete this.playerDebts[playerId];
     }
 
-    console.log(`[DEBUG] Debt payments completed, remaining money: ${remainingMoney}, total paid to debts: ${totalPaidToDebts}, payments:`, payments);
 
     return { payments, remainingMoney };
   }
@@ -1588,8 +1710,6 @@ class Room {
     const actualPayment = Math.min(availableMoney, rentAmount);
     const remainingDebt = rentAmount - actualPayment;
 
-    console.log(`[DEBUG] payRentWithDebt: ${payerId} owes ${rentAmount} rent, has ${availableMoney} money`);
-    console.log(`[DEBUG] Will pay ${actualPayment}, remaining debt ${remainingDebt}`);
 
     // IMPORTANT: Deduct FULL rent amount from payer (creating negative balance if needed)
     this.playerMoney[payerId] -= rentAmount;
@@ -1605,7 +1725,6 @@ class Room {
       this.playerNegativeBalance[payerId] = true;
     }
 
-    console.log(`[DEBUG] After payment: ${payerId} has ${this.playerMoney[payerId]} money, ${ownerId} received ${actualPayment}`);
 
     return {
       actualPayment,
@@ -1675,7 +1794,6 @@ class Room {
 
   // Automatic bankruptcy handling when player cannot pay debts
   processBankruptcy(playerId) {
-    console.log(`[DEBUG] Processing bankruptcy for player ${playerId}`);
     
     const player = this.players.find(p => p.id === playerId);
     if (!player) return { success: false };
@@ -1735,7 +1853,6 @@ class Room {
     // 6. Set player money to 0
     this.playerMoney[playerId] = 0;
 
-    console.log(`[DEBUG] Bankruptcy processed: liquidated $${totalLiquidated}, paid ${debtResult.payments.length} debts`);
 
     return {
       success: true,

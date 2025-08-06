@@ -51,6 +51,9 @@ const MapFullPreview = ({
 }) => {
   if (!open) return null;
 
+  // Debug log to see what selectedMap is being passed
+  // console.log('[DEBUG] MapFullPreview selectedMap:', selectedMap);
+
   const mapData = {
     Classic: {
       name: 'Classic',
@@ -97,7 +100,7 @@ const MapFullPreview = ({
             players={[]}
             currentPlayerIndex={0}
             onPropertyClick={() => {}}
-            settings={{}}
+            settings={{ boardMap: selectedMap }}
             isPreviewMode={true}
             previewContent={
               <Box sx={{ textAlign: 'center' }}>

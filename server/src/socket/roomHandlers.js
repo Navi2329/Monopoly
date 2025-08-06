@@ -45,9 +45,10 @@ function emitGameStateUpdated(room, io, roomId, extra = {}) {
   // Attach doubles flags for client
   gameState.allowRollAgain = room.allowRollAgain || false;
   gameState.doublesSequenceActive = room.doublesSequenceActive || false;
+  // CRITICAL: Add explicit turn state for frontend to know what button to show
+  gameState.turnState = room.turnState || 'awaiting-roll'; // Default to awaiting roll
   // Attach any extra fields passed in
   Object.assign(gameState, extra);
-  // console.log('[DEBUG] emitGameStateUpdated propertyOwnership:', JSON.stringify(gameState.propertyOwnership));
   io.to(roomId).emit('gameStateUpdated', gameState);
 }
 
@@ -118,18 +119,15 @@ module.exports = (io, socket) => {
 
   const updateRoomSettings = async ({ roomId, newSettings }) => {
     const room = roomService.getRoomById(roomId);
-    if (!room) {
-    } else {
-    }
     if (room && room.hostId === socket.id) {
       roomService.updateRoomSettings(roomId, newSettings);
+      
       // Log all socket.io rooms and their members
       try {
         const sockets = await io.in(roomId).allSockets();
-        if (!room.settings || Object.keys(room.settings).length === 0) {
-        }
         io.to(roomId).emit('roomSettingsUpdated', room.settings);
       } catch (err) {
+        console.error('[DEBUG] updateRoomSettings - error:', err);
       }
     }
   };
@@ -143,6 +141,7 @@ module.exports = (io, socket) => {
         room.players = shuffledOrder.map(id => idToPlayer[id]).filter(Boolean);
       }
       room.startGame(); // Use Room.startGame() to handle random order and starting cash
+      room.turnState = 'awaiting-roll'; // First player should see Roll button
       io.to(roomId).emit('gameStarted');
       // Emit initial game state for turn sync
       emitGameStateUpdated(room, io, roomId);
@@ -194,11 +193,12 @@ module.exports = (io, socket) => {
     }
   };
 
-  // Helper function to handle landing space actions (rent, taxes, treasure, surprise)
-  const handleLandingSpaceAction = (room, player, position, io, roomId, isJailEscape = false) => {
-    // Handle special spaces after movement
-    if (position === 4) { // Income Tax
-      const taxAmount = Math.floor(room.playerMoney[player.id] / 9);
+  // Special handler for jail escape landing - only handle rent, taxes, and cards (no property purchases)
+  const handleJailEscapeLanding = (room, player, position, io, roomId) => {
+    const isWorldwide = room.mapType === 'Mr. Worldwide';
+    
+    if (position === 4) { // Income Tax (same position for both maps)
+      const taxAmount = Math.floor(room.playerMoney[player.id] * 0.1); // 10% of player cash
       room.playerMoney[player.id] -= taxAmount;
       if (room.settings.vacationCash) {
         room.vacationCash += taxAmount;
@@ -214,7 +214,7 @@ module.exports = (io, socket) => {
           message: `paid $${taxAmount} income tax`
         }, io);
       }
-    } else if (position === 38) { // Luxury Tax
+    } else if ((position === 38 && !isWorldwide) || (position === 46 && isWorldwide)) { // Luxury Tax
       const taxAmount = 75;
       room.playerMoney[player.id] -= taxAmount;
       if (room.settings.vacationCash) {
@@ -231,49 +231,30 @@ module.exports = (io, socket) => {
           message: `paid $${taxAmount} luxury tax`
         }, io);
       }
-    } else if ([2, 17, 33].includes(position)) { // Treasure spaces
+    } else if ((isWorldwide && [2, 20, 28, 39].includes(position)) || (!isWorldwide && [2, 17, 33].includes(position))) { // Treasure spaces
       const cardResult = room.drawTreasureCard(player.id);
       if (cardResult) {
         cardResult.logs.forEach(log => {
           pushGameLog(room, log, io);
         });
-        
-        // Handle movement if card requires it (but not during jail escape)
-        if (!isJailEscape && cardResult.movement) {
-          room.pendingSpecialAction = { 
-            type: 'treasure-movement', 
-            playerId: player.id, 
-            movement: cardResult.movement
-          };
-          emitGameStateUpdated(room, io, roomId);
-          return true; // Indicates movement is pending
-        }
+        // Note: No movement handling for jail escape - cards that move are ignored
       }
-    } else if ([7, 22, 36].includes(position)) { // Surprise spaces
+    } else if ((isWorldwide && [9, 26, 44].includes(position)) || (!isWorldwide && [7, 22, 36].includes(position))) { // Surprise spaces
       const cardResult = room.drawSurpriseCard(player.id);
       if (cardResult) {
         cardResult.logs.forEach(log => {
           pushGameLog(room, log, io);
         });
-        
-        // Handle movement if card requires it (but not during jail escape)
-        if (!isJailEscape && cardResult.movement) {
-          room.pendingSpecialAction = { 
-            type: 'surprise-movement', 
-            playerId: player.id, 
-            movement: cardResult.movement
-          };
-          emitGameStateUpdated(room, io, roomId);
-          return true; // Indicates movement is pending
-        }
+        // Note: No movement handling for jail escape - cards that move are ignored
       }
     } else {
-      // Check if it's a property space and handle rent
+      // Check if it's a property space and handle ONLY rent (no property purchases)
       const propertyName = room.getPropertyNameByPosition(position);
+      
       if (propertyName && room.propertyOwnership[propertyName] && room.propertyOwnership[propertyName].owner !== player.id) {
         const rent = room.calculateRent(propertyName);
+        
         if (rent > 0) {
-          // Use new debt tracking system for rent payment
           const rentResult = room.payRentWithDebt(player.id, room.propertyOwnership[propertyName].owner, propertyName, rent);
           
           // Log rent payment with actual amounts
@@ -300,7 +281,7 @@ module.exports = (io, socket) => {
             }, io);
           }
           
-          // Check if player has negative money (but don't declare bankruptcy yet)
+          // Check if player has negative money
           if (room.playerMoney[player.id] < 0) {
             pushGameLog(room, {
               type: 'warning',
@@ -308,9 +289,176 @@ module.exports = (io, socket) => {
               message: `has negative balance ($${room.playerMoney[player.id]}) - must sell properties, mortgage, or trade to recover`
             }, io);
             
-            // Set a flag to prevent ending turn until money is positive or player declares bankruptcy
             room.playerNegativeBalance = room.playerNegativeBalance || {};
             room.playerNegativeBalance[player.id] = true;
+          }
+          
+          emitGameStateUpdated(room, io, roomId);
+        }
+      }
+      // Note: No property purchase logic for jail escape - player just lands and pays rent if needed
+    }
+    
+    return false; // No pending movement for jail escape
+  };
+
+  // Helper function to handle landing space actions (rent, taxes, treasure, surprise)
+  const handleLandingSpaceAction = (room, player, position, io, roomId, isJailEscape = false) => {
+    
+    // If this is a jail escape, use the special limited handler
+    if (isJailEscape) {
+      return handleJailEscapeLanding(room, player, position, io, roomId);
+    }
+    
+    // Handle special spaces after movement
+    const isWorldwide = room.mapType === 'Mr. Worldwide';
+    
+    if (position === 4) { // Income Tax (same position for both maps)
+      const taxAmount = Math.floor(room.playerMoney[player.id] * 0.1); // 10% of player cash
+      room.playerMoney[player.id] -= taxAmount;
+      if (room.settings.vacationCash) {
+        room.vacationCash += taxAmount;
+        pushGameLog(room, {
+          type: 'info',
+          player: player.name,
+          message: `paid $${taxAmount} income tax (added to vacation cash)`
+        }, io);
+      } else {
+        pushGameLog(room, {
+          type: 'info',
+          player: player.name,
+          message: `paid $${taxAmount} income tax`
+        }, io);
+      }
+    } else if ((position === 38 && !isWorldwide) || (position === 46 && isWorldwide)) { // Luxury Tax
+      const taxAmount = 75;
+      room.playerMoney[player.id] -= taxAmount;
+      if (room.settings.vacationCash) {
+        room.vacationCash += taxAmount;
+        pushGameLog(room, {
+          type: 'info',
+          player: player.name,
+          message: `paid $${taxAmount} luxury tax (added to vacation cash)`
+        }, io);
+      } else {
+        pushGameLog(room, {
+          type: 'info',
+          player: player.name,
+          message: `paid $${taxAmount} luxury tax`
+        }, io);
+      }
+    } else if ((isWorldwide && [2, 20, 28, 39].includes(position)) || (!isWorldwide && [2, 17, 33].includes(position))) { // Treasure spaces
+      const cardResult = room.drawTreasureCard(player.id);
+      if (cardResult) {
+        cardResult.logs.forEach(log => {
+          pushGameLog(room, log, io);
+        });
+        
+        // Handle movement if card requires it (but not during jail escape)
+        if (!isJailEscape && cardResult.movement) {
+          room.pendingSpecialAction = { 
+            type: 'treasure-movement', 
+            playerId: player.id, 
+            movement: cardResult.movement,
+            dice: room.lastDiceRoll ? { 
+              dice1: room.lastDiceRoll.dice1, 
+              dice2: room.lastDiceRoll.dice2, 
+              total: room.lastDiceRoll.total 
+            } : null
+          };
+          emitGameStateUpdated(room, io, roomId);
+          return true; // Indicates movement is pending
+        }
+      }
+    } else if ((isWorldwide && [9, 26, 44].includes(position)) || (!isWorldwide && [7, 22, 36].includes(position))) { // Surprise spaces
+      const cardResult = room.drawSurpriseCard(player.id);
+      if (cardResult) {
+        cardResult.logs.forEach(log => {
+          pushGameLog(room, log, io);
+        });
+        
+        // Handle movement if card requires it (but not during jail escape)
+        if (!isJailEscape && cardResult.movement) {
+          room.pendingSpecialAction = { 
+            type: 'surprise-movement', 
+            playerId: player.id, 
+            movement: cardResult.movement,
+            dice: room.lastDiceRoll ? { 
+              dice1: room.lastDiceRoll.dice1, 
+              dice2: room.lastDiceRoll.dice2, 
+              total: room.lastDiceRoll.total 
+            } : null
+          };
+          emitGameStateUpdated(room, io, roomId);
+          return true; // Indicates movement is pending
+        }
+      }
+    } else {
+      // Check if it's a property space and handle rent
+      const propertyName = room.getPropertyNameByPosition(position);
+      
+      if (propertyName) {
+        if (room.propertyOwnership[propertyName] && room.propertyOwnership[propertyName].owner !== player.id) {
+          const rent = room.calculateRent(propertyName);
+          
+          if (rent > 0) {
+            // Use new debt tracking system for rent payment
+            const rentResult = room.payRentWithDebt(player.id, room.propertyOwnership[propertyName].owner, propertyName, rent);
+          
+            // Log rent payment with actual amounts
+            if (rentResult.actualPayment > 0) {
+              pushGameLog(room, {
+                type: 'rent',
+                player: player.name,
+                owner: room.propertyOwnership[propertyName].ownerName,
+                property: propertyName,
+                amount: rentResult.actualPayment,
+                message: `paid $${rentResult.actualPayment} rent to ${room.propertyOwnership[propertyName].ownerName} for ${propertyName}`
+              }, io);
+            }
+            
+            // Log remaining debt if any
+            if (rentResult.remainingDebt > 0) {
+              pushGameLog(room, {
+                type: 'debt',
+                player: player.name,
+                owner: room.propertyOwnership[propertyName].ownerName,
+                property: propertyName,
+                amount: rentResult.remainingDebt,
+                message: `owes $${rentResult.remainingDebt} in rent to ${room.propertyOwnership[propertyName].ownerName} for ${propertyName}`
+              }, io);
+            }
+            
+            // Check if player has negative money (but don't declare bankruptcy yet)
+            if (room.playerMoney[player.id] < 0) {
+              pushGameLog(room, {
+                type: 'warning',
+                player: player.name,
+                message: `has negative balance ($${room.playerMoney[player.id]}) - must sell properties, mortgage, or trade to recover`
+              }, io);
+              
+              // Set a flag to prevent ending turn until money is positive or player declares bankruptcy
+              room.playerNegativeBalance = room.playerNegativeBalance || {};
+              room.playerNegativeBalance[player.id] = true;
+            }
+          }
+        } else {
+          // If property is not owned, emit propertyLanding event for client to show Buy/End Turn buttons
+          // For jail escape players, allow normal property purchases (as per user request)
+          if (!room.propertyOwnership[propertyName]) {
+            const propertyData = room.getPropertyData(propertyName);
+            const propertyPrice = propertyData?.price || 0;
+            const canAfford = room.playerMoney[player.id] >= propertyPrice;
+            
+            const playerSocket = Array.from(io.sockets.sockets.values()).find(s => s.id === player.id);
+            if (playerSocket) {
+              playerSocket.emit('propertyLanding', {
+                propertyName: propertyName,
+                price: propertyPrice,
+                canAfford: canAfford,
+                action: 'purchase'
+              });
+            }
           }
         }
       }
@@ -333,6 +481,23 @@ module.exports = (io, socket) => {
     setTimeout(() => {
       const result = room.rollDice(socket.id, devDice1, devDice2);
       if (!result) return;
+
+      // CRITICAL: Handle jail escape IMMEDIATELY after rollDice call to prevent turn advancement
+      if (result.action === 'jail-escape') {
+        
+        // Clear jail status
+        room.playerStatuses[currentPlayer.id] = null;
+        room.playerJailRounds[currentPlayer.id] = 0;
+        
+        // CRITICAL: Reset doubles count to 0 to prevent any turn advancement logic
+        room.playerDoublesCount[currentPlayer.id] = 0;
+        
+        // CRITICAL: If Room.js advanced the turn, revert it back to the jail escape player
+        if (room.turnIndex !== room.players.findIndex(p => p.id === currentPlayer.id)) {
+          room.turnIndex = room.players.findIndex(p => p.id === currentPlayer.id);
+        }
+        
+      }
 
       // Log the dice roll
       pushGameLog(room, {
@@ -365,17 +530,9 @@ module.exports = (io, socket) => {
           message: `got out of jail with doubles`
         }, io);
         
-        // Reset doubles count and mark that jail escape occurred
-        room.playerDoublesCount[currentPlayer.id] = 0;
-        room.jailEscapeThisTurn = true; // Flag to prevent additional roll after doubles
+        // Note: Jail status and doubles count already cleared at top of function
         
-        // After jail escape, check for property actions on landing space
-        // But do NOT advance turn here - let the normal flow handle it
-        const landingPosition = room.playerPositions[currentPlayer.id];
-        handleLandingSpaceAction(room, currentPlayer, landingPosition, io, roomId, true); // true = jail escape mode
-        
-        // Do NOT call advanceTurn here - let endTurn handle it normally
-        // The jailEscapeThisTurn flag will prevent the doubles logic from giving another roll
+        // Continue to normal property landing logic - no special handling needed
       } else if (result.action === 'jail-auto-release') {
         pushGameLog(room, {
           type: 'special',
@@ -404,6 +561,9 @@ module.exports = (io, socket) => {
         if (hasPendingMovement) {
           return;
         }
+        
+        // Mark that we've already handled the landing action to avoid duplicate calls later
+        result.landingActionHandled = true;
       } else if (result.action === 'vacation') {
         // Vacation: End turn immediately, reset doubles, log event
         pushGameLog(room, {
@@ -475,6 +635,9 @@ module.exports = (io, socket) => {
               movement: cardResult.movement,
               dice: { dice1: result.dice1, dice2: result.dice2, total: result.total } 
             };
+            
+            // DON'T set turnState here - let diceAnimationComplete handle it after processing the landing
+            
             emitGameStateUpdated(room, io, roomId, { debug: 'SERVER-UNIQUE-123' });
             return;
           }
@@ -496,13 +659,16 @@ module.exports = (io, socket) => {
               movement: cardResult.movement,
               dice: { dice1: result.dice1, dice2: result.dice2, total: result.total } 
             };
+            
+            // DON'T set turnState here - let diceAnimationComplete handle it after processing the landing
+            
             emitGameStateUpdated(room, io, roomId, { debug: 'SERVER-UNIQUE-123' });
             return;
           }
         }
       } else if (result.action === 'jail-move') {
         // Determine if this is from landing on Go to Jail or from 3 doubles
-        const isFromGoToJail = result.position === 30; // If player landed on position 30 (Go to Jail)
+        const isFromGoToJail = result.position === 30 || result.position === 36; // Position 30 (classic) or 36 (worldwide)
         const isFromThreeDoubles = result.turnResult; // If turnResult exists, it's from 3 doubles
 
         let message;
@@ -519,11 +685,76 @@ module.exports = (io, socket) => {
           player: currentPlayer.name,
           message: message
         }, io);
-        // Store pending special action in the room
-        room.pendingSpecialAction = { type: result.action, playerId: currentPlayer.id, dice: { dice1: result.dice1, dice2: result.dice2, total: result.total } };
-        // Emit dice result and new position, but do NOT advance turn yet
-        emitGameStateUpdated(room, io, roomId, { debug: 'SERVER-UNIQUE-123' });
+        
+        // BOTH Go to Jail and 3 doubles should FORCE turn end (no End Turn button)
+        if (isFromThreeDoubles) {
+          // Turn was already advanced in Room.js, just emit logs and state
+          // Check if next player is on vacation
+          const nextPlayer = room.players[room.turnIndex];
+          const nextPlayerStatus = room.playerStatuses[nextPlayer.id];
+          
+          if (nextPlayerStatus && typeof nextPlayerStatus === 'object' && nextPlayerStatus.status === 'vacation') {
+            room.turnState = 'awaiting-vacation-skip';
+          } else {
+            room.turnState = 'awaiting-roll';
+          }
+          
+          emitAdvanceTurnLogs(room, result.turnResult, io);
+          emitGameStateUpdated(room, io, roomId);
+          return;
+        } else if (isFromGoToJail) {
+          // Go to Jail space - FORCE turn end immediately (this is the exception to universal End Turn rule)
+          room.playerDoublesCount[currentPlayer.id] = 0; // Reset doubles count
+          const turnResult = room.advanceTurn('user-action');
+          room.lastDiceRoll = null;
+          
+          // Check if next player is on vacation
+          const nextPlayer = room.players[room.turnIndex];
+          const nextPlayerStatus = room.playerStatuses[nextPlayer.id];
+          
+          if (nextPlayerStatus && typeof nextPlayerStatus === 'object' && nextPlayerStatus.status === 'vacation') {
+            room.turnState = 'awaiting-vacation-skip';
+          } else {
+            room.turnState = 'awaiting-roll';
+          }
+          
+          emitAdvanceTurnLogs(room, turnResult, io);
+          emitGameStateUpdated(room, io, roomId);
+          return;
+        }
+      } else if (result.action === 'go-to-jail') {
+        // Go to Prison space - FORCE turn end immediately (no End Turn button)
+        pushGameLog(room, {
+          type: 'special',
+          player: currentPlayer.name,
+          message: `landed on Go to Prison and was sent to jail! 🚔`
+        }, io);
+        
+        // Reset doubles count and advance turn immediately
+        room.playerDoublesCount[currentPlayer.id] = 0;
+        const turnResult = room.advanceTurn('user-action');
+        room.lastDiceRoll = null;
+        
+        // Check if next player is on vacation
+        const nextPlayer = room.players[room.turnIndex];
+        const nextPlayerStatus = room.playerStatuses[nextPlayer.id];
+        
+        if (nextPlayerStatus && typeof nextPlayerStatus === 'object' && nextPlayerStatus.status === 'vacation') {
+          room.turnState = 'awaiting-vacation-skip';
+        } else {
+          room.turnState = 'awaiting-roll';
+        }
+        
+        emitAdvanceTurnLogs(room, turnResult, io);
+        emitGameStateUpdated(room, io, roomId);
         return;
+      } else if (result.action === 'start') {
+        // Landed on START - just log it, End Turn button will show
+        pushGameLog(room, {
+          type: 'special',
+          player: currentPlayer.name,
+          message: `moved to START and collected $300`
+        }, io);
       }
 
       // Emit logs if advanceTurn was called (for jail, vacation, or 3 doubles)
@@ -531,10 +762,30 @@ module.exports = (io, socket) => {
         emitAdvanceTurnLogs(room, result.turnResult, io);
       }
 
-      // Broadcast updated state
+      // Handle normal property landing for cases that don't have special actions AND haven't already been handled
+      if ((!result.action || (!['jail', 'vacation', 'treasure', 'surprise', 'income-tax', 'luxury-tax', 'jail-move', 'start'].includes(result.action))) && !result.landingActionHandled) {
+        const landingPosition = room.playerPositions[currentPlayer.id];
+        const hasPendingMovement = handleLandingSpaceAction(room, currentPlayer, landingPosition, io, roomId);
+        
+        // If there's pending movement from treasure/surprise cards, return early
+        if (hasPendingMovement) {
+          return;
+        }
+      }
+
+      // SPECIAL CASE: Reset dice roll for jail escapes AFTER property landing is handled
+      if (result.action === 'jail-escape') {
+        room.lastDiceRoll = null; // Reset dice roll for the next player's turn
+      }
+
+      // Broadcast updated state with explicit turn state
       const timestamp = new Date().toISOString();
       // console.log(`[SERVER] ${timestamp} - rollDice emit gameStateUpdated:`, { propertyOwnership: room.propertyOwnership });
       // console.log(`[SERVER] ${timestamp} - rollDice playerStatuses:`, JSON.stringify(room.playerStatuses));
+      
+      // CRITICAL: Set explicit state to show End Turn button after dice roll
+      // The frontend should ALWAYS show End Turn button after rollDice (except for forced jail moves)
+      room.turnState = 'awaiting-end-turn'; // Explicit state for frontend
       emitGameStateUpdated(room, io, roomId);
     }, 800); // Wait for dice animation to complete before moving player
   };
@@ -547,22 +798,13 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
   const currentPlayer = room.players[room.turnIndex];
   if (!currentPlayer || socket.id !== currentPlayer.id) return;
 
-  // console.log('[DEBUG SERVER] endTurn called by:', currentPlayer.name, 'activeVoteKick before:', room.activeVoteKick?.targetPlayerName);
-
   // GUARD: Prevent duplicate endTurn calls using a timestamp-based debounce
   const now = Date.now();
   const lastEndTurnTime = room.lastEndTurnTime || 0;
   if (now - lastEndTurnTime < 1000) { // 1 second debounce
-    // console.log('[DEBUG][SERVER][endTurn][DEBOUNCE] Ignoring duplicate endTurn call');
     return;
   }
   room.lastEndTurnTime = now;
-
-  // GUARD: If player is supposed to roll again after doubles, ignore extra endTurn calls
-  if (room.allowRollAgain && room.lastDiceRoll === null) {
-    // console.log('[DEBUG][SERVER][endTurn][GUARD] Ignoring endTurn: player must roll again after doubles');
-    return;
-  }
 
   // GUARD: Prevent ending turn if player has negative balance or outstanding debts
   if (room.playerMoney[currentPlayer.id] < 0) {
@@ -588,25 +830,41 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
   const isDoubles = lastRoll && lastRoll.dice1 === lastRoll.dice2;
   const doublesCount = room.playerDoublesCount[currentPlayer.id] || 0;
   
-  // Handle doubles logic (but not if player just escaped jail)
-  // Check if player is on vacation space (position 20) even if status not set yet
-  const isOnVacationSpace = room.playerPositions[currentPlayer.id] === 20;
-  const justEscapedJail = room.jailEscapeThisTurn === true;
-
-  // Handle jail escape case first - if player just escaped jail, end turn immediately
-  if (justEscapedJail) {
-    // Player escaped jail with doubles but should not get another turn
-    room.doublesSequenceActive = false;
-    room.allowRollAgain = false;
-    room.playerDoublesCount[currentPlayer.id] = 0;
-    room.jailEscapeThisTurn = false; // Reset jail escape flag
-    
+  
+  // CRITICAL: Check if player landed on vacation and set vacation status
+  const playerCurrentPosition = room.playerPositions[currentPlayer.id];
+  const isWorldwide = room.mapType === 'Mr. Worldwide';
+  const vacationPosition = isWorldwide ? 24 : 20; // Vacation position varies by map
+  
+  // Only set vacation status if player just landed on vacation AND is not already in vacation
+  if (playerCurrentPosition === vacationPosition && 
+      (!room.playerStatuses[currentPlayer.id] || 
+       room.playerStatuses[currentPlayer.id].status !== 'vacation')) {
+    // Player just landed on vacation space - set vacation status when they click End Turn
+    room.playerStatuses[currentPlayer.id] = { 
+      status: 'vacation', 
+      vacationStartRound: room.roundNumber 
+    };
+  
+  }
+  
+  // **CORRECTED DOUBLES LOGIC - UNIVERSAL END TURN BUTTON**
+  // The philosophy: ALWAYS allow End Turn button, never force extra rolls automatically
+  
+  // 1. Check for Go to Jail moves (only thing that FORCES turn end without End Turn button)
+  const goToJailPosition = room.mapType === 'worldwide' ? 36 : 30;
+  const currentPosition = room.playerPositions[currentPlayer.id];
+  const isGoToJailMove = room.pendingSpecialAction?.type === 'jail-move';
+  
+  if (isGoToJailMove) {
+    // Go to jail FORCES turn end - no End Turn button needed
+    room.playerDoublesCount[currentPlayer.id] = 0; // Reset doubles count
+    room.jailEscapeThisTurn = false;
     pushGameLog(room, {
       type: 'info',
       player: currentPlayer.name,
-      message: `ended turn after escaping jail`
+      message: `went to jail - turn ended`
     }, io);
-
     const turnResult = room.advanceTurn('user-action', vacationEndTurnPlayerId);
     room.lastDiceRoll = null;
     emitAdvanceTurnLogs(room, turnResult, io);
@@ -614,67 +872,49 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
     return;
   }
 
-  if (isDoubles && !isOnVacationSpace && !justEscapedJail) {
-    if (doublesCount === 3) {
-      // THIRD DOUBLE: Go to jail, reset doubles state, advance turn
-      room.doublesSequenceActive = false;
-      room.allowRollAgain = false;
-      room.playerDoublesCount[currentPlayer.id] = 0;
-      // Send player to jail (set their status)
-      room.playerStatuses[currentPlayer.id] = 'jail';
-      // Note: The jail message is now handled in rollDice function
-      const turnResult = room.advanceTurn('user-action', vacationEndTurnPlayerId);
-      room.lastDiceRoll = null;
-      emitAdvanceTurnLogs(room, turnResult, io);
-      emitGameStateUpdated(room, io, roomId);
-      return;
-    } else if (doublesCount < 3) {
-      // Allow another roll
-      room.lastDiceRoll = null;
-      room.doublesSequenceActive = true;
-      room.allowRollAgain = true;
-      pushGameLog(room, {
-        type: 'info',
-        player: currentPlayer.name,
-        message: 'ended turn after rolling doubles - gets another roll'
-      }, io);
-      emitGameStateUpdated(room, io, roomId, { allowRollAgain: true, doublesSequenceActive: true });
-      return;
-    }
-  }
-
-  // If not doubles or not the third double, proceed with normal turn advancement
-  room.doublesSequenceActive = false;
-  room.allowRollAgain = false;
-  room.playerDoublesCount[currentPlayer.id] = 0; // Only reset here, when turn advances
-  room.jailEscapeThisTurn = false; // Reset jail escape flag
-
-  // Check if player is being sent to jail (either by landing on Go to Jail or rolling 3 doubles)
-  const isBeingSentToJail = room.pendingSpecialAction &&
-    room.pendingSpecialAction.type === 'jail-move';
-
-  // Check if we already logged a turn-ending message for doubles
-  const alreadyLoggedTurnEnd = isDoubles && !isOnVacationSpace && doublesCount < 3;
-
-  // Only log "ended turn" if player is not being sent to jail AND we haven't already logged for doubles
-  if (!isBeingSentToJail && !alreadyLoggedTurnEnd) {
-    // console.log('[DEBUG][SERVER][endTurn][NORMAL]', {
-    //   playerDoublesCount: room.playerDoublesCount,
-    //   turnIndex: room.turnIndex,
-    //   lastDiceRoll: room.lastDiceRoll,
-    //   allowRollAgain: room.allowRollAgain,
-    //   doublesSequenceActive: room.doublesSequenceActive
-    // });
+  // 2. For ALL other cases (including doubles), check if player should get another roll
+  if (isDoubles && doublesCount > 0 && doublesCount < 3) {
+    // Player rolled doubles and can get another roll - but ONLY show they can roll again, don't advance turn
+    room.lastDiceRoll = null;
     pushGameLog(room, {
       type: 'info',
       player: currentPlayer.name,
-      message: `ended turn`
+      message: 'ended turn after rolling doubles - gets another roll'
     }, io);
+    // CRITICAL: Set explicit state to show Roll Again button
+    room.turnState = 'awaiting-roll-again'; // Explicit state for frontend to show Roll Again button
+    emitGameStateUpdated(room, io, roomId);
+    return;
   }
 
+  // 3. If we reach here, advance to the next player and ALWAYS reset doubles count
+  // This happens when: no doubles, OR 3+ doubles, OR any other normal turn end
+  room.playerDoublesCount[currentPlayer.id] = 0; // ALWAYS reset doubles count when turn ends
+  room.jailEscapeThisTurn = false;
+
+  // Log turn end
+  pushGameLog(room, {
+    type: 'info',
+    player: currentPlayer.name,
+    message: `ended turn`
+  }, io);
+
   const turnResult = room.advanceTurn('user-action', vacationEndTurnPlayerId);
-  // console.log('[DEBUG SERVER] endTurn: advanceTurn called, activeVoteKick after:', room.activeVoteKick);
   room.lastDiceRoll = null;
+  
+  // CRITICAL: Set explicit state for next player's turn
+  // Check if next player is on vacation and should skip
+  const nextPlayer = room.players[room.turnIndex];
+  const nextPlayerStatus = room.playerStatuses[nextPlayer.id];
+  
+  if (nextPlayerStatus && typeof nextPlayerStatus === 'object' && nextPlayerStatus.status === 'vacation') {
+    // Next player is on vacation - show Skip Turn button
+    room.turnState = 'awaiting-vacation-skip';
+  } else {
+    // Next player can roll normally
+    room.turnState = 'awaiting-roll';
+  }
+  
   emitAdvanceTurnLogs(room, turnResult, io);
   emitGameStateUpdated(room, io, roomId);
 };
@@ -766,7 +1006,7 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
         // console.log(`[DEBUG] handlePropertyLanding: No rent paid for ${propertyName} (rent=$${rent})`);
       }
     }
-    // Vacation cash: if player lands on Vacation (position 20)
+    // Vacation cash: if player lands on Vacation (varies by map: classic=20, worldwide=24)
     if (propertyName === 'Vacation' && room.settings.vacationCash) {
       const cash = room.vacationCash;
       if (cash > 0) {
@@ -795,6 +1035,12 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
       player: currentPlayer.name,
       message: `skipped purchasing ${propertyName}`
     }, io);
+
+    // CRITICAL: Set turnState to awaiting-end-turn after skipping property
+    room.turnState = 'awaiting-end-turn';
+    
+    // Emit updated game state
+    emitGameStateUpdated(room, io, roomId);
   };
 
   // Handler for auctioning property
@@ -901,6 +1147,9 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
       }, io);
     }
     
+    // CRITICAL: Set turnState to awaiting-end-turn after auction completes
+    room.turnState = 'awaiting-end-turn';
+    
     // Include current player info in auction ended event
     const auctionEndedData = {
       ...room.auction,
@@ -908,6 +1157,9 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
     };
     
     io.to(room.id).emit('auctionEnded', auctionEndedData);
+    
+    // Emit updated game state to show End Turn button
+    emitGameStateUpdated(room, io, room.id);
     
     // Clean up auction state after a delay
     setTimeout(() => {
@@ -1001,22 +1253,12 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
         price: price,
         message: `bought ${propertyName} for $${price}`
       }, io);
-      // Log Buy Property completed and full game state
-      const gameState = room.getGameState();
-      // console.log('[DEBUG] Buy Property completed:', gameState);
-      // Broadcast updated state to the room
-      try {
-        const gameState = room.getGameState();
-        gameState.roomId = roomId;
-        gameState.debug = 'SERVER-UNIQUE-123';
-        gameState.debugMarker = Date.now();
-        io.to(roomId).emit('gameStateUpdated', gameState);
-        // Also emit directly to the socket
-        socket.emit('gameStateUpdated', gameState);
-      } catch (err) { }
-      io.in(roomId).allSockets().then((clients) => {
-        // console.log(`[DEBUG] Sockets in room ${roomId} after buy:`, Array.from(clients));
-      });
+      
+      // CRITICAL: Set turnState to awaiting-end-turn after property purchase
+      room.turnState = 'awaiting-end-turn';
+      
+      // Broadcast updated state to the room using the proper function
+      emitGameStateUpdated(room, io, roomId);
     } else {
       socket.emit('purchaseError', { message: 'Cannot purchase property' });
     }
@@ -1313,8 +1555,160 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
     // Mark that the player has skipped (for backend logic)
     room.playerStatuses[playerId].justSkippedVacation = true;
     const turnResult = room.advanceTurn('user-action');
+    
+    // Check if next player is on vacation
+    const nextPlayer = room.players[room.turnIndex];
+    const nextPlayerStatus = room.playerStatuses[nextPlayer.id];
+    
+    if (nextPlayerStatus && typeof nextPlayerStatus === 'object' && nextPlayerStatus.status === 'vacation') {
+      room.turnState = 'awaiting-vacation-skip';
+    } else {
+      room.turnState = 'awaiting-roll';
+    }
+    
     emitAdvanceTurnLogs(room, turnResult, io);
     emitGameStateUpdated(room, io, roomId);
+  };
+
+  // Handler for dice animation completion (treasure/surprise card movements)
+  const diceAnimationComplete = ({ roomId }) => {
+    const room = roomService.getRoomById(roomId);
+    if (room && room.pendingSpecialAction) {
+      const { type, playerId } = room.pendingSpecialAction;
+      // Process the pending special action and advance the turn
+      if (type === 'vacation') {
+        // Vacation logic: Let player click End Turn button, don't auto-advance
+        // Just log the vacation landing and set turnState for End Turn button
+        const currentPlayer = room.players[room.turnIndex];
+        
+        // Check if there was vacation cash to collect
+        if (room.settings.vacationCash && room.vacationCash > 0) {
+          room.playerMoney[playerId] += room.vacationCash;
+          pushGameLog(room, {
+            type: 'special',
+            player: currentPlayer.name,
+            message: `collected $${room.vacationCash} from vacation cash!`
+          }, io);
+          room.vacationCash = 0;
+        }
+        
+        // Clear pending action and set turnState to show End Turn button
+        room.pendingSpecialAction = null;
+        room.turnState = 'awaiting-end-turn';
+        emitGameStateUpdated(room, io, roomId);
+      } else if (type === 'jail' || type === 'go-to-jail') {
+        // Jail logic: move player to jail, set status, advance turn
+        const jailPosition = room.mapType === 'Mr. Worldwide' ? 12 : 10;
+        room.playerPositions[playerId] = jailPosition;
+        room.playerStatuses[playerId] = 'jail';
+        room.playerJailRounds[playerId] = 0;
+        room.playerDoublesCount[playerId] = 0;
+        const turnResult = room.advanceTurn();
+        room.lastDiceRoll = null;
+        room.pendingSpecialAction = null; // <-- Move this up to prevent double-processing
+        // Set appropriate turnState for the new current player
+        const currentPlayer = room.players[room.turnIndex];
+        if (currentPlayer && room.playerStatuses[currentPlayer.id] === 'vacation') {
+          room.turnState = 'awaiting-vacation-skip';
+        } else {
+          room.turnState = 'awaiting-roll';
+        }
+        emitAdvanceTurnLogs(room, turnResult, io);
+        emitGameStateUpdated(room, io, roomId);
+      } else if (type === 'treasure-movement' || type === 'surprise-movement') {
+        // Handle treasure/surprise card movement
+        const { movement, dice } = room.pendingSpecialAction;
+        
+        // CRITICAL: Update lastDiceRoll with the current roll that triggered the card
+        // This ensures the correct dice values are used for doubles checking
+        if (dice) {
+          room.lastDiceRoll = {
+            dice1: dice.dice1,
+            dice2: dice.dice2,
+            total: dice.total,
+            playerId: playerId
+          };
+        }
+        
+        if (movement.goToJail) {
+          // Go to jail movement
+          const jailPosition = room.mapType === 'Mr. Worldwide' ? 12 : 10;
+          room.playerPositions[playerId] = jailPosition;
+          room.playerStatuses[playerId] = 'jail';
+          room.playerJailRounds[playerId] = 0;
+          room.playerDoublesCount[playerId] = 0;
+          const turnResult = room.advanceTurn();
+          room.lastDiceRoll = null;
+          room.pendingSpecialAction = null;
+          // Set appropriate turnState for the new current player
+          const currentPlayer = room.players[room.turnIndex];
+          if (currentPlayer && room.playerStatuses[currentPlayer.id] === 'vacation') {
+            room.turnState = 'awaiting-vacation-skip';
+          } else {
+            room.turnState = 'awaiting-roll';
+          }
+          emitAdvanceTurnLogs(room, turnResult, io);
+          emitGameStateUpdated(room, io, roomId);
+        } else {
+          // Regular movement - check if player needs to handle landing space actions
+          const currentPosition = room.playerPositions[playerId];
+          const currentPlayer = room.players.find(p => p.id === playerId);
+          
+          // Handle all types of landing space actions
+          const hasPendingMovement = handleLandingSpaceAction(room, currentPlayer, currentPosition, io, roomId);
+          
+          // Reset special action
+          room.pendingSpecialAction = null;
+          
+          // If no new pending movement from nested cards, check for property landing
+          if (!hasPendingMovement) {
+            // Check if the current position is an unowned property
+            const propertyName = room.getPropertyNameByPosition(currentPosition);
+            const propertyData = room.getPropertyData(propertyName);
+            
+            // console.log(`[DEBUG] Server: Position ${currentPosition}, PropertyName: ${propertyName}, PropertyData:`, propertyData);
+            // console.log(`[DEBUG] Server: Has price?`, propertyData?.price, 'Is surprise?', room.isSurpriseSpace(currentPosition), 'Is treasure?', room.isTreasureSpace(currentPosition));
+            
+            // Only treat it as a purchasable property if it exists in propertyData and has a price
+            if (propertyName && propertyData && propertyData.price && !room.propertyOwnership[propertyName]) {
+              const propertyPrice = propertyData.price;
+              const canAfford = room.playerMoney[playerId] >= propertyPrice;
+              
+              const playerSocket = Array.from(io.sockets.sockets.values()).find(s => s.id === playerId);
+              if (playerSocket) {
+                playerSocket.emit('propertyLanding', {
+                  propertyName: propertyName,
+                  price: propertyPrice,
+                  canAfford: canAfford,
+                  action: 'purchase'
+                });
+              }
+              
+              // CRITICAL FIX: If landing on unowned property, DON'T set turnState to awaiting-end-turn
+              // The property landing will show Buy/Auction buttons instead of End Turn
+              // Don't set any turnState here - let the property purchase flow handle it
+            } else if (propertyName && propertyData && propertyData.price && room.propertyOwnership[propertyName] && room.propertyOwnership[propertyName].owner !== playerId) {
+              // Player landed on owned property - calculate rent
+              const rent = room.calculateRent(propertyName);
+              if (rent > 0) {
+                // Pay rent and set turnState to awaiting-end-turn
+                room.turnState = 'awaiting-end-turn';
+              } else {
+                // No rent to pay, just set turnState to awaiting-end-turn
+                room.turnState = 'awaiting-end-turn';
+              }
+            } else {
+              // Not a property or player owns it - just set turnState to awaiting-end-turn
+              room.turnState = 'awaiting-end-turn';
+            }
+            
+          } else {
+          }
+          
+          emitGameStateUpdated(room, io, roomId);
+        }
+      }
+    }
   };
 
   socket.on('createPrivateGame', createPrivateGame);
@@ -1345,6 +1739,7 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
   socket.on('requestRoomSettings', handleRequestRoomSettings);
   socket.on('requestShuffle', requestShuffle);
   socket.on('skipVacationTurn', skipVacationTurn);
+  socket.on('diceAnimationComplete', diceAnimationComplete);
   socket.on('whatRooms', () => {
   });
   socket.on('gameLogUpdated', (logEntry) => {
@@ -1352,76 +1747,6 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
   socket.on('gameStateUpdated', (gameState) => {
     // ... rest of your state update logic
   });
-  socket.on('diceAnimationComplete', ({ roomId }) => {
-    const room = roomService.getRoomById(roomId);
-    if (room && room.pendingSpecialAction) {
-      const { type, playerId } = room.pendingSpecialAction;
-      // Process the pending special action and advance the turn
-      if (type === 'vacation') {
-        // Vacation logic: advance turn, set player status, etc.
-        room.playerStatuses[playerId] = { status: 'vacation', vacationStartRound: room.roundNumber };
-        room.playerDoublesCount[playerId] = 0;
-        const turnResult = room.advanceTurn();
-        room.lastDiceRoll = null;
-        room.pendingSpecialAction = null; // <-- Move this up to prevent double-processing
-        emitAdvanceTurnLogs(room, turnResult, io);
-        emitGameStateUpdated(room, io, roomId);
-      } else if (type === 'jail' || type === 'go-to-jail') {
-        // Jail logic: move player to jail, set status, advance turn
-        room.playerPositions[playerId] = 10;
-        room.playerStatuses[playerId] = 'jail';
-        room.playerJailRounds[playerId] = 0;
-        room.playerDoublesCount[playerId] = 0;
-        const turnResult = room.advanceTurn();
-        room.lastDiceRoll = null;
-        room.pendingSpecialAction = null; // <-- Move this up to prevent double-processing
-        emitAdvanceTurnLogs(room, turnResult, io);
-        emitGameStateUpdated(room, io, roomId);
-      } else if (type === 'treasure-movement' || type === 'surprise-movement') {
-        // Handle treasure/surprise card movement
-        const { movement } = room.pendingSpecialAction;
-        
-        if (movement.goToJail) {
-          // Go to jail movement
-          room.playerPositions[playerId] = 10;
-          room.playerStatuses[playerId] = 'jail';
-          room.playerJailRounds[playerId] = 0;
-          room.playerDoublesCount[playerId] = 0;
-          const turnResult = room.advanceTurn();
-          room.lastDiceRoll = null;
-          room.pendingSpecialAction = null;
-          emitAdvanceTurnLogs(room, turnResult, io);
-          emitGameStateUpdated(room, io, roomId);
-        } else {
-          // Regular movement - check if player needs to handle landing space actions
-          const currentPosition = room.playerPositions[playerId];
-          
-          // Handle all types of landing space actions
-          const hasPendingMovement = handleLandingSpaceAction(room, room.players.find(p => p.id === playerId), currentPosition, io, roomId);
-          
-          // Reset special action
-          room.pendingSpecialAction = null;
-          
-          // If no new pending movement from nested cards, emit property landing for unowned properties
-          if (!hasPendingMovement && movement.propertyLanding) {
-            const currentPlayer = room.players.find(p => p.id === playerId);
-            if (currentPlayer && !room.propertyOwnership[movement.propertyLanding]) {
-              // Only emit property landing for unowned properties
-              socket.emit('propertyLanding', {
-                propertyName: movement.propertyLanding,
-                price: room.propertyData[movement.propertyLanding]?.price || 0,
-                canAfford: room.playerMoney[playerId] >= (room.propertyData[movement.propertyLanding]?.price || 0),
-                action: 'buy'
-              });
-            }
-          }
-          
-          emitGameStateUpdated(room, io, roomId);
-        }
-      }
-    }
-  });
-
   // ===== TRADE SYSTEM HANDLERS =====
   
   // Create a new trade
@@ -1953,5 +2278,98 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
     emitGameStateUpdated(room, io, roomId);
   };
 
+  // Developer feature: Update player cash
+  const updatePlayerCash = ({ roomId, playerId, newCash }) => {
+    const room = roomService.getRoomById(roomId);
+    if (!room) return;
+    
+    // Only allow host to modify cash
+    if (room.hostId !== socket.id) {
+      socket.emit('error', { message: 'Only host can modify player cash' });
+      return;
+    }
+    
+    // Validate newCash value
+    if (typeof newCash !== 'number' || newCash < 0 || newCash > 100000) {
+      socket.emit('error', { message: 'Invalid cash amount' });
+      return;
+    }
+    
+    // Update player money
+    room.playerMoney[playerId] = newCash;
+    
+    // Log the change
+    const player = room.players.find(p => p.id === playerId);
+    if (player) {
+      pushGameLog(room, {
+        type: 'debug',
+        message: `${player.name}'s cash was set to $${newCash} by developer settings`
+      }, io);
+    }
+    
+    
+    // Broadcast updated state
+    emitGameStateUpdated(room, io, roomId);
+  };
+
+  // Developer feature: Set forced treasure card
+  const setDevTreasureCard = ({ roomId, cardId }) => {
+    const room = roomService.getRoomById(roomId);
+    if (!room) return;
+    
+    // Only allow host to set dev cards
+    if (room.hostId !== socket.id) {
+      socket.emit('error', { message: 'Only host can set developer cards' });
+      return;
+    }
+    
+    // Set the forced treasure card (null for random)
+    room.devTreasureCard = cardId;
+    
+    // Log the change
+    if (cardId) {
+      pushGameLog(room, {
+        type: 'debug',
+        message: `Next treasure card set to: ${cardId} by developer settings`
+      }, io);
+    } else {
+      pushGameLog(room, {
+        type: 'debug',
+        message: `Treasure cards reset to random by developer settings`
+      }, io);
+    }
+  };
+
+  // Developer feature: Set forced surprise card
+  const setDevSurpriseCard = ({ roomId, cardId }) => {
+    const room = roomService.getRoomById(roomId);
+    if (!room) return;
+    
+    // Only allow host to set dev cards
+    if (room.hostId !== socket.id) {
+      socket.emit('error', { message: 'Only host can set developer cards' });
+      return;
+    }
+    
+    // Set the forced surprise card (null for random)
+    room.devSurpriseCard = cardId;
+    
+    // Log the change
+    if (cardId) {
+      pushGameLog(room, {
+        type: 'debug',
+        message: `Next surprise card set to: ${cardId} by developer settings`
+      }, io);
+    } else {
+      pushGameLog(room, {
+        type: 'debug',
+        message: `Surprise cards reset to random by developer settings`
+      }, io);
+    }
+  };
+
   socket.on('resetRoom', resetRoom);
+  socket.on('updatePlayerCash', updatePlayerCash);
+  socket.on('setDevTreasureCard', setDevTreasureCard);
+  socket.on('setDevSurpriseCard', setDevSurpriseCard);
 };

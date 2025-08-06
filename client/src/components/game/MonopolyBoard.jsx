@@ -29,6 +29,7 @@ import CustomModal from '../common/Modal';
 import { createPortal } from 'react-dom';
 import ReactCountryFlag from 'react-country-flag';
 import classicMap from '../../data/maps/classic';
+import { mapConfigurations, getMapProperties, getMapLayout } from '../../data/mapConfigurations.js';
 import socket from '../../socket';
 
 const StyledDice = styled(Paper, {
@@ -210,7 +211,8 @@ const MonopolyBoard = (props) => {
     auctionCurrentPlayerId = null,
     activeVoteKick = null,
     voteKickTimeRemaining = 0,
-    playerNegativeBalance = {}
+    playerNegativeBalance = {},
+    serverTurnState = 'awaiting-roll'  // CRITICAL: Server's explicit turn state
   } = props;
   
   // Debug vote-kick props - access directly from props
@@ -347,9 +349,17 @@ const MonopolyBoard = (props) => {
       setLocalDiceRolling(false);
     }
 
-    // Stop dice animation if special action is jail (for 3 doubles)
-    if (syncedSpecialAction === 'jail' && (globalDiceRolling || localDiceRolling)) {
+    // Stop dice animation if special action is jail (for 3 doubles) or go-to-jail (for Go to Prison space)
+    if ((syncedSpecialAction === 'jail' || syncedSpecialAction === 'go-to-jail') && (globalDiceRolling || localDiceRolling)) {
       setLocalDiceRolling(false);
+    }
+
+    // Handle go-to-jail action - reset states since turn ends immediately (like 3 doubles)
+    if (syncedSpecialAction === 'go-to-jail' && (globalDiceRolling || localDiceRolling)) {
+      setCanRollAgain(false);
+      setHasEndedTurnAfterDoubles(false);
+      setIsInDoublesSequence(false);
+      setMovementComplete(true);
     }
 
     // Handle jail-escape action - reset states since turn ends immediately
@@ -606,7 +616,6 @@ const MonopolyBoard = (props) => {
 
   // Property landing detection
   React.useEffect(() => {
-
     if (gameStarted && syncedLastDiceRoll && isMyTurn && !propertyLandingState && !globalDiceRolling && !localDiceRolling) {
       const currentPlayer = getCurrentPlayer();
       if (!currentPlayer) return;
@@ -614,22 +623,16 @@ const MonopolyBoard = (props) => {
       const currentPosition = syncedPositions[currentPlayer.id];
       if (currentPosition === undefined) return;
 
-      // Skip property landing detection if player is in jail (jail escape roll)
-      if (playerStatuses[currentPlayer.id] === 'jail') {
-        return;
-      }
-
       // Get property name for current position
       const propertyName = getPropertyNameByPosition(currentPosition);
 
-      // --- GUARD: Do not trigger property landing if not a property space ---
-      // --- GUARD: Do not emit if we already emitted for this landing ---
+      // Only emit for unowned properties, airports, and utilities
       if (
         propertyName &&
         isPropertySpace(propertyName) &&
+        !propertyOwnership[propertyName] &&
         lastEmittedLanding.current !== `${currentPlayer.id}-${currentPosition}-${syncedLastDiceRoll.dice1}-${syncedLastDiceRoll.dice2}`
       ) {
-        // Emit for any property space (owned or unowned)
         socket.emit('handlePropertyLanding', {
           roomId,
           propertyName
@@ -638,6 +641,10 @@ const MonopolyBoard = (props) => {
       }
     }
   }, [syncedLastDiceRoll, syncedPositions, isMyTurn, gameStarted, globalDiceRolling, localDiceRolling, propertyOwnership, roomId, playerStatuses]);
+
+  // Get current map name from game settings (defined early so it can be used in functions)
+  // In preview mode, use settings prop; otherwise use gameSettings
+  const currentMapName = (isPreviewMode ? props.settings?.boardMap : gameSettings?.boardMap) || 'Classic';
 
   // Reset button log when property landing state changes
   React.useEffect(() => {
@@ -652,44 +659,61 @@ const MonopolyBoard = (props) => {
     }
   }, [syncedLastDiceRoll]);
 
-  // Helper function to get property name by position
+  // Helper function to get property name by position (dynamic based on current map)
   const getPropertyNameByPosition = (position) => {
-    const propertyMap = {
-      1: 'Salvador',
-      3: 'Rio',
-      5: 'TLV Airport',
-      6: 'Tel Aviv',
-      8: 'Haifa',
-      9: 'Jerusalem',
-      11: 'Venice',
-      12: 'Electric Company',
-      13: 'Milan',
-      14: 'Rome',
-      15: 'MUC Airport',
-      16: 'Frankfurt',
-      18: 'Munich',
-      19: 'Berlin',
-      21: 'Shenzhen',
-      23: 'Beijing',
-      24: 'Shanghai',
-      25: 'CDG Airport',
-      26: 'Lyon',
-      27: 'Toulouse',
-      28: 'Water Company',
-      29: 'Paris',
-      31: 'Liverpool',
-      32: 'Manchester',
-      34: 'London',
-      35: 'JFK Airport',
-      37: 'California',
-      39: 'New York'
-    };
-    return propertyMap[position];
+    if (currentMapName === 'Mr. Worldwide') {
+      // Worldwide map position mapping (48 spaces) - correct 13x13 layout
+      const worldwidePropertyMap = {
+        // Top row (positions 0-12)
+        0: 'START', 1: 'Salvador', 2: 'Treasure', 3: 'Rio', 4: 'Income Tax', 5: 'Tel Aviv', 
+        6: 'TLV Airport', 7: 'Haifa', 8: 'Jerusalem', 9: 'Surprise', 10: 'Mumbai', 11: 'New Delhi', 12: 'In Prison / Just Visiting',
+        
+        // Right column (positions 13-23)
+        13: 'Venice', 14: 'Bologna', 15: 'Electric Company', 16: 'Milan', 17: 'Rome', 18: 'MUC Airport', 
+        19: 'Frankfurt', 20: 'Treasure', 21: 'Munich', 22: 'Gas Company', 23: 'Berlin',
+        
+        // Bottom row (positions 24-35, going right to left)
+        24: 'Vacation', 25: 'Shenzhen', 26: 'Surprise', 27: 'Beijing', 28: 'Treasure', 29: 'Shanghai', 
+        30: 'CDG Airport', 31: 'Toulouse', 32: 'Paris', 33: 'Water Company', 34: 'Yokohama', 35: 'Tokyo',
+        
+        // Left column (positions 36-47, going bottom to top)
+        36: 'Go to prison', 37: 'Liverpool', 38: 'Manchester', 39: 'Treasure', 40: 'Birmingham', 41: 'London', 
+        42: 'JFK Airport', 43: 'Los Angeles', 44: 'Surprise', 45: 'California', 46: 'Luxury Tax', 47: 'New York'
+      };
+      return worldwidePropertyMap[position];
+    } else {
+      // Classic map position mapping (40 spaces)
+      const classicPropertyMap = {
+        0: 'START', 1: 'Salvador', 2: 'Treasure', 3: 'Rio', 4: 'Income Tax', 5: 'TLV Airport', 6: 'Tel Aviv', 
+        7: 'Surprise', 8: 'Haifa', 9: 'Jerusalem', 10: 'In Prison / Just Visiting',
+        11: 'Venice', 12: 'Electric Company', 13: 'Milan', 14: 'Rome', 15: 'MUC Airport', 16: 'Frankfurt',
+        17: 'Treasure', 18: 'Munich', 19: 'Berlin', 20: 'Vacation',
+        21: 'Shenzhen', 22: 'Surprise', 23: 'Beijing', 24: 'Shanghai', 25: 'CDG Airport',
+        26: 'Lyon', 27: 'Toulouse', 28: 'Water Company', 29: 'Paris', 30: 'Go to prison',
+        31: 'Liverpool', 32: 'Manchester', 33: 'Treasure', 34: 'London', 35: 'JFK Airport', 
+        36: 'Surprise', 37: 'California', 38: 'Luxury Tax', 39: 'New York'
+      };
+      return classicPropertyMap[position];
+    }
   };
 
   // Helper function to check if a space is a property
   const isPropertySpace = (propertyName) => {
-    return classicMap.some(prop => prop.name === propertyName);
+    // Exclude special spaces that should not trigger property landing
+    const specialSpaces = [
+      'START', 'GO', 'In Prison / Just Visiting', 'Prison', 'Vacation', 'Go to prison', 'Go to Prison',
+      'Surprise', 'Treasure', 'Income Tax', 'Luxury Tax'
+    ];
+    
+    if (specialSpaces.includes(propertyName)) {
+      return false;
+    }
+    
+    const currentMapProperties = getCurrentMapProperties();
+    const propertyData = currentMapProperties.find(prop => prop.name === propertyName);
+    
+    // Only return true if the property exists AND has a price (indicating it's purchasable)
+    return propertyData && propertyData.price && propertyData.price > 0;
   };
 
   const diceRollingStartedByEvent = React.useRef(false);
@@ -808,7 +832,7 @@ const MonopolyBoard = (props) => {
     // Debug log
     // console.log('[DEBUG][handleEndTurn] gamePhase:', gamePhase, 'hasEndedTurnAfterDoubles:', hasEndedTurnAfterDoubles, 'isInDoublesSequence:', isInDoublesSequence, 'syncedLastDiceRoll:', syncedLastDiceRoll, 'currentPlayerIndex:', currentPlayerIndex);
     if (
-      currentPosition === 20 &&
+      (currentMapName === 'Mr. Worldwide' ? currentPosition === 24 : currentPosition === 20) &&
       currentPlayer &&
       (!playerStatuses[currentPlayer.id] || (typeof playerStatuses[currentPlayer.id] === 'object' && playerStatuses[currentPlayer.id].status !== 'vacation'))
     ) {
@@ -830,11 +854,8 @@ const MonopolyBoard = (props) => {
   };
   // Helper function to get space index from position arrays
   const getSpaceIndex = (position) => {
-    // Board has 40 positions total
-    // 0-10: top row (START to PRISON)
-    // 11-20: right row 
-    // 21-30: bottom row (Vacation going left)
-    // 31-39: left row (going up to START)
+    // Board positions are dynamic based on map type
+    // Classic: 40 positions, Worldwide: 48 positions
     return position;
   };
 
@@ -851,21 +872,53 @@ const MonopolyBoard = (props) => {
     const currentPlayer = getCurrentPlayer();
     const isMoving = gamePhase === 'moving';
 
-    // Check if this is a corner space for special sizing
-    const isCornerSpace = spaceIndex === 0 || spaceIndex === 10 || spaceIndex === 20 || spaceIndex === 30;
+    // Check if this is a corner space for special sizing (dynamic based on map)
+    const getCornerSpaces = () => {
+      if (currentMapName === 'Mr. Worldwide') {
+        return [0, 12, 24, 36]; // START, JAIL, VACATION, GO TO JAIL for 48-space board
+      } else {
+        return [0, 10, 20, 30]; // START, JAIL, VACATION, GO TO JAIL for 40-space board
+      }
+    };
+    
+    const cornerSpaces = getCornerSpaces();
+    const isCornerSpace = cornerSpaces.includes(spaceIndex);
     const avatarSize = isCornerSpace ? 36 : 32;
     const fontSize = isCornerSpace ? '13px' : '12px';
 
     // Calculate overlap - each avatar should overlap the previous one by 50% to show an arc
     const overlapAmount = avatarSize * 0.5; // 50% overlap to show arc of each avatar
 
-    // Determine stacking direction based on space position
-    const isLeftSide = spaceIndex >= 31 && spaceIndex <= 39; // Left column
-    const isRightSide = spaceIndex >= 11 && spaceIndex <= 19; // Right column
+    // Determine stacking direction based on space position (dynamic based on map)
+    const getSideRanges = () => {
+      if (currentMapName === 'Mr. Worldwide') {
+        return {
+          leftSide: { start: 37, end: 47 }, // Left column for 48-space board
+          rightSide: { start: 13, end: 23 }  // Right column for 48-space board
+        };
+      } else {
+        return {
+          leftSide: { start: 31, end: 39 }, // Left column for 40-space board
+          rightSide: { start: 11, end: 19 }  // Right column for 40-space board
+        };
+      }
+    };
+    
+    const sideRanges = getSideRanges();
+    const isLeftSide = spaceIndex >= sideRanges.leftSide.start && spaceIndex <= sideRanges.leftSide.end;
+    const isRightSide = spaceIndex >= sideRanges.rightSide.start && spaceIndex <= sideRanges.rightSide.end;
     const isHorizontalStack = isLeftSide || isRightSide;
 
-    // Special handling for jail space (spaceIndex === 10)
-    const isJailSpace = spaceIndex === 10;
+    // Special handling for jail space (dynamic based on map)
+    const getJailSpace = () => {
+      if (currentMapName === 'Mr. Worldwide') {
+        return 12; // JAIL position for 48-space board
+      } else {
+        return 10; // JAIL position for 40-space board
+      }
+    };
+    
+    const isJailSpace = spaceIndex === getJailSpace();
 
     if (isJailSpace) {
       // Separate jailed players from visiting players and remove duplicates
@@ -1130,8 +1183,9 @@ const MonopolyBoard = (props) => {
       </Box>
     );
   };
-  // Property to country code mapping
+  // Property to country code mapping (extended for all maps)
   const propertyFlags = {
+    // Classic + Worldwide common properties
     'Salvador': 'BR', // Brazil
     'Rio': 'BR', // Brazil
     'Tel Aviv': 'IL', // Israel
@@ -1152,74 +1206,174 @@ const MonopolyBoard = (props) => {
     'Liverpool': 'GB', // UK
     'Manchester': 'GB', // UK
     'London': 'GB', // UK
-    'California': 'US', // USA
-    'New York': 'US' // USA
+    'California': 'US', // USA (classic and worldwide)
+    'New York': 'US', // USA
+    // Worldwide-specific properties
+    'Mumbai': 'IN', // India
+    'New Delhi': 'IN', // India
+    'Bologna': 'IT', // Italy
+    'Birmingham': 'GB', // UK
+    'Los Angeles': 'US', // USA
+    'Yokohama': 'JP', // Japan
+    'Tokyo': 'JP', // Japan
+    // Utilities (no flags needed but included for completeness)
+    'Electric Company': null,
+    'Gas Company': null,
+    'Water Company': null
   };
 
-  // Helper function to get property data from classic map
+  // Get property data for current map (currentMapName defined earlier)
+  const getCurrentMapProperties = () => {
+    return getMapProperties(currentMapName);
+  };
+
+  // Get map layout info
+  const mapLayout = getMapLayout(currentMapName);
+
+  // Helper function to get property data from current map
   const getPropertyData = (propertyName) => {
-    return classicMap.find(prop => prop.name === propertyName);
+    const properties = getCurrentMapProperties();
+    return properties.find(prop => prop.name === propertyName);
   };
 
-  // Top row properties (left to right)
-  const topRow = [
-    { name: 'START', type: 'corner', color: 'green', className: 'start' },
-    { name: 'Salvador', type: 'property', flag: propertyFlags['Salvador'], price: getPropertyData('Salvador')?.price || 60 },
-    { name: 'Treasure', type: 'treasure', color: 'orange' },
-    { name: 'Rio', type: 'property', flag: propertyFlags['Rio'], price: getPropertyData('Rio')?.price || 60 },
-    { name: 'Income Tax', type: 'tax', color: 'white' },
-    { name: 'TLV Airport', type: 'airport', color: 'gray', price: getPropertyData('TLV Airport')?.price || 200 },
-    { name: 'Tel Aviv', type: 'property', flag: propertyFlags['Tel Aviv'], price: getPropertyData('Tel Aviv')?.price || 100 },
-    { name: 'Surprise', type: 'surprise', color: 'pink' },
-    { name: 'Haifa', type: 'property', flag: propertyFlags['Haifa'], price: getPropertyData('Haifa')?.price || 100 },
-    { name: 'Jerusalem', type: 'property', flag: propertyFlags['Jerusalem'], price: getPropertyData('Jerusalem')?.price || 120 },
-    { name: 'In Prison / Just Visiting', type: 'corner', color: 'orange', className: 'prison' }
-  ];
+  // Dynamic board generation based on map
+  const generateBoardLayout = () => {
+    if (currentMapName === 'Mr. Worldwide') {
+      return generateWorldwideLayout();
+    } else {
+      return generateClassicLayout();
+    }
+  };
 
-  // Right row properties (top to bottom)
-  const rightRow = [
-    { name: 'Venice', type: 'property', flag: propertyFlags['Venice'], price: getPropertyData('Venice')?.price || 140 },
-    { name: 'Electric Company', type: 'utility', utilityType: 'electric', color: 'lightblue', price: getPropertyData('Electric Company')?.price || 150 },
-    { name: 'Milan', type: 'property', flag: propertyFlags['Milan'], price: getPropertyData('Milan')?.price || 140 },
-    { name: 'Rome', type: 'property', flag: propertyFlags['Rome'], price: getPropertyData('Rome')?.price || 160 },
-    { name: 'MUC Airport', type: 'airport', color: 'gray', price: getPropertyData('MUC Airport')?.price || 200 },
-    { name: 'Frankfurt', type: 'property', flag: propertyFlags['Frankfurt'], price: getPropertyData('Frankfurt')?.price || 180 },
-    { name: 'Treasure', type: 'treasure', color: 'orange' },
-    { name: 'Munich', type: 'property', flag: propertyFlags['Munich'], price: getPropertyData('Munich')?.price || 180 },
-    { name: 'Berlin', type: 'property', flag: propertyFlags['Berlin'], price: getPropertyData('Berlin')?.price || 200 }
-  ];
+  // Classic board layout (11x11)
+  const generateClassicLayout = () => {
+    const topRow = [
+      { name: 'START', type: 'corner', color: 'green', className: 'start' },
+      { name: 'Salvador', type: 'property', flag: propertyFlags['Salvador'], price: getPropertyData('Salvador')?.price || 60 },
+      { name: 'Treasure', type: 'treasure', color: 'orange' },
+      { name: 'Rio', type: 'property', flag: propertyFlags['Rio'], price: getPropertyData('Rio')?.price || 60 },
+      { name: 'Income Tax', type: 'tax', color: 'white' },
+      { name: 'TLV Airport', type: 'airport', color: 'gray', price: getPropertyData('TLV Airport')?.price || 200 },
+      { name: 'Tel Aviv', type: 'property', flag: propertyFlags['Tel Aviv'], price: getPropertyData('Tel Aviv')?.price || 100 },
+      { name: 'Surprise', type: 'surprise', color: 'pink' },
+      { name: 'Haifa', type: 'property', flag: propertyFlags['Haifa'], price: getPropertyData('Haifa')?.price || 100 },
+      { name: 'Jerusalem', type: 'property', flag: propertyFlags['Jerusalem'], price: getPropertyData('Jerusalem')?.price || 120 },
+      { name: 'In Prison / Just Visiting', type: 'corner', color: 'orange', className: 'prison' }
+    ];
 
-  // Bottom row properties (right to left)
-  const bottomRow = [
-    { name: 'Shenzhen', type: 'property', flag: propertyFlags['Shenzhen'], price: getPropertyData('Shenzhen')?.price || 220 },
-    { name: 'Surprise', type: 'surprise', color: 'pink' },
-    { name: 'Beijing', type: 'property', flag: propertyFlags['Beijing'], price: getPropertyData('Beijing')?.price || 220 },
-    { name: 'Shanghai', type: 'property', flag: propertyFlags['Shanghai'], price: getPropertyData('Shanghai')?.price || 240 },
-    { name: 'CDG Airport', type: 'airport', color: 'gray', price: getPropertyData('CDG Airport')?.price || 200 },
-    { name: 'Lyon', type: 'property', flag: propertyFlags['Lyon'], price: getPropertyData('Lyon')?.price || 260 },
-    { name: 'Toulouse', type: 'property', flag: propertyFlags['Toulouse'], price: getPropertyData('Toulouse')?.price || 260 },
-    { name: 'Water Company', type: 'utility', color: 'lightblue', price: getPropertyData('Water Company')?.price || 150 },
-    { name: 'Paris', type: 'property', flag: propertyFlags['Paris'], price: getPropertyData('Paris')?.price || 280 }
-  ];
+    const rightRow = [
+      { name: 'Venice', type: 'property', flag: propertyFlags['Venice'], price: getPropertyData('Venice')?.price || 140 },
+      { name: 'Electric Company', type: 'utility', utilityType: 'electric', color: 'lightblue', price: getPropertyData('Electric Company')?.price || 150 },
+      { name: 'Milan', type: 'property', flag: propertyFlags['Milan'], price: getPropertyData('Milan')?.price || 140 },
+      { name: 'Rome', type: 'property', flag: propertyFlags['Rome'], price: getPropertyData('Rome')?.price || 160 },
+      { name: 'MUC Airport', type: 'airport', color: 'gray', price: getPropertyData('MUC Airport')?.price || 200 },
+      { name: 'Frankfurt', type: 'property', flag: propertyFlags['Frankfurt'], price: getPropertyData('Frankfurt')?.price || 180 },
+      { name: 'Treasure', type: 'treasure', color: 'orange' },
+      { name: 'Munich', type: 'property', flag: propertyFlags['Munich'], price: getPropertyData('Munich')?.price || 180 },
+      { name: 'Berlin', type: 'property', flag: propertyFlags['Berlin'], price: getPropertyData('Berlin')?.price || 200 }
+    ];
 
-  // Left row properties (bottom to top)
-  const leftRow = [
-    { name: 'Liverpool', type: 'property', flag: propertyFlags['Liverpool'], price: getPropertyData('Liverpool')?.price || 300 },
-    { name: 'Manchester', type: 'property', flag: propertyFlags['Manchester'], price: getPropertyData('Manchester')?.price || 300 },
-    { name: 'Treasure', type: 'treasure', color: 'orange' },
-    { name: 'London', type: 'property', flag: propertyFlags['London'], price: getPropertyData('London')?.price || 320 },
-    { name: 'JFK Airport', type: 'airport', color: 'gray', price: getPropertyData('JFK Airport')?.price || 200 },
-    { name: 'Surprise', type: 'surprise', color: 'pink' },
-    { name: 'California', type: 'property', flag: propertyFlags['California'], price: getPropertyData('California')?.price || 350 },
-    { name: 'Luxury Tax', type: 'tax', color: 'white' },
-    { name: 'New York', type: 'property', flag: propertyFlags['New York'], price: getPropertyData('New York')?.price || 400 }
-  ];
+    const bottomRow = [
+      { name: 'Shenzhen', type: 'property', flag: propertyFlags['Shenzhen'], price: getPropertyData('Shenzhen')?.price || 220 },
+      { name: 'Surprise', type: 'surprise', color: 'pink' },
+      { name: 'Beijing', type: 'property', flag: propertyFlags['Beijing'], price: getPropertyData('Beijing')?.price || 220 },
+      { name: 'Shanghai', type: 'property', flag: propertyFlags['Shanghai'], price: getPropertyData('Shanghai')?.price || 240 },
+      { name: 'CDG Airport', type: 'airport', color: 'gray', price: getPropertyData('CDG Airport')?.price || 200 },
+      { name: 'Lyon', type: 'property', flag: propertyFlags['Lyon'], price: getPropertyData('Lyon')?.price || 260 },
+      { name: 'Toulouse', type: 'property', flag: propertyFlags['Toulouse'], price: getPropertyData('Toulouse')?.price || 260 },
+      { name: 'Water Company', type: 'utility', color: 'lightblue', price: getPropertyData('Water Company')?.price || 150 },
+      { name: 'Paris', type: 'property', flag: propertyFlags['Paris'], price: getPropertyData('Paris')?.price || 280 }
+    ];
 
-  // Corner spaces
-  const corners = [
-    { name: 'Vacation', type: 'corner', color: 'green', className: 'free-parking' },
-    { name: 'Go to prison', type: 'corner', color: 'red', className: 'jail' }
-  ];
+    const leftRow = [
+      { name: 'Liverpool', type: 'property', flag: propertyFlags['Liverpool'], price: getPropertyData('Liverpool')?.price || 300 },
+      { name: 'Manchester', type: 'property', flag: propertyFlags['Manchester'], price: getPropertyData('Manchester')?.price || 300 },
+      { name: 'Treasure', type: 'treasure', color: 'orange' },
+      { name: 'London', type: 'property', flag: propertyFlags['London'], price: getPropertyData('London')?.price || 320 },
+      { name: 'JFK Airport', type: 'airport', color: 'gray', price: getPropertyData('JFK Airport')?.price || 200 },
+      { name: 'Surprise', type: 'surprise', color: 'pink' },
+      { name: 'California', type: 'property', flag: propertyFlags['California'], price: getPropertyData('California')?.price || 350 },
+      { name: 'Luxury Tax', type: 'tax', color: 'white' },
+      { name: 'New York', type: 'property', flag: propertyFlags['New York'], price: getPropertyData('New York')?.price || 400 }
+    ];
+
+    const corners = [
+      { name: 'Vacation', type: 'corner', color: 'green', className: 'free-parking' },
+      { name: 'Go to prison', type: 'corner', color: 'red', className: 'go-to-jail' }
+    ];
+
+    return { topRow, rightRow, bottomRow, leftRow, corners };
+  };
+
+  // Worldwide board layout (13x13)
+  const generateWorldwideLayout = () => {
+    const topRow = [
+      { name: 'START', type: 'corner', color: 'green', className: 'start' },
+      { name: 'Salvador', type: 'property', flag: propertyFlags['Salvador'], price: getPropertyData('Salvador')?.price || 60 },
+      { name: 'Treasure', type: 'treasure', color: 'orange' },
+      { name: 'Rio', type: 'property', flag: propertyFlags['Rio'], price: getPropertyData('Rio')?.price || 60 },
+      { name: 'Income Tax', type: 'tax', color: 'white' },
+      { name: 'Tel Aviv', type: 'property', flag: propertyFlags['Tel Aviv'], price: getPropertyData('Tel Aviv')?.price || 100 },
+      { name: 'TLV Airport', type: 'airport', color: 'gray', price: getPropertyData('TLV Airport')?.price || 200 },
+      { name: 'Haifa', type: 'property', flag: propertyFlags['Haifa'], price: getPropertyData('Haifa')?.price || 100 },
+      { name: 'Jerusalem', type: 'property', flag: propertyFlags['Jerusalem'], price: getPropertyData('Jerusalem')?.price || 110 },
+      { name: 'Surprise', type: 'surprise', color: 'pink' },
+      { name: 'Mumbai', type: 'property', flag: propertyFlags['Mumbai'], price: getPropertyData('Mumbai')?.price || 120 },
+      { name: 'New Delhi', type: 'property', flag: propertyFlags['New Delhi'], price: getPropertyData('New Delhi')?.price || 120 },
+      { name: 'In Prison / Just Visiting', type: 'corner', color: 'orange', className: 'prison' }
+    ];
+
+    const rightRow = [
+      { name: 'Venice', type: 'property', flag: propertyFlags['Venice'], price: getPropertyData('Venice')?.price || 140 },
+      { name: 'Bologna', type: 'property', flag: propertyFlags['Bologna'], price: getPropertyData('Bologna')?.price || 140 },
+      { name: 'Electric Company', type: 'utility', utilityType: 'electric', color: 'lightblue', price: getPropertyData('Electric Company')?.price || 150 },
+      { name: 'Milan', type: 'property', flag: propertyFlags['Milan'], price: getPropertyData('Milan')?.price || 160 },
+      { name: 'Rome', type: 'property', flag: propertyFlags['Rome'], price: getPropertyData('Rome')?.price || 160 },
+      { name: 'MUC Airport', type: 'airport', color: 'gray', price: getPropertyData('MUC Airport')?.price || 200 },
+      { name: 'Frankfurt', type: 'property', flag: propertyFlags['Frankfurt'], price: getPropertyData('Frankfurt')?.price || 180 },
+      { name: 'Treasure', type: 'treasure', color: 'orange' },
+      { name: 'Munich', type: 'property', flag: propertyFlags['Munich'], price: getPropertyData('Munich')?.price || 180 },
+      { name: 'Gas Company', type: 'utility', color: 'lightblue', price: getPropertyData('Gas Company')?.price || 150 },
+      { name: 'Berlin', type: 'property', flag: propertyFlags['Berlin'], price: getPropertyData('Berlin')?.price || 200 }
+    ];
+
+    const bottomRow = [
+      { name: 'Vacation', type: 'corner', color: 'green', className: 'free-parking' },
+      { name: 'Shenzhen', type: 'property', flag: propertyFlags['Shenzhen'], price: getPropertyData('Shenzhen')?.price || 220 },
+      { name: 'Surprise', type: 'surprise', color: 'pink' },
+      { name: 'Beijing', type: 'property', flag: propertyFlags['Beijing'], price: getPropertyData('Beijing')?.price || 220 },
+      { name: 'Treasure', type: 'treasure', color: 'orange' },
+      { name: 'Shanghai', type: 'property', flag: propertyFlags['Shanghai'], price: getPropertyData('Shanghai')?.price || 240 },
+      { name: 'CDG Airport', type: 'airport', color: 'gray', price: getPropertyData('CDG Airport')?.price || 200 },
+      { name: 'Toulouse', type: 'property', flag: propertyFlags['Toulouse'], price: getPropertyData('Toulouse')?.price || 260 },
+      { name: 'Paris', type: 'property', flag: propertyFlags['Paris'], price: getPropertyData('Paris')?.price || 260 },
+      { name: 'Water Company', type: 'utility', color: 'lightblue', price: getPropertyData('Water Company')?.price || 150 },
+      { name: 'Yokohama', type: 'property', flag: propertyFlags['Yokohama'], price: getPropertyData('Yokohama')?.price || 280 },
+      { name: 'Tokyo', type: 'property', flag: propertyFlags['Tokyo'], price: getPropertyData('Tokyo')?.price || 280 }
+    ];
+
+    const leftRow = [
+      { name: 'Go to prison', type: 'corner', color: 'red', className: 'go-to-jail' },
+      { name: 'Liverpool', type: 'property', flag: propertyFlags['Liverpool'], price: getPropertyData('Liverpool')?.price || 300 },
+      { name: 'Manchester', type: 'property', flag: propertyFlags['Manchester'], price: getPropertyData('Manchester')?.price || 300 },
+      { name: 'Treasure', type: 'treasure', color: 'orange' },
+      { name: 'Birmingham', type: 'property', flag: propertyFlags['Birmingham'], price: getPropertyData('Birmingham')?.price || 320 },
+      { name: 'London', type: 'property', flag: propertyFlags['London'], price: getPropertyData('London')?.price || 320 },
+      { name: 'JFK Airport', type: 'airport', color: 'gray', price: getPropertyData('JFK Airport')?.price || 200 },
+      { name: 'Los Angeles', type: 'property', flag: propertyFlags['Los Angeles'], price: getPropertyData('Los Angeles')?.price || 350 },
+      { name: 'Surprise', type: 'surprise', color: 'pink' },
+      { name: 'California', type: 'property', flag: propertyFlags['California'], price: getPropertyData('California')?.price || 360 },
+      { name: 'Luxury Tax', type: 'tax', color: 'white' },
+      { name: 'New York', type: 'property', flag: propertyFlags['New York'], price: getPropertyData('New York')?.price || 400 }
+    ];
+
+    const corners = []; // Empty since corners are included in respective rows for worldwide
+
+    return { topRow, rightRow, bottomRow, leftRow, corners };
+  };
+
+  // Generate current board layout
+  const { topRow, rightRow, bottomRow, leftRow, corners } = generateBoardLayout();
 
   const handlePropertyClick = (propertyName) => {
     onPropertyClick(propertyName);
@@ -1227,27 +1381,43 @@ const MonopolyBoard = (props) => {
 
   const renderSpace = (space, index, position) => {
     const isCorner = space.type === 'corner';
-    const spaceClasses = `space ${space.type} ${position} ${isCorner ? 'corner' : ''} ${space.className || ''}`;
+    const spaceClasses = `space ${space.type} ${position} ${isCorner ? 'corner' : ''} ${space.className || ''} ${mapLayout.boardType}`;
 
-    // Calculate the global space index for player positioning
-    // Board layout clockwise: 0-10 (top), 11-19 (right), 20-30 (bottom), 31-39 (left)
+    // Calculate the global space index for player positioning based on map type
     let globalSpaceIndex = 0;
-    if (position === 'top') {
-      globalSpaceIndex = index; // 0-10
-    } else if (position === 'right') {
-      globalSpaceIndex = 11 + index; // 11-19
-    } else if (position === 'bottom') {
-      if (space.name === 'Vacation') {
-        globalSpaceIndex = 20;
-      } else if (space.name === 'Go to prison') {
-        globalSpaceIndex = 30;
-      } else {
-        // Bottom row properties: index 0-8 should map to positions 21-29 (left to right)
-        globalSpaceIndex = 21 + index;
+    
+    if (mapLayout.boardType === 'worldwide') {
+      // Worldwide map (13x13): Total 48 spaces
+      if (position === 'top') {
+        globalSpaceIndex = index; // 0-12
+      } else if (position === 'right') {
+        globalSpaceIndex = 13 + index; // 13-23
+      } else if (position === 'bottom') {
+        // Bottom row: positions 24-35 (12 spaces total)
+        globalSpaceIndex = 24 + index;
+      } else if (position === 'left') {
+        // Left row: positions 36-47 (12 spaces total, starting with "Go to prison")
+        globalSpaceIndex = 36 + index;
       }
-    } else if (position === 'left') {
-      // Left row properties: index 0-8 should map to positions 31-39 (bottom to top)
-      globalSpaceIndex = 31 + index;
+    } else {
+      // Classic map (11x11): Total 40 spaces
+      if (position === 'top') {
+        globalSpaceIndex = index; // 0-10
+      } else if (position === 'right') {
+        globalSpaceIndex = 11 + index; // 11-19
+      } else if (position === 'bottom') {
+        if (space.name === 'Vacation') {
+          globalSpaceIndex = 20;
+        } else if (space.name === 'Go to prison') {
+          globalSpaceIndex = 30;
+        } else {
+          // Bottom row properties: index 0-8 should map to positions 21-29
+          globalSpaceIndex = 21 + index;
+        }
+      } else if (position === 'left') {
+        // Left row properties: index 0-8 should map to positions 31-39
+        globalSpaceIndex = 31 + index;
+      }
     }
 
     return (
@@ -1444,11 +1614,12 @@ const MonopolyBoard = (props) => {
             JAIL
           </div>
         )}
+
+
       </div>
     );
   };
 
-  // Ref to always store the latest valid dice roll synchronously
   const lastValidDiceRollRef = React.useRef(null);
 
   React.useEffect(() => {
@@ -1565,105 +1736,81 @@ const MonopolyBoard = (props) => {
 
   // Place this useEffect near other hooks, before the return statement
   React.useEffect(() => {
-    // Center Controls Render log
-    const landingPlayerId = propertyLandingState?.player?.id || getCurrentPlayer()?.id;
-    if (gameStarted) {
-      // Check property landing first - this should take priority
-      if (
-        propertyLandingState &&
-        propertyLandingState.isActive &&
-        landingPlayerId === getCurrentPlayer()?.id
-      ) {
-        lastLoggedState.current = 'property-landing';
-        return; // Exit early to prevent other button conditions from being checked
-      }
+    if (!gameStarted) return;
+    
+    const currentPlayer = getCurrentPlayer();
+    const landingPlayerId = propertyLandingState?.player?.id || currentPlayer?.id;
+    
+    // Reset states when it's not the player's turn
+    if (!isMyTurn) {
+      lastLoggedState.current = '';
+      hasHandledPropertyLanding.current = false;
+      return;
+    }
 
-      // Check if we should be in property landing state but propertyLandingState hasn't been set yet
-      // This happens when a player lands on a property but the state hasn't been updated yet
-      const currentPlayer = getCurrentPlayer();
+    // Property landing takes priority
+    if (propertyLandingState && propertyLandingState.isActive && landingPlayerId === currentPlayer?.id) {
+      lastLoggedState.current = 'property-landing';
+      return;
+    }
 
-      // Reset property landing flag when we get a new dice roll or when turn changes
-      if (syncedLastDiceRoll) {
-        // Keep the flag as is during the turn
+    // Check vacation status
+    const isOnVacation = playerStatuses[currentUserId] && 
+                        typeof playerStatuses[currentUserId] === 'object' && 
+                        playerStatuses[currentUserId].status === 'vacation';
+
+    if (isOnVacation) {
+      lastLoggedState.current = 'vacation-skip';
+      return;
+    }
+
+    // Check jail status
+    const isInJail = playerStatuses[currentPlayer?.id] === 'jail';
+    
+    if (isInJail && !syncedLastDiceRoll) {
+      lastLoggedState.current = 'jail-escape';
+      return;
+    }
+
+    // Normal turn flow
+    if (!syncedLastDiceRoll && !globalDiceRolling && !localDiceRolling) {
+      if (hasEndedTurnAfterDoubles || isInDoublesSequence) {
+        lastLoggedState.current = 'roll-again';
       } else {
-        // Turn has changed, reset the flag
-        hasHandledPropertyLanding.current = false;
+        lastLoggedState.current = 'roll-dice';
+      }
+      return;
+    }
+
+    // After dice roll - check for property landing first
+    if (syncedLastDiceRoll && movementComplete && !globalDiceRolling && !localDiceRolling) {
+      const currentPosition = syncedPositions[currentPlayer.id];
+      const propertyName = getPropertyNameByPosition(currentPosition);
+      
+      // If it's an unowned property, wait for property landing state
+      if (propertyName && isPropertySpace(propertyName) && !propertyOwnership[propertyName] && !propertyLandingState) {
+        lastLoggedState.current = 'waiting-for-property-landing';
+        return;
       }
 
-      // Check if we're waiting for property landing state to be set
-      // This should only happen immediately after a dice roll, not after property actions
-      const shouldBePropertyLanding =
-        syncedLastDiceRoll &&
-        movementComplete &&
-        isMyTurn &&
-        currentPlayer &&
-        !globalDiceRolling &&
-        !localDiceRolling &&
-        gamePhase === 'rolling' &&
-        !propertyLandingState && // Only if propertyLandingState is not set yet
-        lastLoggedState.current === ''; // Only if we haven't logged any button state yet (fresh dice roll)
-
-      if (shouldBePropertyLanding) {
-        // Don't show any buttons while waiting for property landing state to be set
-        if (lastLoggedState.current !== 'waiting-for-property-landing') {
-          lastLoggedState.current = 'waiting-for-property-landing';
-        }
-        return; // Exit early to prevent other button conditions from being checked
-      }
-
-      // Only check other button conditions if not on a property landing
-      if (
-        gamePhase === 'rolling' && getCurrentPlayer() && canPlayerRoll(getCurrentPlayer().id) && !globalDiceRolling && !localDiceRolling && playerStatuses[getCurrentPlayer().id] !== 'jail' && (!playerStatuses[getCurrentPlayer().id] || typeof playerStatuses[getCurrentPlayer().id] !== 'object' || playerStatuses[getCurrentPlayer().id].status !== 'vacation') && !syncedLastDiceRoll && !isInDoublesSequence &&
-        isMyTurn
-      ) {
-        if (lastLoggedState.current !== 'roll-dice') {
-          lastLoggedState.current = 'roll-dice';
-        }
-      } else if (
-        gamePhase === 'rolling' && getCurrentPlayer() && canPlayerRoll(getCurrentPlayer().id) && hasEndedTurnAfterDoubles && !globalDiceRolling && !localDiceRolling && !syncedLastDiceRoll && isMyTurn
-      ) {
-        // Check if we landed on a special space that requires ending turn
-        const currentPlayer = getCurrentPlayer();
-        const currentPosition = syncedPositions[currentPlayer.id];
+      // Check for doubles
+      if (syncedLastDiceRoll.dice1 === syncedLastDiceRoll.dice2) {
         const isSpecialSpace = [0, 2, 4, 7, 10, 17, 20, 22, 30, 33, 36, 38].includes(currentPosition);
-
         if (isSpecialSpace) {
-          // Show end turn log for special spaces even when rolling doubles
-          let specialSpaceMessage = null;
-          if ([2, 4, 7, 17, 22, 33, 36, 38].includes(currentPosition)) {
-            specialSpaceMessage = 'Showing End Turn button after rolling';
-          }
-          if (lastLoggedState.current !== 'end-turn') {
-            lastLoggedState.current = 'end-turn';
-          }
+          lastLoggedState.current = 'end-turn-doubles';
         } else {
-          // Show roll again button for non-special spaces
-          if (lastLoggedState.current !== 'roll-again') {
-            lastLoggedState.current = 'roll-again';
-          }
-        }
-      } else if (
-        gamePhase === 'rolling' && getCurrentPlayer() && canPlayerRoll(getCurrentPlayer().id) && syncedLastDiceRoll && !globalDiceRolling && !localDiceRolling && movementComplete && isMyTurn
-      ) {
-        // Check if we landed on a special space
-        const currentPlayer = getCurrentPlayer();
-        const currentPosition = syncedPositions[currentPlayer.id];
-        let specialSpaceMessage = null;
-
-        specialSpaceMessage = 'Showing End Turn button after landing on Luxury Tax';
-        if ([2, 4, 7, 17, 22, 33, 36, 38].includes(currentPosition)) {
-          specialSpaceMessage = 'Showing End Turn button after rolling';
-        }
-
-        if (lastLoggedState.current !== 'end-turn') {
-          lastLoggedState.current = 'end-turn';
+          lastLoggedState.current = 'roll-again-doubles';
         }
       } else {
-        // Reset state if no button should be shown
-        lastLoggedState.current = '';
+        lastLoggedState.current = 'end-turn-normal';
       }
     }
-  }, [gameStarted, propertyLandingState, isMyTurn, gamePhase, syncedPlayerMoney, globalDiceRolling, localDiceRolling, playerStatuses, syncedLastDiceRoll, isInDoublesSequence, hasEndedTurnAfterDoubles, movementComplete, getCurrentPlayer, canPlayerRoll]);
+  }, [
+    gameStarted, propertyLandingState, isMyTurn, gamePhase, syncedLastDiceRoll, 
+    movementComplete, globalDiceRolling, localDiceRolling, playerStatuses, 
+    currentUserId, hasEndedTurnAfterDoubles, isInDoublesSequence, syncedPositions, 
+    propertyOwnership, getCurrentPlayer
+  ]);
 
   // Debug: Log dice values whenever they change
   React.useEffect(() => {
@@ -1676,7 +1823,11 @@ const MonopolyBoard = (props) => {
     if (
       !localDiceRolling &&
       syncedLastDiceRoll &&
-      (syncedSpecialAction === 'vacation' || syncedSpecialAction === 'jail' || syncedSpecialAction === 'go-to-jail')
+      (syncedSpecialAction === 'vacation' || 
+       syncedSpecialAction === 'jail' || 
+       syncedSpecialAction === 'go-to-jail' ||
+       syncedSpecialAction === 'treasure-movement' ||
+       syncedSpecialAction === 'surprise-movement')
     ) {
       // Animation just finished for a special action
       socket.emit('diceAnimationComplete', { roomId });
@@ -1744,27 +1895,41 @@ const MonopolyBoard = (props) => {
   }, [currentPlayerIndex, syncedLastDiceRoll]);
 
   return (
-    <div className="monopoly-board">
-      {/* Top Row - 11 spaces */}
+    <div className={`monopoly-board ${mapLayout.boardType}`}>
+      {/* Top Row - Dynamic based on map */}
       <div className="board-row top-row">
         {topRow.map((space, index) => renderSpace(space, index, 'top'))}
       </div>
 
-      {/* Right Column - 9 spaces (excluding corners) */}
+      {/* Right Column - Dynamic based on map (excluding corners) */}
       <div className="board-column right-column">
         {rightRow.map((space, index) => renderSpace(space, index, 'right'))}
       </div>
 
-      {/* Bottom Row - 11 spaces (Vacation corner + 9 spaces + jail corner) */}
+      {/* Bottom Row - Dynamic based on map */}
       <div className="board-row bottom-row">
-        {renderSpace(corners[0], 0, 'bottom')}
-        {bottomRow.map((space, index) => renderSpace(space, index, 'bottom'))}
-        {renderSpace(corners[1], 1, 'bottom')}
+        {mapLayout.boardType === 'worldwide' ? (
+          // For worldwide, corners are included in the row arrays
+          bottomRow.map((space, index) => renderSpace(space, index, 'bottom'))
+        ) : (
+          // For classic, corners are separate
+          <>
+            {renderSpace(corners[0], 0, 'bottom')}
+            {bottomRow.map((space, index) => renderSpace(space, index, 'bottom'))}
+            {renderSpace(corners[1], 1, 'bottom')}
+          </>
+        )}
       </div>
 
-      {/* Left Column - 9 spaces (excluding corners) */}
+      {/* Left Column - Dynamic based on map */}
       <div className="board-column left-column">
-        {leftRow.map((space, index) => renderSpace(space, index, 'left'))}
+        {mapLayout.boardType === 'worldwide' ? (
+          // For worldwide, the first item is the corner, rest are regular spaces
+          leftRow.map((space, index) => renderSpace(space, index, 'left'))
+        ) : (
+          // For classic, no corners in left column
+          leftRow.map((space, index) => renderSpace(space, index, 'left'))
+        )}
       </div>
 
       {/* Center Area */}
@@ -2036,12 +2201,136 @@ const MonopolyBoard = (props) => {
             {gamePhase !== 'moving' && (
               <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap', justifyContent: 'center', width: '100%' }}>
                 {(() => {
-                  // Debug log for button rendering
-                  // console.log('[DEBUG][BUTTONS] gamePhase:', gamePhase, 'hasEndedTurnAfterDoubles:', hasEndedTurnAfterDoubles, 'isInDoublesSequence:', isInDoublesSequence, 'syncedLastDiceRoll:', syncedLastDiceRoll, 'currentPlayerIndex:', currentPlayerIndex, 'isMyTurn:', currentUserId === getCurrentPlayer()?.id);
                   const landingPlayerId = propertyLandingState?.player?.id || getCurrentPlayer()?.id;
                   const isMyTurn = currentUserId === getCurrentPlayer()?.id;
                   const isOnVacation = playerStatuses[currentUserId] && typeof playerStatuses[currentUserId] === 'object' && playerStatuses[currentUserId].status === 'vacation';
                   const lastRoll = syncedLastDiceRoll;
+                  
+                  // DEBUG: Log current state at the top
+                  
+                  // CRITICAL: Check jail and vacation status BEFORE serverTurnState
+                  // This ensures jail/vacation buttons take priority over server state
+                  const currentPlayerForCheck = getCurrentPlayer();
+                  const isPlayerInJail = currentPlayerForCheck && playerStatuses[currentPlayerForCheck.id] === 'jail';
+                  const isPlayerOnVacation = currentPlayerForCheck && playerStatuses[currentPlayerForCheck.id] && typeof playerStatuses[currentPlayerForCheck.id] === 'object' && playerStatuses[currentPlayerForCheck.id].status === 'vacation';
+                  
+                  // HIGHEST PRIORITY: Show jail buttons if player is in jail AND hasn't rolled dice yet
+                  if (isPlayerInJail && isMyTurn && !globalDiceRolling && !localDiceRolling && !syncedLastDiceRoll) {
+                    const hasJailCard = playerJailCards[currentPlayerForCheck.id] && playerJailCards[currentPlayerForCheck.id] > 0;
+                    const canAffordFine = syncedPlayerMoney[currentPlayerForCheck.id] >= 50;
+
+                    return (
+                      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', justifyContent: 'center' }}>
+                        <UniformButton
+                          variant="green"
+                          onClick={() => {
+                            setHasEndedTurnAfterDoubles(false);
+                            setIsInDoublesSequence(false);
+                            setCanRollAgain(false);
+                            setHasRolledBefore(false);
+                            if (onPayJailFine) onPayJailFine();
+                          }}
+                          disabled={endTurnClicked || globalDiceRolling || localDiceRolling || !canAffordFine}
+                        >
+                          Pay $50
+                        </UniformButton>
+                        <UniformButton
+                          variant="blue"
+                          onClick={() => {
+                            rollDice();
+                          }}
+                          disabled={endTurnClicked || globalDiceRolling || localDiceRolling}
+                        >
+                          Roll Dice
+                        </UniformButton>
+                        {hasJailCard > 0 && (
+                          <UniformButton
+                            variant="purple"
+                            onClick={() => {
+                              setHasEndedTurnAfterDoubles(false);
+                              setIsInDoublesSequence(false);
+                              setCanRollAgain(false);
+                              setHasRolledBefore(false);
+                              if (onUseJailCard) onUseJailCard();
+                            }}
+                            disabled={endTurnClicked || globalDiceRolling || localDiceRolling}
+                          >
+                            Use Pardon Card
+                          </UniformButton>
+                        )}
+                      </Box>
+                    );
+                  }
+                  
+                  // ABSOLUTE PRIORITY: Server turnState 'awaiting-end-turn' overrides ONLY dice-related buttons
+                  // BUT allows property action buttons (Buy/Auction) to still show
+                  if (isMyTurn && serverTurnState === 'awaiting-end-turn' && !globalDiceRolling && !localDiceRolling &&
+                      !propertyLandingState?.isActive && !syncedSpecialAction) {
+                    const currentPlayer = getCurrentPlayer();
+                    const hasNegativeBalance = currentPlayer && playerNegativeBalance[currentPlayer.id];
+                    return (
+                      <UniformButton
+                        variant="purple"
+                        onClick={handleEndTurn}
+                        disabled={endTurnClicked || globalDiceRolling || localDiceRolling || hasNegativeBalance}
+                        sx={{ minWidth: 120 }}
+                      >
+                        End Turn
+                      </UniformButton>
+                    );
+                  }
+                  
+                  // SECOND PRIORITY: Server turnState takes priority over other logic (but not jail)
+                  if (isMyTurn && serverTurnState && !globalDiceRolling && !localDiceRolling && movementComplete && 
+                      !propertyLandingState?.isActive && !syncedSpecialAction && !isPlayerInJail) {
+                    const currentPlayer = getCurrentPlayer();
+                    const hasNegativeBalance = currentPlayer && playerNegativeBalance[currentPlayer.id];
+                    
+                    if (serverTurnState === 'awaiting-roll-again') {
+                      // Server explicitly says show Roll Again button
+                      return (
+                        <UniformButton
+                          variant="blue"
+                          onClick={() => {
+                            rollDice();
+                          }}
+                          disabled={globalDiceRolling || localDiceRolling || hasNegativeBalance}
+                          sx={{ minWidth: 120 }}
+                        >
+                          Roll Again
+                        </UniformButton>
+                      );
+                    } else if (serverTurnState === 'awaiting-roll') {
+                      // Server explicitly says show Roll Dice button
+                      return (
+                        <UniformButton
+                          variant="purple"
+                          onClick={() => {
+                            rollDice();
+                          }}
+                          disabled={globalDiceRolling || localDiceRolling || hasNegativeBalance}
+                          sx={{ minWidth: 120 }}
+                        >
+                          Roll Dice
+                        </UniformButton>
+                      );
+                    } else if (serverTurnState === 'awaiting-vacation-skip') {
+                      // Server explicitly says show Skip Turn button for vacation
+                      return (
+                        <UniformButton
+                          variant="purple"
+                          onClick={handleSkipVacationTurn}
+                          disabled={endTurnClicked || globalDiceRolling || localDiceRolling || hasNegativeBalance}
+                          sx={{ minWidth: 120 }}
+                        >
+                          Skip Turn
+                        </UniformButton>
+                      );
+                    }
+                  }
+                  
+                  // FALLBACK: Legacy local logic (only used if server turnState is not provided)
+                  
                   // Show End Turn button if player just went to jail (jail-move)
                   if (
                     isMyTurn &&
@@ -2107,29 +2396,12 @@ const MonopolyBoard = (props) => {
                       </UniformButton>
                     );
                   }
-                  if (isMyTurn && isOnVacation) {
-                    const currentPlayer = getCurrentPlayer();
-                    const hasNegativeBalance = currentPlayer && playerNegativeBalance[currentPlayer.id];
-                    const currentMoney = currentPlayer ? syncedPlayerMoney[currentPlayer.id] : 0;
-                    // console.log('[DEBUG] Skip Turn button - playerNegativeBalance:', hasNegativeBalance, 'syncedPlayerMoney:', currentMoney);
-                    return (
-                      <UniformButton
-                        variant="purple"
-                        onClick={handleSkipVacationTurn}
-                        disabled={endTurnClicked || globalDiceRolling || localDiceRolling || hasNegativeBalance}
-                        sx={{ minWidth: 80 }}
-                      >
-                        Skip Turn
-                      </UniformButton>
-                    );
-                  }
                   if (
                     propertyLandingState &&
                     propertyLandingState.isActive &&
                     landingPlayerId === getCurrentPlayer()?.id
                   ) {
                     if (lastButtonLogRef.current !== 'property-landing') {
-                      // console.log('[DEBUG] Showing Buy and End Turn/Auction buttons for property landing');
                       lastButtonLogRef.current = 'property-landing';
                     }
                     // --- AUCTION LOGIC ---
@@ -2205,6 +2477,7 @@ const MonopolyBoard = (props) => {
                           // });
                           return disabled;
                         })()}
+                        sx={{ minWidth: 120 }}
                       >
                         End Turn
                       </UniformButton>
@@ -2212,7 +2485,9 @@ const MonopolyBoard = (props) => {
                     }
                   } else {
                     // Check if player just purchased a property - show End Turn button
-                    if (justPurchasedProperty && syncedLastDiceRoll && !globalDiceRolling && !localDiceRolling && movementComplete && isMyTurn) {
+                    // EXCEPT for jail escape cases - let server turnState handle those
+                    const isJailEscapeCase = isPlayerInJail && syncedLastDiceRoll && serverTurnState === 'awaiting-end-turn';
+                    if (justPurchasedProperty && syncedLastDiceRoll && !globalDiceRolling && !localDiceRolling && movementComplete && isMyTurn && !isJailEscapeCase) {
                       if (lastButtonLogRef.current !== 'end-turn-after-purchase') {
                         lastButtonLogRef.current = 'end-turn-after-purchase';
                       }
@@ -2242,74 +2517,22 @@ const MonopolyBoard = (props) => {
                       >End Turn</UniformButton>;
                     }
 
-                    // Jail Escape Actions - Show when player is in jail
-                    if (
-                      gamePhase === 'rolling' && getCurrentPlayer() && playerStatuses[getCurrentPlayer().id] === 'jail' && !globalDiceRolling && !localDiceRolling && !syncedLastDiceRoll && isMyTurn
-                    ) {
-                      if (lastButtonLogRef.current !== 'jail-escape') {
-                        // console.log('[DEBUG] Showing jail escape buttons');
-                        lastButtonLogRef.current = 'jail-escape';
-                      }
-
-                      const currentPlayer = getCurrentPlayer();
-                      const hasJailCard = playerJailCards[currentPlayer.id] && playerJailCards[currentPlayer.id] > 0;
-                      const canAffordFine = syncedPlayerMoney[currentPlayer.id] >= 50;
-
-
-                      return (
-                        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', justifyContent: 'center' }}>
-                          <UniformButton
-                            variant="green"
-                            onClick={() => {
-                              // Clear doubles sequence when paying fine
-                              setHasEndedTurnAfterDoubles(false);
-                              setIsInDoublesSequence(false);
-                              setCanRollAgain(false);
-                              setHasRolledBefore(false);
-                              if (onPayJailFine) onPayJailFine();
-                            }}
-                            disabled={endTurnClicked || globalDiceRolling || localDiceRolling || isOnVacation || !canAffordFine}
-                          >
-                            Pay $50
-                          </UniformButton>
-                          <UniformButton
-                            variant="blue"
-                            onClick={() => {
-                              // console.log('[DEBUG] Roll dice for jail escape clicked');
-                              rollDice();
-                            }}
-                            disabled={endTurnClicked || globalDiceRolling || localDiceRolling || isOnVacation}
-                          >
-                            Roll Dice
-                          </UniformButton>
-                          {hasJailCard > 0 && (
-                            <UniformButton
-                              variant="purple"
-                              onClick={() => {
-                                // console.log('[DEBUG] Use pardon card clicked');
-                                // Clear doubles sequence when using pardon card
-                                setHasEndedTurnAfterDoubles(false);
-                                setIsInDoublesSequence(false);
-                                setCanRollAgain(false);
-                                setHasRolledBefore(false);
-                                if (onUseJailCard) onUseJailCard();
-                              }}
-                              disabled={endTurnClicked || globalDiceRolling || localDiceRolling || isOnVacation}
-                            >
-                              Use Pardon Card
-                            </UniformButton>
-                          )}
-                        </Box>
-                      );
-                    }
-
                     // Normal Rolling Actions - Only show when not in property landing
-                    // Also check if player is on vacation space (position 20) even if status not set yet
+                    // Also check if player is on vacation space (position 20 for classic, 24 for worldwide) even if status not set yet
                     const currentPlayerForCheck = getCurrentPlayer();
-                    const isOnVacationSpace = currentPlayerForCheck && syncedPositions[currentPlayerForCheck.id] === 20;
+                    const vacationPosition = currentMapName === 'Mr. Worldwide' ? 24 : 20;
+                    const isOnVacationSpace = currentPlayerForCheck && syncedPositions[currentPlayerForCheck.id] === vacationPosition;
 
                     if (
-                      gamePhase === 'rolling' && getCurrentPlayer() && canPlayerRoll(getCurrentPlayer().id) && !globalDiceRolling && !localDiceRolling && playerStatuses[getCurrentPlayer().id] !== 'jail' && (!playerStatuses[getCurrentPlayer().id] || typeof playerStatuses[getCurrentPlayer().id] !== 'object' || playerStatuses[getCurrentPlayer().id].status !== 'vacation') && !syncedLastDiceRoll && isMyTurn
+                      gamePhase === 'rolling' && 
+                      getCurrentPlayer() && 
+                      canPlayerRoll(getCurrentPlayer().id) && 
+                      !globalDiceRolling && 
+                      !localDiceRolling && 
+                      playerStatuses[getCurrentPlayer().id] !== 'jail' && 
+                      (!playerStatuses[getCurrentPlayer().id] || typeof playerStatuses[getCurrentPlayer().id] !== 'object' || playerStatuses[getCurrentPlayer().id].status !== 'vacation') && 
+                      isMyTurn &&
+                      (!syncedLastDiceRoll || syncedLastDiceRoll.playerId !== getCurrentPlayer().id || hasEndedTurnAfterDoubles)
                     ) {
                       // If player is in a doubles sequence (i.e., just ended turn after rolling doubles), show 'Roll Again' instead of 'Roll Dice'
                       if (allowRollAgain || doublesSequenceActive || isInDoublesSequence || hasEndedTurnAfterDoubles) {
@@ -2318,14 +2541,14 @@ const MonopolyBoard = (props) => {
                         }
                         return <UniformButton variant="blue" onClick={() => {
                           rollDice();
-                        }}>Roll Again</UniformButton>;
+                        }} sx={{ minWidth: 120 }}>Roll Again</UniformButton>;
                       } else {
                         if (lastButtonLogRef.current !== 'roll-dice') {
                           lastButtonLogRef.current = 'roll-dice';
                         }
-                        return <UniformButton onClick={() => {
+                        return <UniformButton variant="purple" onClick={() => {
                           rollDice();
-                        }}>Roll Dice</UniformButton>;
+                        }} sx={{ minWidth: 120 }}>Roll Dice</UniformButton>;
                       }
                     }
                     // Jail escape dice roll result - show End Turn button immediately
@@ -2348,13 +2571,12 @@ const MonopolyBoard = (props) => {
                       gamePhase === 'rolling' && getCurrentPlayer() && canPlayerRoll(getCurrentPlayer().id) && hasEndedTurnAfterDoubles && !globalDiceRolling && !localDiceRolling && !syncedLastDiceRoll && isMyTurn
                     ) {
                       if (lastButtonLogRef.current !== 'roll-again-after-end-turn') {
-                        // console.log('[DEBUG] Showing Roll Again button after ending turn on doubles');
                         lastButtonLogRef.current = 'roll-again-after-end-turn';
                       }
                       return <UniformButton variant="blue" onClick={() => {
                         // console.log('[DEBUG] Roll Again clicked after ending turn');
                         rollDice();
-                      }}>Roll Again</UniformButton>;
+                      }} sx={{ minWidth: 120 }}>Roll Again</UniformButton>;
                     }
                     if (
                       gamePhase === 'rolling' && getCurrentPlayer() && canPlayerRoll(getCurrentPlayer().id) && syncedLastDiceRoll && !globalDiceRolling && !localDiceRolling && movementComplete && isMyTurn && syncedLastDiceRoll.dice1 === syncedLastDiceRoll.dice2
@@ -2370,12 +2592,13 @@ const MonopolyBoard = (props) => {
                         return null;
                       }
 
-                      const isSpecialSpace = [0, 2, 4, 7, 10, 17, 20, 22, 30, 33, 36, 38].includes(currentPosition);
+                      const isSpecialSpace = currentMapName === 'Mr. Worldwide'
+                        ? [0, 2, 4, 9, 12, 20, 24, 26, 28, 36, 39, 44, 46].includes(currentPosition) // Worldwide special spaces
+                        : [0, 2, 4, 7, 10, 17, 20, 22, 30, 33, 36, 38].includes(currentPosition); // Classic special spaces
 
                       if (isSpecialSpace) {
                         // Show end turn for special spaces even when rolling doubles
                         if (lastButtonLogRef.current !== 'end-turn-doubles') {
-                          // console.log('[DEBUG] Showing End Turn button after landing on special space during doubles');
                           lastButtonLogRef.current = 'end-turn-doubles';
                         }
                         return <UniformButton 
@@ -2399,16 +2622,16 @@ const MonopolyBoard = (props) => {
                             // });
                             return disabled;
                           })()}
+                          sx={{ minWidth: 120 }}
                         >End Turn</UniformButton>;
                       } else {
                         if (lastButtonLogRef.current !== 'roll-again-doubles') {
-                          // console.log('[DEBUG] Showing Roll Again button for doubles');
                           lastButtonLogRef.current = 'roll-again-doubles';
                         }
                         return <UniformButton variant="blue" onClick={() => {
                           // console.log('[DEBUG] Roll Again clicked');
                           rollDice();
-                        }}>Roll Again</UniformButton>;
+                        }} sx={{ minWidth: 120 }}>Roll Again</UniformButton>;
                       }
                     }
                     if (
@@ -2417,22 +2640,26 @@ const MonopolyBoard = (props) => {
                       // Check if we landed on a special space
                       const currentPlayer = getCurrentPlayer();
                       const currentPosition = syncedPositions[currentPlayer.id];
-
+                      
+                      // Define special spaces that should always show End Turn button
+                      const specialSpaces = currentMapName === 'Mr. Worldwide' 
+                        ? [2, 4, 9, 20, 24, 26, 28, 36, 39, 44, 46] // Worldwide: Treasure, Tax, Surprise, Vacation, Go to prison
+                        : [2, 4, 7, 17, 20, 22, 30, 33, 36, 38]; // Classic: Treasure, Tax, Surprise, Vacation, Go to prison
+                      
                       // Check if this is a property space - if so, don't show End Turn button yet
                       const propertyName = getPropertyNameByPosition(currentPosition);
-                      if (propertyName && isPropertySpace(propertyName) && !propertyOwnership[propertyName]) {
+                      if (propertyName && isPropertySpace(propertyName) && !propertyOwnership[propertyName] && !specialSpaces.includes(currentPosition)) {
                         // This is an unowned property space - don't show End Turn button yet
                         return null;
                       }
 
                       let specialSpaceMessage = 'Showing End Turn button after rolling';
 
-                      if ([2, 4, 7, 17, 22, 33, 36, 38].includes(currentPosition)) {
-                        specialSpaceMessage = 'Showing End Turn button after rolling';
+                      if (specialSpaces.includes(currentPosition)) {
+                        specialSpaceMessage = 'Showing End Turn button after landing on special space';
                       }
 
                       if (lastButtonLogRef.current !== 'end-turn-normal') {
-                        // console.log(`[DEBUG] ${specialSpaceMessage}`);
                         lastButtonLogRef.current = 'end-turn-normal';
                       }
                       return <UniformButton 
@@ -2456,6 +2683,7 @@ const MonopolyBoard = (props) => {
                           // });
                           return disabled;
                         })()}
+                        sx={{ minWidth: 120 }}
                       >End Turn</UniformButton>;
                     }
                     // After the block for showing Roll Again and Roll Dice, add this logic:
@@ -2464,7 +2692,6 @@ const MonopolyBoard = (props) => {
                       gamePhase === 'rolling' && getCurrentPlayer() && canPlayerRoll(getCurrentPlayer().id) && syncedLastDiceRoll && !globalDiceRolling && !localDiceRolling && movementComplete && isMyTurn && isInDoublesSequence && syncedLastDiceRoll.dice1 !== syncedLastDiceRoll.dice2
                     ) {
                       if (lastButtonLogRef.current !== 'end-turn-after-doubles-sequence') {
-                        // console.log('[DEBUG] Showing End Turn button after non-double roll following doubles sequence');
                         lastButtonLogRef.current = 'end-turn-after-doubles-sequence';
                       }
                       return <UniformButton 
@@ -2476,18 +2703,10 @@ const MonopolyBoard = (props) => {
                         disabled={(() => {
                           const currentPlayer = getCurrentPlayer();
                           const hasNegativeBalance = currentPlayer && playerNegativeBalance[currentPlayer.id];
-                          const currentMoney = currentPlayer ? syncedPlayerMoney[currentPlayer.id] : 0;
                           const disabled = endTurnClicked || globalDiceRolling || localDiceRolling || hasNegativeBalance;
-                          console.log('[DEBUG] End Turn button (after doubles sequence) - disabled:', disabled, 'reasons:', {
-                            endTurnClicked,
-                            globalDiceRolling,
-                            localDiceRolling,
-                            hasNegativeBalance,
-                            currentMoney,
-                            playerNegativeBalance: playerNegativeBalance[currentPlayer?.id]
-                          });
                           return disabled;
                         })()}
+                        sx={{ minWidth: 120 }}
                       >End Turn</UniformButton>;
                     }
                     return null;

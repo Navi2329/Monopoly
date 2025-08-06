@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import classicMap from '../../data/maps/classic';
+import { worldwideMap } from '../../data/maps/worldwide';
 import { Avatar, Tooltip } from '@mui/material';
 import { Home, Hotel, MonetizationOn, Gavel, Delete } from '@mui/icons-material';
 
@@ -141,7 +142,11 @@ const PropertyPopup = ({
         setOwnershipVersion(v => v + 1);
     }, [propertyOwnership]);
 
-    const property = classicMap.find(p => p.name === propertyName);
+    // Get the current map based on game settings
+    const currentMapName = gameSettings?.boardMap || 'Classic';
+    const currentMapData = currentMapName === 'Mr. Worldwide' ? worldwideMap : classicMap;
+    
+    const property = currentMapData.find(p => p.name === propertyName);
     if (!property) return null;
 
     const ownership = propertyOwnership[propertyName];
@@ -163,7 +168,7 @@ const PropertyPopup = ({
     const hasHotel = ownership?.hotel || false;
     const isMortgaged = ownership?.mortgaged || false;
 
-    const setProperties = classicMap.filter(p => p.set === property.set && p.type === 'property');
+    const setProperties = currentMapData.filter(p => p.set === property.set && p.type === 'property');
     const ownedSet = setProperties.every(p => propertyOwnership[p.name] && propertyOwnership[p.name].owner === currentUserId);
     const anyMortgaged = setProperties.some(p => propertyOwnership[p.name]?.mortgaged);
     const anyHousesOrHotels = setProperties.some(p => propertyOwnership[p.name]?.houses > 0 || propertyOwnership[p.name]?.hotel);
@@ -309,8 +314,9 @@ const PropertyPopup = ({
         { label: '3 airports owned', value: `$${property.rent[2]}` },
         { label: '4 airports owned', value: `$${property.rent[3]}` },
     ] : property.type === 'company' ? [
-        { label: 'If one company is owned', value: '$4 × 🎲' },
-        { label: 'If two companies are owned', value: '$10 × 🎲' },
+        { label: 'If one company is owned', value: `$${property.rent?.[0] || 4} × 🎲` },
+        { label: 'If two companies are owned', value: `$${property.rent?.[1] || 10} × 🎲` },
+        ...(property.rent?.[2] ? [{ label: 'If three companies are owned', value: `$${property.rent[2]} × 🎲` }] : [])
     ] : [];
 
     // Determine if double rent applies (own full set, property type is property)

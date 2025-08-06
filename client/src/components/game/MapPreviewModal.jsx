@@ -16,6 +16,7 @@ import {
 } from '@mui/material';
 import { Close, Map as MapIcon, Visibility, CheckCircle } from '@mui/icons-material';
 import { styled } from '@mui/material/styles';
+import { mapConfigurations } from '../../data/mapConfigurations';
 
 const StyledDialog = styled(Dialog)(({ theme }) => ({
   '& .MuiDialog-paper': {
@@ -77,12 +78,12 @@ const MapPreview = styled(Box)(({ theme }) => ({
   padding: theme.spacing(1)
 }));
 
-const MiniBoard = styled(Box)(({ theme }) => ({
+const MiniBoard = styled(Box)(({ theme, gridSize = 11 }) => ({
   width: '80px',
   height: '80px',
   display: 'grid',
-  gridTemplateColumns: 'repeat(11, 1fr)',
-  gridTemplateRows: 'repeat(11, 1fr)',
+  gridTemplateColumns: `repeat(${gridSize}, 1fr)`,
+  gridTemplateRows: `repeat(${gridSize}, 1fr)`,
   gap: '1px',
   border: '1px solid #4c1d95',
   borderRadius: '4px',
@@ -109,68 +110,162 @@ const MapPreviewModal = ({
 }) => {
   const [localSelectedMap, setLocalSelectedMap] = useState(selectedMap);
 
-  const mapData = {
-    Classic: {
-      name: 'Classic',
-      description: 'The traditional Monopoly board with classic properties and locations',
-      status: 'Free',
-      icon: '🌍',
-      colors: ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899', '#6b7280']
-    },
-    'Mr. Worldwide': {
-      name: 'Mr. Worldwide',
-      description: 'Travel around the world with international properties',
-      status: 'Premium',
-      icon: '🌐', 
-      colors: ['#06b6d4', '#0891b2', '#0e7490', '#155e75', '#164e63', '#1e40af', '#1d4ed8', '#2563eb']
-    },
-    'Death Valley': {
-      name: 'Death Valley',
-      description: 'A dangerous desert adventure with high stakes',
-      status: 'Premium',
-      icon: '💀',
-      colors: ['#dc2626', '#b91c1c', '#991b1b', '#7f1d1d', '#f97316', '#ea580c', '#c2410c', '#9a3412']
-    },
-    'Lucky Wheel': {
-      name: 'Lucky Wheel',
-      description: 'Test your luck with special wheel mechanics',
-      status: 'Premium',
-      icon: '🍀',
-      colors: ['#16a34a', '#15803d', '#166534', '#14532d', '#65a30d', '#4d7c0f', '#365314', '#1a2e05']
+  // Helper function to get property name by position
+  const getPropertyNameByPosition = (position, isWorldwide) => {
+    if (isWorldwide) {
+      // Worldwide map positions (48 spaces) - 13x13 grid layout
+      const worldwidePositionMap = {
+        // Top row (0-12): Start → top right corner
+        0: 'START', 1: 'Salvador', 2: 'Treasure', 3: 'Rio', 4: 'Income Tax', 5: 'Tel Aviv',
+        6: 'TLV Airport', 7: 'Haifa', 8: 'Jerusalem', 9: 'Surprise', 10: 'Mumbai', 11: 'New Delhi', 12: 'Prison',
+        
+        // Right column (13-23): Prison → bottom right corner
+        13: 'Venice', 14: 'Bologna', 15: 'Electric Company', 16: 'Milan', 17: 'Rome', 18: 'MUC Airport',
+        19: 'Frankfurt', 20: 'Treasure', 21: 'Munich', 22: 'Gas Company', 23: 'Berlin',
+        
+        // Bottom row (24-35): bottom right → Vacation (reversed)
+        24: 'Vacation', 25: 'Shenzhen', 26: 'Surprise', 27: 'Beijing', 28: 'Treasure', 29: 'Shanghai',
+        30: 'CDG Airport', 31: 'Toulouse', 32: 'Paris', 33: 'Water Company', 34: 'Yokohama', 35: 'Tokyo',
+        
+        // Left column (36-47): Vacation → Start (reversed)  
+        36: 'Go to Prison', 37: 'Liverpool', 38: 'Manchester', 39: 'Treasure', 40: 'Birmingham', 41: 'London',
+        42: 'JFK Airport', 43: 'Los Angeles', 44: 'Surprise', 45: 'California', 46: 'Luxury Tax', 47: 'New York'
+      };
+      return worldwidePositionMap[position] || null;
+    } else {
+      // Classic map positions (40 spaces) - based on corrected classic.js properties
+      const classicPositionMap = {
+        // Top row (0-10): Start → Jail
+        0: 'START', 1: 'Salvador', 2: 'Treasure', 3: 'Rio', 4: 'Income Tax', 5: 'TLV Airport',
+        6: 'Tel Aviv', 7: 'Surprise', 8: 'Haifa', 9: 'Jerusalem', 10: 'Jail',
+        
+        // Right column (11-19): Jail → Vacation  
+        11: 'Venice', 12: 'Electric Company', 13: 'Milan', 14: 'Rome', 15: 'MUC Airport',
+        16: 'Frankfurt', 17: 'Treasure', 18: 'Munich', 19: 'Berlin',
+        
+        // Bottom row (20-29): Vacation → Go to Jail (reversed)
+        20: 'Vacation', 21: 'Shenzhen', 22: 'Surprise', 23: 'Beijing', 24: 'Shanghai', 
+        25: 'CDG Airport', 26: 'Lyon', 27: 'Toulouse', 28: 'Water Company', 29: 'Paris',
+        
+        // Left column (30-39): Go to Jail → Start (reversed)
+        30: 'Go to Jail', 31: 'Liverpool', 32: 'Manchester', 33: 'Treasure', 34: 'London', 
+        35: 'JFK Airport', 36: 'Surprise', 37: 'California', 38: 'Luxury Tax', 39: 'New York'
+      };
+      return classicPositionMap[position] || null;
     }
   };
 
-  const generateMiniBoard = (colors) => {
+  // Use actual map configurations instead of hardcoded data
+  const mapData = {
+    Classic: {
+      name: 'Classic',
+      description: mapConfigurations.Classic?.description || 'The traditional Monopoly board with classic properties and locations',
+      status: 'Free',
+      icon: '🌍',
+      colors: ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899', '#6b7280'],
+      actualData: mapConfigurations.Classic
+    },
+    'Mr. Worldwide': {
+      name: 'Mr. Worldwide',
+      description: mapConfigurations['Mr. Worldwide']?.description || 'Travel around the world with international properties',
+      status: 'Premium',
+      icon: '🌐', 
+      colors: ['#06b6d4', '#0891b2', '#0e7490', '#155e75', '#164e63', '#1e40af', '#1d4ed8', '#2563eb'],
+      actualData: mapConfigurations['Mr. Worldwide']
+    },
+    'Death Valley': {
+      name: 'Death Valley',
+      description: mapConfigurations['Death Valley']?.description || 'A dangerous desert adventure with high stakes',
+      status: 'Premium',
+      icon: '💀',
+      colors: ['#dc2626', '#b91c1c', '#991b1b', '#7f1d1d', '#f97316', '#ea580c', '#c2410c', '#9a3412'],
+      actualData: mapConfigurations['Death Valley']
+    },
+    'Lucky Wheel': {
+      name: 'Lucky Wheel',
+      description: 'Test your luck with special wheel mechanics (Coming Soon)',
+      status: 'Premium',
+      icon: '🍀',
+      colors: ['#16a34a', '#15803d', '#166534', '#14532d', '#65a30d', '#4d7c0f', '#365314', '#1a2e05'],
+      actualData: null // Not implemented yet
+    }
+  };
+
+  const generateMiniBoard = (colors, mapName) => {
     const spaces = [];
+    const isWorldwide = mapName === 'Mr. Worldwide';
+    const gridSize = isWorldwide ? 13 : 11;
     
-    // Generate all 40 spaces (11x11 grid with corners and edges)
-    for (let row = 0; row < 11; row++) {
-      for (let col = 0; col < 11; col++) {
+    // Get actual map data if available
+    const actualMapData = mapData[mapName]?.actualData;
+    
+    // Generate spaces for the appropriate grid size
+    for (let row = 0; row < gridSize; row++) {
+      for (let col = 0; col < gridSize; col++) {
         let isSpace = false;
         let color = '#2d1b3d';
         let isCorner = false;
         
+        // Calculate position based on board layout
+        let position = -1;
+        
         // Top row
         if (row === 0) {
           isSpace = true;
-          if (col === 0 || col === 10) isCorner = true;
+          position = col;
+          if ((col === 0 || col === gridSize - 1)) isCorner = true;
           else color = colors[col % colors.length];
         }
         // Bottom row  
-        else if (row === 10) {
+        else if (row === gridSize - 1) {
           isSpace = true;
-          if (col === 0 || col === 10) isCorner = true;
+          position = isWorldwide ? (24 + (12 - col)) : (20 + (10 - col));
+          if ((col === 0 || col === gridSize - 1)) isCorner = true;
           else color = colors[(col + 4) % colors.length];
         }
         // Left column
-        else if (col === 0 && row > 0 && row < 10) {
+        else if (col === 0 && row > 0 && row < gridSize - 1) {
           isSpace = true;
+          position = isWorldwide ? (48 - row) : (40 - row);
           color = colors[(row + 2) % colors.length];
         }
         // Right column
-        else if (col === 10 && row > 0 && row < 10) {
+        else if (col === gridSize - 1 && row > 0 && row < gridSize - 1) {
           isSpace = true;
+          position = isWorldwide ? (12 + row) : (10 + row);
           color = colors[(row + 6) % colors.length];
+        }
+        
+        // If we have actual map data, try to get property color based on set
+        if (isSpace && actualMapData && position >= 0) {
+          const propertyName = getPropertyNameByPosition(position, isWorldwide);
+          if (propertyName && actualMapData.properties && actualMapData.properties[propertyName]) {
+            const property = actualMapData.properties[propertyName];
+            if (property.set) {
+              // Use different colors for different property sets
+              const setColors = {
+                'Brazil': '#8B4513',
+                'Israel': '#87CEEB', 
+                'India': '#FF8C00',
+                'Italy': '#DC143C',
+                'Germany': '#32CD32',
+                'China': '#FFD700',
+                'France': '#9370DB',
+                'Japan': '#FF69B4',
+                'UK': '#006400',
+                'USA': '#0000FF',
+                'Airport': '#708090',
+                'Company': '#FFFFFF'
+              };
+              color = setColors[property.set] || color;
+            } else if (property.type === 'start' || property.type === 'jail' || 
+                      property.type === 'free-parking' || property.type === 'go-to-jail') {
+              isCorner = true;
+            } else if (property.type === 'tax' || property.type === 'chance' || 
+                      property.type === 'community-chest') {
+              color = '#4B0082'; // Special spaces
+            }
+          }
         }
         
         if (isSpace) {
@@ -215,7 +310,7 @@ const MapPreviewModal = ({
     >
       <StyledDialogTitle>
         <Typography variant="h5" sx={{ fontWeight: 600 }}>
-          Board Maps
+          Choose Board Map
         </Typography>
         <IconButton 
           onClick={onClose}
@@ -232,22 +327,22 @@ const MapPreviewModal = ({
       </StyledDialogTitle>
 
       <StyledDialogContent>
-        <Grid container spacing={3} justifyContent="center">
+        <Grid container spacing={2} justifyContent="center">
           {maps.map((mapName) => {
             const map = mapData[mapName];
             const isSelected = localSelectedMap === mapName;
             const isPremium = map.status === 'Premium';
             
             return (
-              <Grid item xs={12} sm={6} md={4} lg={3} key={mapName}>
+              <Grid item xs={6} sm={4} md={3} key={mapName}>
                 <MapCard 
                   selected={isSelected}
                   onClick={() => handleMapSelect(mapName)}
                 >
                   <CardContent sx={{ p: 2 }}>
                     <MapPreview>
-                      <MiniBoard>
-                        {generateMiniBoard(map.colors)}
+                      <MiniBoard gridSize={mapName === 'Mr. Worldwide' ? 13 : 11}>
+                        {generateMiniBoard(map.colors, mapName)}
                       </MiniBoard>
                       {isSelected && (
                         <CheckCircle 
@@ -280,7 +375,7 @@ const MapPreviewModal = ({
                     </Box>
                     
                     <Typography 
-                      variant="body2" 
+                      variant="body1" 
                       sx={{ 
                         color: 'rgba(255, 255, 255, 0.8)',
                         fontSize: '0.8rem',
@@ -290,6 +385,16 @@ const MapPreviewModal = ({
                     >
                       {map.description}
                     </Typography>
+                    
+                    {isSelected && (
+                      <CheckCircle 
+                        sx={{ 
+                          color: '#10b981',
+                          mt: 1,
+                          fontSize: '1.2rem'
+                        }}
+                      />
+                    )}
                   </CardContent>
                   
                   <CardActions sx={{ p: 2, pt: 0 }}>

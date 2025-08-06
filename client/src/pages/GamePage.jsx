@@ -40,7 +40,8 @@ import GameSettings from '../components/game/GameSettings';
 import PlayerSelection from '../components/game/PlayerSelection';
 import MapPreviewModal from '../components/game/MapPreviewModal';
 import MapFullPreview from '../components/game/MapFullPreview';
-import classicMap from '../data/maps/classic';
+import { classicMap } from '../data/maps/classic';
+import { worldwideMap } from '../data/maps/worldwide';
 import AuctionModal from '../components/game/AuctionModal';
 import { PlayerSelectionModal, CreateTradeModal, ViewTradeModal } from '../components/game/TradeModals';
 import { useUser } from '../contexts/UserContext';
@@ -162,6 +163,14 @@ const GamePage = () => {
   const [currentTurnSocketId, setCurrentTurnSocketId] = useState(null);
   const [globalDiceRolling, setGlobalDiceRolling] = useState(false);
   const [localDiceRolling, setLocalDiceRolling] = useState(false);
+  
+  // CRITICAL: Server's explicit turn state - takes priority over local logic
+  const [serverTurnState, setServerTurnState] = useState('awaiting-roll');
+  
+  // State variables for turn management sync with server
+  const [hasEndedTurnAfterDoubles, setHasEndedTurnAfterDoubles] = useState(false);
+  const [isInDoublesSequence, setIsInDoublesSequence] = useState(false);
+  const [canRollAgain, setCanRollAgain] = useState(false);
 
   // Helper function to wait for dice animation to complete before ending turn
   const waitForDiceAnimationAndEndTurn = (endTurnCallback) => {
@@ -202,6 +211,12 @@ const GamePage = () => {
   const [activeVoteKick, setActiveVoteKick] = useState(null);
   const [voteKickTimeRemaining, setVoteKickTimeRemaining] = useState(0);
   const [playerNegativeBalance, setPlayerNegativeBalance] = useState({}); // Track players with negative balance
+
+  // Helper function to get current map data
+  const getCurrentMapData = () => {
+    const mapName = gameSettings?.boardMap || 'Classic';
+    return mapName === 'Mr. Worldwide' ? worldwideMap : classicMap;
+  };
 
   // Game over state
   const [gameOverModalOpen, setGameOverModalOpen] = useState(false);
@@ -302,8 +317,9 @@ const GamePage = () => {
         playerObj = allPlayers.find(p => p.id === landingData.playerId) || currentPlayer;
       }
 
-      // Get the property object from classicMap
-      const property = classicMap.find(p => p.name === landingData.propertyName);
+      // Get the property object from current map
+      const currentMap = getCurrentMapData();
+      const property = currentMap.find(p => p.name === landingData.propertyName);
       if (!property) {
         // console.log('[DEBUG] Property not found in classicMap:', landingData.propertyName);
         return;
@@ -423,10 +439,11 @@ const GamePage = () => {
   const [playerMoveRequest, setPlayerMoveRequest] = useState(null);
 
   // Dev options state
-  // Dev options state
   const [devDiceEnabled, setDevDiceEnabled] = useState(false);
   const [devDice1, setDevDice1] = useState(1);
   const [devDice2, setDevDice2] = useState(1);
+  const [devTreasureCard, setDevTreasureCard] = useState(null);
+  const [devSurpriseCard, setDevSurpriseCard] = useState(null);
 
   // Bots state
   const [bots, setBots] = useState([]);
@@ -502,6 +519,28 @@ const GamePage = () => {
     }
   };
 
+  // Dev card change handler
+  const handleDevCardChange = (cardType, cardId) => {
+    switch (cardType) {
+      case 'treasure':
+        setDevTreasureCard(cardId);
+        // Send to server
+        if (socket && socket.connected) {
+          socket.emit('setDevTreasureCard', { roomId: roomId, cardId });
+        }
+        break;
+      case 'surprise':
+        setDevSurpriseCard(cardId);
+        // Send to server
+        if (socket && socket.connected) {
+          socket.emit('setDevSurpriseCard', { roomId: roomId, cardId });
+        }
+        break;
+      default:
+        break;
+    }
+  };
+
   // Handle player cash change from developer settings
   const handlePlayerCashChange = (playerId, newCash) => {
     // Update human players
@@ -521,6 +560,15 @@ const GamePage = () => {
     // Update current player if it's the same player
     if (currentPlayer && currentPlayer.id === playerId) {
       setCurrentPlayer(prev => ({ ...prev, money: newCash }));
+    }
+    
+    // CRITICAL FIX: Sync with server by emitting a socket event
+    if (socket && socket.connected) {
+      socket.emit('updatePlayerCash', { 
+        roomId: roomId, 
+        playerId: playerId, 
+        newCash: newCash 
+      });
     }
 
     // Log the cash change
@@ -684,23 +732,52 @@ const GamePage = () => {
 
   // Get property by space index
   const getPropertyBySpaceIndex = (spaceIndex) => {
-    // Board layout clockwise: 0-10 (top), 11-19 (right), 20-30 (bottom), 31-39 (left)
-    const propertyMap = {
-      // Top row (excluding START and corners)
-      1: 'Salvador', 3: 'Rio', 5: 'TLV Airport', 6: 'Tel Aviv', 8: 'Haifa', 9: 'Jerusalem',
-      // Right row
-      11: 'Venice', 12: 'Electric Company', 13: 'Milan', 14: 'Rome', 15: 'MUC Airport', 16: 'Frankfurt', 18: 'Munich', 19: 'Berlin',
-      // Bottom row
-      21: 'Shenzhen', 23: 'Beijing', 24: 'Shanghai', 25: 'CDG Airport', 26: 'Lyon', 27: 'Toulouse', 28: 'Water Company', 29: 'Paris',
-      // Left row
-      31: 'Liverpool', 32: 'Manchester', 34: 'London', 35: 'JFK Airport', 37: 'California', 39: 'New York'
-    };
+    const currentMap = getCurrentMapData();
+    const mapName = gameSettings?.boardMap || 'Classic';
+    
+    if (mapName === 'Mr. Worldwide') {
+      // Worldwide map (48 spaces) - 13x13 grid
+      const worldwidePropertyMap = {
+        // Top row (positions 0-12)
+        1: 'Salvador', 3: 'Rio', 5: 'Tel Aviv', 
+        6: 'TLV Airport', 7: 'Haifa', 8: 'Jerusalem', 10: 'Mumbai', 11: 'New Delhi',
+        // Right row (positions 13-23)
+        13: 'Venice', 14: 'Bologna', 15: 'Electric Company', 16: 'Milan', 17: 'Rome', 
+        18: 'MUC Airport', 19: 'Frankfurt', 21: 'Munich', 22: 'Gas Company', 23: 'Berlin',
+        // Bottom row (positions 25-35)
+        25: 'Shenzhen', 27: 'Beijing', 29: 'Shanghai', 
+        30: 'CDG Airport', 31: 'Toulouse', 32: 'Paris', 33: 'Water Company', 34: 'Yokohama', 35: 'Tokyo',
+        // Left row (positions 37-47)
+        37: 'Liverpool', 38: 'Manchester', 40: 'Birmingham', 41: 'London', 
+        42: 'JFK Airport', 43: 'Los Angeles', 45: 'California', 47: 'New York'
+      };
 
-    const cornerMap = {
-      0: 'START', 10: 'PRISON', 20: 'VACATION', 30: 'GO TO JAIL'
+      const worldwideCornerMap = {
+        0: 'GO', 12: 'Prison', 24: 'Vacation', 36: 'Go to Prison'
+      };
+      
+      const propertyName = worldwideCornerMap[spaceIndex] || worldwidePropertyMap[spaceIndex];
+      return currentMap.find(prop => prop.name === propertyName);
+    } else {
+      // Classic map (40 spaces) - 11x11 grid
+      const classicPropertyMap = {
+        // Top row (excluding START and corners)
+        1: 'Salvador', 3: 'Rio', 5: 'TLV Airport', 6: 'Tel Aviv', 8: 'Haifa', 9: 'Jerusalem',
+        // Right row
+        11: 'Venice', 12: 'Electric Company', 13: 'Milan', 14: 'Rome', 15: 'MUC Airport', 16: 'Frankfurt', 18: 'Munich', 19: 'Berlin',
+        // Bottom row
+        21: 'Shenzhen', 23: 'Beijing', 24: 'Shanghai', 25: 'CDG Airport', 26: 'Lyon', 27: 'Toulouse', 28: 'Water Company', 29: 'Paris',
+        // Left row
+        31: 'Liverpool', 32: 'Manchester', 34: 'London', 35: 'JFK Airport', 37: 'California', 39: 'New York'
+      };
+
+      const classicCornerMap = {
+        0: 'START', 10: 'PRISON', 20: 'VACATION', 30: 'GO TO JAIL'
+      };
+      
+      const propertyName = classicCornerMap[spaceIndex] || classicPropertyMap[spaceIndex];
+      return currentMap.find(prop => prop.name === propertyName);
     }
-    const propertyName = cornerMap[spaceIndex] || propertyMap[spaceIndex];
-    return classicMap.find(prop => prop.name === propertyName);
   };
 
   // Handle property landing
@@ -860,20 +937,32 @@ const GamePage = () => {
         }
       } else if (property.type === 'airport' && property.rent && Array.isArray(property.rent)) {
         // Airport rent based on number of airports owned by the same player
+        const currentMap = getCurrentMapData();
         const ownerAirports = Object.values(syncedPropertyOwnership).filter(
-          p => p.owner === ownership.owner && classicMap.find(prop => prop.name === p.name)?.type === 'airport'
+          p => p.owner === ownership.owner && currentMap.find(prop => prop.name === p.name)?.type === 'airport'
         ).length;
         const rentIndex = Math.min(ownerAirports - 1, 3); // 0-3 index for 1-4 airports
         rentAmount = property.rent[rentIndex] || property.rent[0]; // Use base rent as fallback
       } else if (property.type === 'company' && property.rent && Array.isArray(property.rent)) {
         // Company rent based on number of companies owned by the same player
+        const currentMap = getCurrentMapData();
         const ownerCompanies = Object.values(syncedPropertyOwnership).filter(
-          p => p.owner === ownership.owner && classicMap.find(prop => prop.name === p.name)?.type === 'company'
+          p => p.owner === ownership.owner && currentMap.find(prop => prop.name === p.name)?.type === 'company'
         ).length;
         const multiplier = property.rent[Math.min(ownerCompanies - 1, 1)] || property.rent[0]; // 0-1 index for 1-2 companies
         // Use the current dice roll total for company rent calculation
         const diceTotal = lastDiceRoll ? lastDiceRoll.dice1 + lastDiceRoll.dice2 : 7; // Fallback to 7 if no dice roll
         rentAmount = multiplier * diceTotal;
+        
+        // DEBUG LOG: Company rent calculation details
+        // console.log('[DEBUG] Company rent calculation:', {
+        //   propertyName: property.name,
+        //   diceRoll: lastDiceRoll,
+        //   diceTotal: diceTotal,
+        //   multiplier: multiplier,
+        //   ownerCompanies: ownerCompanies,
+        //   calculatedRent: rentAmount
+        // });
       } else {
         // Fallback for properties without rent or invalid rent structure
         rentAmount = 0;
@@ -881,7 +970,8 @@ const GamePage = () => {
 
       // Apply double rent if owner has full set and setting is enabled
       if (gameSettings.doubleRentOnFullSet && property.type === 'property') {
-        const setProperties = classicMap.filter(p => p.set === property.set && p.type === 'property');
+        const currentMap = getCurrentMapData();
+        const setProperties = currentMap.filter(p => p.set === property.set && p.type === 'property');
         const ownedFullSet = setProperties.every(p => syncedPropertyOwnership[p.name] && syncedPropertyOwnership[p.name].owner === ownership.owner);
         if (ownedFullSet) {
           rentAmount *= 2;
@@ -1203,6 +1293,44 @@ const GamePage = () => {
       // Wait for dice animation to complete before ending turn
       waitForDiceAnimationAndEndTurn(() => handleEndTurn(true));
       return;
+    } else if (specialAction === 'go-to-jail') {
+      setGameLog(prev => [{
+        id: generateLogId(),
+        type: 'special',
+        player: currentPlayer?.name,
+        message: `landed on Go to Prison and was sent to jail! 🚔`
+      }, ...prev]);
+
+      // Set player status to jail
+      setPlayerStatuses(prev => ({
+        ...prev,
+        [currentPlayer.id]: 'jail'
+      }));
+
+      // Initialize jail rounds for this player
+      setPlayerJailRounds(prev => ({
+        ...prev,
+        [currentPlayer.id]: 0
+      }));
+
+      // Reset doubles count when sent to jail from Go to Prison
+      setPlayerDoublesCount(prev => ({
+        ...prev,
+        [currentPlayer.id]: 0
+      }));
+
+      // Set game phase to turn-end immediately to prevent showing any buttons
+      setGamePhase('turn-end');
+
+      // Move player directly to jail (position 10) instead of their rolled position
+      handleMovePlayerToPosition(currentPlayer.id, 10).then(() => {
+        // Clear the last dice roll to prevent "roll again" logic
+        setLastDiceRoll(null);
+
+        // Wait for dice animation to complete before ending turn
+        waitForDiceAnimationAndEndTurn(() => handleEndTurn(true));
+      });
+      return;
     } else if (specialAction === 'vacation') {
       // Award collected money if vacation cash rule is enabled
       if (gameSettings.vacationCash && vacationCash > 0) {
@@ -1277,11 +1405,19 @@ const GamePage = () => {
         return newRounds;
       });
 
-      // Set game phase to turn-end to prevent showing any buttons
-      setGamePhase('turn-end');
-
-      // Wait for dice animation to complete before ending turn
-      waitForDiceAnimationAndEndTurn(() => handleEndTurn(true));
+      // IMPORTANT: Don't immediately end turn - check if player landed on a property first
+      // The server will send a propertyLanding event if needed, just like normal dice rolls
+      // Only end turn immediately if no property landing is required
+      
+      // Wait for potential property landing event, then show End Turn button
+      setTimeout(() => {
+        if (!propertyLandingState) {
+          // No property landing occurred, safe to show End Turn button
+          setGamePhase('awaiting-end-turn');
+        }
+        // If propertyLandingState exists, the property landing UI will handle the turn progression
+      }, 100); // Short delay to allow propertyLanding events to arrive
+      
       return;
     } else if (specialAction === 'jail-stay') {
       setGameLog(prev => [{
@@ -1396,14 +1532,16 @@ const GamePage = () => {
   };
 
   const handleMapSelect = (selectedMap) => {
-    setGameSettings(prev => ({ ...prev, boardMap: selectedMap }));
+    // Use handleSettingsChange to properly sync with server
+    handleSettingsChange({ boardMap: selectedMap });
   };
 
-  const handleMapFullPreview = (mapName) => {
-    setPreviewingMap(mapName);
-    setMapFullPreviewOpen(true);
-    setMapPreviewOpen(false); // Close the browser modal
-  };
+  // const handleMapFullPreview = (mapName) => {
+  //   console.log('[DEBUG] handleMapFullPreview called with mapName:', mapName);
+  //   setPreviewingMap(mapName);
+  //   setMapFullPreviewOpen(true);
+  //   setMapPreviewOpen(false); // Close the browser modal
+  // };
 
   const handleMapFullPreviewClose = () => {
     setMapFullPreviewOpen(false);
@@ -1500,7 +1638,8 @@ const GamePage = () => {
 
   // Get properties owned by a player (excluding those with buildings for trading)
   const getPlayerOwnedProperties = (playerId) => {
-    return classicMap.filter(property => 
+    const currentMap = getCurrentMapData();
+    return currentMap.filter(property => 
       ['property', 'airport', 'utility', 'company'].includes(property.type) &&
       syncedPropertyOwnership[property.name]?.owner === playerId &&
       // Exclude properties with buildings (houses or hotels) from trading
@@ -1654,14 +1793,15 @@ const GamePage = () => {
     const currentPlayer = allPlayers[currentPlayerIndex];
     if (!currentPlayer) return;
 
-    const property = classicMap.find(p => p.name === propertyName);
+    const currentMap = getCurrentMapData();
+    const property = currentMap.find(p => p.name === propertyName);
     if (!property || property.type !== 'property') return;
 
     const ownership = syncedPropertyOwnership[propertyName];
     if (!ownership || ownership.owner !== currentPlayer.id) return;
 
     // Check if player can build (owns full set, no mortgaged properties in set, has money)
-    const setProperties = classicMap.filter(p => p.set === property.set && p.type === 'property');
+    const setProperties = currentMap.filter(p => p.set === property.set && p.type === 'property');
     const ownedSet = setProperties.every(p => syncedPropertyOwnership[p.name] && syncedPropertyOwnership[p.name].owner === currentPlayer.id);
     const anyMortgaged = setProperties.some(p => syncedPropertyOwnership[p.name]?.mortgaged);
 
@@ -1858,7 +1998,8 @@ const GamePage = () => {
 
     // Check if houses are destroyed evenly across the set (only if even build rule is enabled)
     if (gameSettings.evenBuild && !hasHotel) {
-      const setProperties = classicMap.filter(p => p.set === property.set && p.type === 'property');
+      const currentMap = getCurrentMapData();
+      const setProperties = currentMap.filter(p => p.set === property.set && p.type === 'property');
       const setHouses = setProperties.map(p => syncedPropertyOwnership[p.name]?.houses || 0);
       const maxHouses = Math.max(...setHouses);
 
@@ -1987,7 +2128,8 @@ const GamePage = () => {
 
     // Check if property can be mortgaged/unmortgaged
     if (property.type === 'property') {
-      const setProperties = classicMap.filter(p => p.set === property.set && p.type === 'property');
+      const currentMap = getCurrentMapData();
+      const setProperties = currentMap.filter(p => p.set === property.set && p.type === 'property');
       const anyHousesOrHotels = setProperties.some(p => syncedPropertyOwnership[p.name]?.houses > 0 || syncedPropertyOwnership[p.name]?.hotel);
       const currentHouses = ownership.houses || 0;
       const hasHotel = ownership.hotel || false;
@@ -2120,7 +2262,8 @@ const GamePage = () => {
 
     // Check if property can be sold (no houses/hotels, not mortgaged)
     if (property.type === 'property') {
-      const setProperties = classicMap.filter(p => p.set === property.set && p.type === 'property');
+      const currentMap = getCurrentMapData();
+      const setProperties = currentMap.filter(p => p.set === property.set && p.type === 'property');
       const anyHousesOrHotels = setProperties.some(p => syncedPropertyOwnership[p.name]?.houses > 0 || syncedPropertyOwnership[p.name]?.hotel);
 
       if (anyHousesOrHotels) {
@@ -2266,7 +2409,8 @@ const GamePage = () => {
 
         // Add double rent indicator if applicable
         if (gameSettings.doubleRentOnFullSet) {
-          const setProperties = classicMap.filter(p => p.set === property.set && p.type === 'property');
+          const currentMap = getCurrentMapData();
+          const setProperties = currentMap.filter(p => p.set === property.set && p.type === 'property');
           const ownedFullSet = setProperties.every(p => syncedPropertyOwnership[p.name] && syncedPropertyOwnership[p.name].owner === ownership.owner);
           if (ownedFullSet) {
             rentDetails += ` (double rent - full set)`;
@@ -2398,9 +2542,6 @@ const GamePage = () => {
     }
 
     function handleAuctionEnded(auctionData) {
-      console.log('[CLIENT] Received auctionEnded event:', auctionData);
-      console.log('[CLIENT] Current socket.id:', socket.id, 'auctionData.currentPlayerId:', auctionData.currentPlayerId);
-      console.log('[CLIENT] currentPlayer?.id:', currentPlayer?.id, 'Match:', socket.id === auctionData.currentPlayerId);
       setAuctionEnded(true);
       setAuctionActive(false);
       setAuctionWinner(auctionData.winner);
@@ -2590,6 +2731,34 @@ const GamePage = () => {
       // console.log('[DEBUG] Vote-kick state update:', state.activeVoteKick);
       setActiveVoteKick(state.activeVoteKick || null);
       setPlayerNegativeBalance(state.playerNegativeBalance || {});
+      
+      // CRITICAL: Read server turnState to properly show End Turn vs Roll Again buttons
+      if (state.turnState) {
+        // console.log(`[DEBUG CLIENT] Server turnState: ${state.turnState}`);
+        setServerTurnState(state.turnState);
+        // Set local state based on server turnState
+        if (state.turnState === 'awaiting-end-turn') {
+          // Server says show End Turn button
+          setHasEndedTurnAfterDoubles(false);
+          setIsInDoublesSequence(false);
+          setCanRollAgain(false);
+        } else if (state.turnState === 'awaiting-roll-again') {
+          // Server says show Roll Again button after End Turn
+          setHasEndedTurnAfterDoubles(true);
+          setIsInDoublesSequence(true);
+          setCanRollAgain(true);
+        } else if (state.turnState === 'awaiting-vacation-skip') {
+          // Server says show Skip Turn button for vacation player
+          setHasEndedTurnAfterDoubles(false);
+          setIsInDoublesSequence(false);
+          setCanRollAgain(false);
+        } else if (state.turnState === 'awaiting-roll') {
+          // Server says show Roll Dice button for new turn
+          setHasEndedTurnAfterDoubles(false);
+          setIsInDoublesSequence(false);
+          setCanRollAgain(false);
+        }
+      }
       
       // Update trades from server state
       if (state.trades) {
@@ -2819,7 +2988,11 @@ const GamePage = () => {
             gameStarted={gameStarted}
             gameSettings={gameSettings}
             players={allPlayers}
+            syncedPlayerMoney={syncedPlayerMoney}
             onPlayerCashChange={handlePlayerCashChange}
+            devTreasureCard={devTreasureCard}
+            devSurpriseCard={devSurpriseCard}
+            onDevCardChange={handleDevCardChange}
           />
         </Box>
 
@@ -2911,6 +3084,7 @@ const GamePage = () => {
             voteKickTimeRemaining={voteKickTimeRemaining}
             onTradeClick={handleTradeClick}
             playerNegativeBalance={playerNegativeBalance}
+            serverTurnState={serverTurnState}
           />
 
           {/* Property Popup */}
@@ -2918,8 +3092,16 @@ const GamePage = () => {
             <div style={{
               position: 'absolute',
               top: 100,
-              left: classicMap.find(p => p.name === selectedProperty)?.type === 'company' ? '48%' : '57%',
-              transform: classicMap.find(p => p.name === selectedProperty)?.type === 'company' ? 'translateX(-9%)' : 'translateX(10%)',
+              left: (() => {
+                const currentMap = getCurrentMapData();
+                const property = currentMap.find(p => p.name === selectedProperty);
+                return property?.type === 'company' ? '48%' : '57%';
+              })(),
+              transform: (() => {
+                const currentMap = getCurrentMapData();
+                const property = currentMap.find(p => p.name === selectedProperty);
+                return property?.type === 'company' ? 'translateX(-9%)' : 'translateX(10%)';
+              })(),
               zIndex: 200,
             }}
               onClick={e => e.stopPropagation()}
@@ -2937,7 +3119,11 @@ const GamePage = () => {
                 onSellProperty={handleSellProperty}
                 gameSettings={gameSettings}
                 currentUserId={currentPlayer?.id}
-                popupWidth={classicMap.find(p => p.name === selectedProperty)?.type === 'company' ? 320 : undefined}
+                popupWidth={(() => {
+                  const currentMap = getCurrentMapData();
+                  const property = currentMap.find(p => p.name === selectedProperty);
+                  return property?.type === 'company' ? 320 : undefined;
+                })()}
                 syncedPlayerMoney={syncedPlayerMoney}
                 playerStatuses={syncedStatuses}
               />
@@ -3234,9 +3420,12 @@ const GamePage = () => {
             <Box sx={{ flex: '1 1 0', minHeight: 0, overflow: 'auto', p: 2 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
                 <Typography variant="subtitle2" sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
-                  My properties ({classicMap.filter(
-                    (prop) => ['property', 'airport', 'utility', 'company'].includes(prop.type) && syncedPropertyOwnership[prop.name]?.owner === currentPlayer?.id
-                  ).length + (currentPlayer && playerJailCards[currentPlayer.id] ? playerJailCards[currentPlayer.id] : 0)})
+                  My properties ({(() => {
+                    const currentMap = getCurrentMapData();
+                    return currentMap.filter(
+                      (prop) => ['property', 'airport', 'utility', 'company'].includes(prop.type) && syncedPropertyOwnership[prop.name]?.owner === currentPlayer?.id
+                    ).length + (currentPlayer && playerJailCards[currentPlayer.id] ? playerJailCards[currentPlayer.id] : 0);
+                  })()})
                 </Typography>
               </Box>
               <Paper
@@ -3274,9 +3463,12 @@ const GamePage = () => {
                 className="custom-scrollbar properties-container"
               >
                 <List sx={{ py: 0 }}>
-                  {classicMap.filter(
-                    (prop) => ['property', 'airport', 'utility', 'company'].includes(prop.type) && syncedPropertyOwnership[prop.name]?.owner === currentPlayer?.id
-                  ).map((prop) => {
+                  {(() => {
+                    const currentMap = getCurrentMapData();
+                    return currentMap.filter(
+                      (prop) => ['property', 'airport', 'utility', 'company'].includes(prop.type) && syncedPropertyOwnership[prop.name]?.owner === currentPlayer?.id
+                    );
+                  })().map((prop) => {
                     const ownership = syncedPropertyOwnership[prop.name];
                     const propertyFlags = {
                       'Salvador': '🇧🇷', 'Rio': '🇧🇷', 'Tel Aviv': '🇮🇱', 'Haifa': '🇮🇱', 'Jerusalem': '🇮🇱',
@@ -3418,9 +3610,12 @@ const GamePage = () => {
                       </ListItem>
                     );
                   })}
-                  {classicMap.filter(
-                    (prop) => ['property', 'airport', 'utility', 'company'].includes(prop.type) && syncedPropertyOwnership[prop.name]?.owner === currentPlayer?.id
-                  ).length === 0 && (!currentPlayer || !playerJailCards[currentPlayer.id] || playerJailCards[currentPlayer.id] === 0) && (
+                  {(() => {
+                    const currentMap = getCurrentMapData();
+                    return currentMap.filter(
+                      (prop) => ['property', 'airport', 'utility', 'company'].includes(prop.type) && syncedPropertyOwnership[prop.name]?.owner === currentPlayer?.id
+                    ).length === 0 && (!currentPlayer || !playerJailCards[currentPlayer.id] || playerJailCards[currentPlayer.id] === 0);
+                  })() && (
                       <ListItem>
                         <ListItemText
                           primary={

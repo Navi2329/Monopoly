@@ -38,6 +38,38 @@ import {
 } from '@mui/icons-material';
 import { styled } from '@mui/material/styles';
 
+// Developer card options
+const treasureCards = [
+  { id: 'treasure-1', message: 'Your phone died. Pay $50 for a repair.' },
+  { id: 'treasure-2', message: 'Happy holidays! Receive $20' },
+  { id: 'treasure-3', message: 'You host a party. Collect $50 from every player for equipment.' },
+  { id: 'treasure-4', message: 'Tax refund. Collect $100.' },
+  { id: 'treasure-5', message: 'Your car has ran out of gas. Pay $50.' },
+  { id: 'treasure-6', message: 'You found a wallet containing some cash. Collect $200.' },
+  { id: 'treasure-7', message: 'From trading stocks you earned $50.' },
+  { id: 'treasure-8', message: 'You received $100 from your sibling.' },
+  { id: 'treasure-9', message: 'Car rental insurance. Pay $60.' },
+  { id: 'treasure-10', message: 'You have won third prize in a lottery. Collect $15.' },
+  { id: 'treasure-11', message: 'From gift cards you get $100' },
+  { id: 'treasure-12', message: 'You got a Pardon card from the treasures stack' },
+  { id: 'treasure-13', message: 'Advance to Start' }
+];
+
+const surpriseCards = [
+  { id: 'surprise-1', message: 'You got a Pardon card from the surprises stack' },
+  { id: 'surprise-2', message: 'Have a redesign for your properties. Pay $25 for each house and $100 for each hotel.' },
+  { id: 'surprise-3', message: 'You lost a bet. Pay each player $50.' },
+  { id: 'surprise-4', message: 'Pay tax of $20.' },
+  { id: 'surprise-5', message: 'Have an adventure to New York.' },
+  { id: 'surprise-6', message: 'Advance to Shanghai.' },
+  { id: 'surprise-7', message: 'Advance to Venice.' },
+  { id: 'surprise-8', message: 'Advance to Start.' },
+  { id: 'surprise-9', message: 'Go to prison' },
+  { id: 'surprise-10', message: 'From a scholarship you get $100.' },
+  { id: 'surprise-11', message: 'Go back 3 steps' },
+  { id: 'surprise-12', message: 'You have a new investment. Receive $150.' }
+];
+
 const StyledModal = styled(Modal)(({ theme }) => ({
   display: 'flex',
   alignItems: 'center',
@@ -54,7 +86,22 @@ const StyledCard = styled(Card)(({ theme }) => ({
   maxWidth: 500
 }));
 
-const ShareGame = ({ gameUrl, devDiceEnabled, devDice1, devDice2, onDevDiceChange, playerJoined, gameStarted, gameSettings, players, onPlayerCashChange }) => {
+const ShareGame = ({ 
+  gameUrl, 
+  devDiceEnabled, 
+  devDice1, 
+  devDice2, 
+  onDevDiceChange, 
+  playerJoined, 
+  gameStarted, 
+  gameSettings, 
+  players, 
+  syncedPlayerMoney,
+  onPlayerCashChange,
+  devTreasureCard,
+  devSurpriseCard,
+  onDevCardChange
+}) => {
   const [copied, setCopied] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [toastOpen, setToastOpen] = useState(false);
@@ -559,7 +606,7 @@ const ShareGame = ({ gameUrl, devDiceEnabled, devDice1, devDice2, onDevDiceChang
                         </Typography>
                       </Box>
                       <Slider
-                        value={player.money || 0}
+                        value={syncedPlayerMoney[player.id] || player.money || 0}
                         onChange={(event, newValue) => handlePlayerCashChange(player.id, newValue)}
                         valueLabelDisplay="auto"
                         min={0}
@@ -601,13 +648,146 @@ const ShareGame = ({ gameUrl, devDiceEnabled, devDice1, devDice2, onDevDiceChang
                         }}
                       />
                       <Typography variant="body2" sx={{ color: 'white', fontWeight: 500, minWidth: '60px', textAlign: 'right' }}>
-                        ${player.money || 0}
+                        ${syncedPlayerMoney[player.id] || player.money || 0}
                       </Typography>
                     </Box>
                   ))}
                 </Box>
               </>
             )}
+
+            {/* Developer Card Selection */}
+            <Typography variant="body2" sx={{ color: 'white', fontWeight: 500, mt: 4, mb: 2 }}>
+              Force Next Cards (Developer)
+            </Typography>
+            
+            {/* Treasure Card Selection */}
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.6)', display: 'block', mb: 0.5 }}>
+                Next Treasure Card
+              </Typography>
+              <FormControl size="small" fullWidth>
+                <Select
+                  value={devTreasureCard || 'random'}
+                  onChange={(e) => onDevCardChange && onDevCardChange('treasure', e.target.value === 'random' ? null : e.target.value)}
+                  sx={{
+                    '& .MuiOutlinedInput-notchedOutline': {
+                      borderColor: 'rgba(139, 92, 246, 0.3)'
+                    },
+                    '& .MuiSelect-select': {
+                      color: 'white',
+                      fontSize: '13px',
+                      padding: '6px 8px'
+                    },
+                    '& .MuiSvgIcon-root': {
+                      color: 'rgba(255, 255, 255, 0.7)'
+                    }
+                  }}
+                  MenuProps={{
+                    PaperProps: {
+                      sx: {
+                        backgroundColor: 'rgba(30, 41, 59, 0.95)',
+                        backdropFilter: 'blur(10px)',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        maxHeight: 300
+                      }
+                    }
+                  }}
+                >
+                  <MenuItem
+                    value="random"
+                    sx={{
+                      fontSize: '13px',
+                      color: 'white',
+                      '&:hover': {
+                        backgroundColor: 'rgba(139, 92, 246, 0.2)'
+                      }
+                    }}
+                  >
+                    Random (Default)
+                  </MenuItem>
+                  {treasureCards.map(card => (
+                    <MenuItem
+                      key={card.id}
+                      value={card.id}
+                      sx={{
+                        fontSize: '12px',
+                        color: 'white',
+                        '&:hover': {
+                          backgroundColor: 'rgba(139, 92, 246, 0.2)'
+                        }
+                      }}
+                    >
+                      {card.message}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Box>
+
+            {/* Surprise Card Selection */}
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.6)', display: 'block', mb: 0.5 }}>
+                Next Surprise Card
+              </Typography>
+              <FormControl size="small" fullWidth>
+                <Select
+                  value={devSurpriseCard || 'random'}
+                  onChange={(e) => onDevCardChange && onDevCardChange('surprise', e.target.value === 'random' ? null : e.target.value)}
+                  sx={{
+                    '& .MuiOutlinedInput-notchedOutline': {
+                      borderColor: 'rgba(139, 92, 246, 0.3)'
+                    },
+                    '& .MuiSelect-select': {
+                      color: 'white',
+                      fontSize: '13px',
+                      padding: '6px 8px'
+                    },
+                    '& .MuiSvgIcon-root': {
+                      color: 'rgba(255, 255, 255, 0.7)'
+                    }
+                  }}
+                  MenuProps={{
+                    PaperProps: {
+                      sx: {
+                        backgroundColor: 'rgba(30, 41, 59, 0.95)',
+                        backdropFilter: 'blur(10px)',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        maxHeight: 300
+                      }
+                    }
+                  }}
+                >
+                  <MenuItem
+                    value="random"
+                    sx={{
+                      fontSize: '13px',
+                      color: 'white',
+                      '&:hover': {
+                        backgroundColor: 'rgba(139, 92, 246, 0.2)'
+                      }
+                    }}
+                  >
+                    Random (Default)
+                  </MenuItem>
+                  {surpriseCards.map(card => (
+                    <MenuItem
+                      key={card.id}
+                      value={card.id}
+                      sx={{
+                        fontSize: '12px',
+                        color: 'white',
+                        '&:hover': {
+                          backgroundColor: 'rgba(139, 92, 246, 0.2)'
+                        }
+                      }}
+                    >
+                      {card.message}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Box>
           </CardContent>
         </StyledCard>
       </StyledModal>
