@@ -108,7 +108,7 @@ const StyledInputContainer = styled(Box)(({ theme }) => ({
   alignItems: 'flex-end'
 }));
 
-const Chat = ({ messages, onSendMessage, disabled = false, currentPlayer }) => {
+const Chat = ({ messages, onSendMessage, disabled = false, currentPlayer, isSpectator = false }) => {
   const [message, setMessage] = useState('');
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
@@ -151,6 +151,19 @@ const Chat = ({ messages, onSendMessage, disabled = false, currentPlayer }) => {
           >
             Chat
           </Typography>
+          {isSpectator && (
+            <Chip
+              label="👁️ Spectator"
+              size="small"
+              sx={{
+                backgroundColor: 'rgba(255, 193, 7, 0.2)',
+                color: 'rgba(255, 193, 7, 1)',
+                fontSize: '0.7rem',
+                height: '20px',
+                border: '1px solid rgba(255, 193, 7, 0.3)'
+              }}
+            />
+          )}
         </Box>
         <Box sx={{ display: 'flex', gap: 0.5 }}>
           <IconButton

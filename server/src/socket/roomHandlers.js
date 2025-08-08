@@ -1,12 +1,19 @@
 // server/src/socket/roomHandlers.js
 const roomService = require('../services/roomService');
 const { v4: uuidv4 } = require('uuid');
+const SafeEmitter = require('../utils/safeEmitter');
+
+// Helper to deeply clean objects of circular references and problematic types
+// Helper to safely emit data without circular references
+function safeEmit(io, roomId, event, data) {
+  SafeEmitter.safeEmit(io, roomId, event, data);
+}
 
 // Helper to push to room log and emit to all clients
 function pushGameLog(room, logEntry, io) {
   // console.log('[DEBUG][SERVER][pushGameLog]', logEntry);
   room.addGameLog(logEntry);
-  io.to(room.id).emit('gameLogUpdated', logEntry);
+  safeEmit(io, room.id, 'gameLogUpdated', logEntry);
 }
 
 // Helper to emit all logs after advanceTurn
@@ -49,7 +56,7 @@ function emitGameStateUpdated(room, io, roomId, extra = {}) {
   gameState.turnState = room.turnState || 'awaiting-roll'; // Default to awaiting roll
   // Attach any extra fields passed in
   Object.assign(gameState, extra);
-  io.to(roomId).emit('gameStateUpdated', gameState);
+  safeEmit(io, roomId, 'gameStateUpdated', gameState);
 }
 
 // REMOVE or DISABLE autoAdvanceVacationSkips and autoAdvanceStep
@@ -65,8 +72,8 @@ module.exports = (io, socket) => {
     const newRoom = roomService.createRoom(socket.id, playerName);
     if (newRoom) {
       socket.join(newRoom.id);
-      socket.emit('gameCreated', newRoom);
-      io.to(newRoom.id).emit('playerListUpdated', newRoom.getPlayerList());
+      socket.emit('gameCreated', SafeEmitter.deepClean(newRoom));
+      safeEmit(io, newRoom.id, 'playerListUpdated', newRoom.getPlayerList());
       // Emit log for host joining and game id
       pushGameLog(newRoom, { type: 'info', message: `Game ID: ${newRoom.id}` }, io);
       pushGameLog(newRoom, { type: 'join', player: playerName, message: `has joined the room as host.` }, io);
@@ -79,22 +86,47 @@ module.exports = (io, socket) => {
       socket.emit('colorTakenError', { message: 'Color already taken. Please choose another color.' });
       return;
     }
+    if (roomOrError === 'name_taken') {
+      socket.emit('joinRoomError', { message: 'Player name already taken in this room.' });
+      return;
+    }
+    if (roomOrError === 'reconnection_required') {
+      // Player exists but disconnected - attempt reconnection
+      const room = roomService.handlePlayerReconnect(roomId, playerName, socket.id);
+      if (room) {
+        socket.join(roomId);
+        socket.emit('reconnectSuccess', { room: SafeEmitter.deepClean(room), playerName });
+        safeEmit(io, roomId, 'playerListUpdated', room.getPlayerList());
+        // Reconnection log will be handled by attemptReconnect handler
+        emitGameStateUpdated(room, io, roomId);
+      } else {
+        socket.emit('reconnectFailed', { message: 'Failed to reconnect to the room.' });
+      }
+      return;
+    }
     if (roomOrError) {
+      // Check if this is a spectator response
+      if (typeof roomOrError === 'object' && roomOrError.isSpectator) {
+        const room = roomOrError.room;
+        socket.join(roomId);
+        socket.emit('joinedAsSpectator', { room: SafeEmitter.deepClean(room), playerName });
+        safeEmit(io, roomId, 'playerListUpdated', room.getPlayerList());
+        // Don't log spectators joining to avoid spam
+        emitGameStateUpdated(room, io, roomId);
+        return;
+      }
+      
       const room = roomOrError;
       socket.join(roomId);
-      // console.log(`[DEBUG] Server: socket ${socket.id} joined room ${roomId}`);
-      io.in(roomId).allSockets().then((clients) => {
-        // console.log(`[DEBUG] Sockets in room ${roomId} after join:`, Array.from(clients));
-      });
       // Fix: If the joining player is the host (by name), update hostId to current socket.id only if different
       if (room.hostName && room.hostName === playerName) {
         if (room.hostId !== socket.id) {
           room.hostId = socket.id;
         }
       }
-      socket.emit('roomJoined', room);
+      socket.emit('roomJoined', SafeEmitter.deepClean(room));
       // Log the player list before emitting to all clients
-      io.to(roomId).emit('playerListUpdated', room.getPlayerList());
+      safeEmit(io, roomId, 'playerListUpdated', room.getPlayerList());
       // Emit log for player joining
       pushGameLog(room, { type: 'join', player: playerName, message: `joined the room.` }, io);
 
@@ -102,7 +134,7 @@ module.exports = (io, socket) => {
       emitGameStateUpdated(room, io, roomId);
 
       setTimeout(() => {
-        io.to(roomId).emit('playerListUpdated', room.getPlayerList());
+        safeEmit(io, roomId, 'playerListUpdated', room.getPlayerList());
       }, 100);
     } else {
       socket.emit('joinRoomError', { message: 'Room not found or could not join.' });
@@ -113,7 +145,37 @@ module.exports = (io, socket) => {
     const room = roomService.removePlayerFromRoom(socket.id);
     if (room) {
       socket.leave(room.id);
-      io.to(room.id).emit('playerListUpdated', room.getPlayerList());
+      safeEmit(io, room.id, 'playerListUpdated', room.getPlayerList());
+    }
+  };
+
+  const kickPlayer = ({ roomId, playerId }) => {
+    const room = roomService.getRoomById(roomId);
+    if (!room) {
+      socket.emit('kickPlayerError', { message: 'Room not found.' });
+      return;
+    }
+    
+    // Only host can kick players and only before game starts
+    if (room.hostId !== socket.id) {
+      socket.emit('kickPlayerError', { message: 'Only the host can kick players.' });
+      return;
+    }
+    
+    if (room.gameState === 'in-progress') {
+      socket.emit('kickPlayerError', { message: 'Cannot kick players after game has started.' });
+      return;
+    }
+    
+    const kickedPlayerName = room.kickPlayer(playerId, io);
+    if (kickedPlayerName) {
+      pushGameLog(room, { 
+        type: 'kick', 
+        player: kickedPlayerName, 
+        message: `was removed from the room by the host.` 
+      }, io);
+    } else {
+      socket.emit('kickPlayerError', { message: 'Player not found.' });
     }
   };
 
@@ -125,7 +187,7 @@ module.exports = (io, socket) => {
       // Log all socket.io rooms and their members
       try {
         const sockets = await io.in(roomId).allSockets();
-        io.to(roomId).emit('roomSettingsUpdated', room.settings);
+        safeEmit(io, roomId, 'roomSettingsUpdated', room.settings);
       } catch (err) {
         console.error('[DEBUG] updateRoomSettings - error:', err);
       }
@@ -142,7 +204,7 @@ module.exports = (io, socket) => {
       }
       room.startGame(); // Use Room.startGame() to handle random order and starting cash
       room.turnState = 'awaiting-roll'; // First player should see Roll button
-      io.to(roomId).emit('gameStarted');
+      safeEmit(io, roomId, 'gameStarted', {});
       // Emit initial game state for turn sync
       emitGameStateUpdated(room, io, roomId);
       pushGameLog(room, { type: 'info', message: 'Game started.' }, io);
@@ -166,13 +228,24 @@ module.exports = (io, socket) => {
     const player = room.players.find(p => p.id === socket.id);
     if (player) {
       player.color = color;
-      io.to(roomId).emit('playerListUpdated', room.getPlayerList());
+      safeEmit(io, roomId, 'playerListUpdated', room.getPlayerList());
     }
   };
 
   const handleDisconnect = () => {
-    leaveRoom();
-    // Additional cleanup if needed
+    console.log(`[DEBUG] Socket ${socket.id} disconnected`);
+    
+    // Handle graceful disconnect with timeout
+    const room = roomService.handlePlayerDisconnect(socket.id);
+    if (room) {
+      const player = room.players.find(p => p.id === socket.id);
+      if (player) {
+        // Emit updated player list to show disconnected status
+        safeEmit(io, room.id, 'playerListUpdated', room.getPlayerList());
+        
+        // Don't log disconnect immediately - only log when player is actually removed after timeout
+      }
+    }
   };
 
   // Handler to send the current player list to a client (before joining)
@@ -475,7 +548,7 @@ module.exports = (io, socket) => {
     if (!currentPlayer || socket.id !== currentPlayer.id) return; // Only current player can roll
 
     // Broadcast dice rolling animation to all players immediately
-    io.to(roomId).emit('diceRollingStarted');
+    safeEmit(io, roomId, 'diceRollingStarted', {});
 
     // Delay the actual dice roll and player movement until after animation completes
     setTimeout(() => {
@@ -1098,12 +1171,12 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
           endAuction(room, io);
         } else {
           // Emit timer update
-          io.to(roomId).emit('auctionUpdate', room.auction);
+          safeEmit(io, roomId, 'auctionUpdate', room.auction);
         }
       }
     }, 1000);
     
-    io.to(roomId).emit('auctionStarted', room.auction);
+    safeEmit(io, roomId, 'auctionStarted', room.auction);
   };
 
   // Helper function to end auction
@@ -1156,7 +1229,7 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
       currentPlayerId: room.auction.currentPlayerId // This tells the client who should get the end turn button
     };
     
-    io.to(room.id).emit('auctionEnded', auctionEndedData);
+    safeEmit(io, room.id, 'auctionEnded', auctionEndedData);
     
     // Emit updated game state to show End Turn button
     emitGameStateUpdated(room, io, room.id);
@@ -1210,7 +1283,7 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
     room.auction.lastBidderId = player.id; // Track last bidder to prevent consecutive bids
     
     // console.log('[SERVER] Auction bid:', player.name, 'bid', newBid);
-    io.to(roomId).emit('auctionUpdate', room.auction);
+    safeEmit(io, roomId, 'auctionUpdate', room.auction);
   };
 
   // Handle auction pass
@@ -1234,7 +1307,7 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
     }
     
     // console.log('[SERVER] Auction pass:', player.name);
-    io.to(roomId).emit('auctionUpdate', room.auction);
+    safeEmit(io, roomId, 'auctionUpdate', room.auction);
   };
 
   // Enhanced buyProperty handler
@@ -1481,7 +1554,7 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
         [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
       }
       const shuffledOrder = shuffled.map(p => p.id);
-      io.to(roomId).emit('shufflingPlayers', { shuffledOrder });
+      safeEmit(io, roomId, 'shufflingPlayers', { shuffledOrder });
     }
   };
 
@@ -1714,6 +1787,7 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
   socket.on('createPrivateGame', createPrivateGame);
   socket.on('joinRoom', joinRoom);
   socket.on('leaveRoom', leaveRoom);
+  socket.on('kickPlayer', kickPlayer);
   socket.on('updateRoomSettings', updateRoomSettings);
   socket.on('startGame', startGame);
   socket.on('updatePlayerColor', updatePlayerColor);
@@ -1747,6 +1821,32 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
   socket.on('gameStateUpdated', (gameState) => {
     // ... rest of your state update logic
   });
+  
+  // Manual turn advancement for testing/fixing disconnection issues
+  socket.on('forceAdvanceTurn', ({ roomId }) => {
+    console.log(`[DEBUG] Force advance turn requested by ${socket.id} for room ${roomId}`);
+    const room = roomService.getRoomById(roomId);
+    if (!room || room.gameState !== 'in-progress') {
+      console.log(`[DEBUG] Room not found or game not in progress`);
+      return;
+    }
+    
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player || !player.isHost) {
+      console.log(`[DEBUG] Player not found or not host`);
+      return;
+    }
+    
+    console.log(`[DEBUG] Forcing turn advancement...`);
+    room.advanceToNextActiveTurn();
+    
+    const gameStateData = room.getGameState();
+    console.log(`[DEBUG] New turn state - turnIndex: ${room.turnIndex}, currentTurnSocketId: ${gameStateData.currentTurnSocketId}`);
+    
+    safeEmit(io, room.id, 'gameStateUpdated', gameStateData);
+    console.log(`[DEBUG] Emitted gameStateUpdated after force advance turn`);
+  });
+  
   // ===== TRADE SYSTEM HANDLERS =====
   
   // Create a new trade
@@ -1837,7 +1937,7 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
     }, io);
 
     // Emit trade created to all players
-    io.to(roomId).emit('tradeCreated', trade);
+    safeEmit(io, roomId, 'tradeCreated', trade);
     emitGameStateUpdated(room, io, roomId);
   };
 
@@ -1921,7 +2021,7 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
         }, io);
         
         // Emit trade executed
-        io.to(roomId).emit('tradeExecuted', { tradeId, result });
+        safeEmit(io, roomId, 'tradeExecuted', { tradeId, result });
         emitGameStateUpdated(room, io, roomId);
       } else {
         socket.emit('tradeError', { message: result.error });
@@ -1938,7 +2038,7 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
       }, io);
 
       // Emit trade declined
-      io.to(roomId).emit('tradeDeclined', { tradeId });
+      safeEmit(io, roomId, 'tradeDeclined', { tradeId });
     }
   };
 
@@ -1973,7 +2073,7 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
     }, io);
 
     // Emit trade cancelled
-    io.to(roomId).emit('tradeCancelled', { tradeId });
+    safeEmit(io, roomId, 'tradeCancelled', { tradeId });
   };
 
   // Negotiate a trade (create counter-offer)
@@ -2075,8 +2175,8 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
     }, io);
 
     // Emit original trade cancelled and new trade created
-    io.to(roomId).emit('tradeCancelled', { tradeId: originalTradeId });
-    io.to(roomId).emit('tradeCreated', newTrade);
+    safeEmit(io, roomId, 'tradeCancelled', { tradeId: originalTradeId });
+    safeEmit(io, roomId, 'tradeCreated', newTrade);
   };
 
   // Get player properties for trade UI
@@ -2108,7 +2208,7 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
       
       if (gameEndResult.gameOver) {
         // Emit game over event to all players
-        io.to(roomId).emit('gameOver', {
+        safeEmit(io, roomId, 'gameOver', {
           winner: gameEndResult.winner
         });
       }
@@ -2140,7 +2240,7 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
     if (result && result.success) {
       // Push the vote-kick log to all clients immediately
       if (result.logEntry) {
-        io.to(roomId).emit('gameLogUpdated', result.logEntry);
+        safeEmit(io, roomId, 'gameLogUpdated', result.logEntry);
       }
       
       emitGameStateUpdated(room, io, roomId);
@@ -2151,7 +2251,7 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
         if (!room.activeVoteKick) {
           // console.log('[DEBUG SERVER] updateTimer: activeVoteKick was cancelled, stopping timer');
           // Emit a final timer update with 0 remaining time to clear frontend
-          io.to(roomId).emit('voteKickTimer', { 
+          safeEmit(io, roomId, 'voteKickTimer', { 
             targetPlayerId: null,
             remainingTime: 0 
           });
@@ -2160,7 +2260,7 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
         
         const remaining = Math.max(0, room.activeVoteKick.endTime - Date.now());
         // console.log('[DEBUG SERVER] updateTimer emitting voteKickTimer:', { targetPlayerId: room.activeVoteKick.targetPlayerId, remainingTime: remaining });
-        io.to(roomId).emit('voteKickTimer', { 
+        safeEmit(io, roomId, 'voteKickTimer', { 
           targetPlayerId: room.activeVoteKick.targetPlayerId,
           remainingTime: remaining 
         });
@@ -2170,7 +2270,7 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
           // console.log('[DEBUG SERVER] Vote-kick timer expired, auto-kicking player');
           const executeResult = room.executeVoteKick();
           if (executeResult && executeResult.kickLog) {
-            io.to(roomId).emit('gameLogUpdated', executeResult.kickLog);
+            safeEmit(io, roomId, 'gameLogUpdated', executeResult.kickLog);
           }
           
           // Check if game should end after vote-kick
@@ -2178,7 +2278,7 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
           
           if (gameEndResult.gameOver) {
             // Emit game over event to all players
-            io.to(roomId).emit('gameOver', {
+            safeEmit(io, roomId, 'gameOver', {
               winner: gameEndResult.winner
             });
           } else {
@@ -2214,7 +2314,7 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
     if (result) {
       // Push the vote-kick log to all clients immediately
       if (result.logEntry) {
-        io.to(roomId).emit('gameLogUpdated', result.logEntry);
+        safeEmit(io, roomId, 'gameLogUpdated', result.logEntry);
       }
       
       emitGameStateUpdated(room, io, roomId);
@@ -2222,7 +2322,7 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
       if (result.executed) {
         // Push the kick log to all clients
         if (result.kickLog) {
-          io.to(roomId).emit('gameLogUpdated', result.kickLog);
+          safeEmit(io, roomId, 'gameLogUpdated', result.kickLog);
         }
         
         // Check if game should end after vote-kick execution
@@ -2230,7 +2330,7 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
         
         if (gameEndResult.gameOver) {
           // Emit game over event to all players
-          io.to(roomId).emit('gameOver', {
+          safeEmit(io, roomId, 'gameOver', {
             winner: gameEndResult.winner
           });
         } else {
@@ -2269,10 +2369,10 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
     room.resetForNewGame();
 
     // Emit updated player list to all clients (first player joining becomes host)
-    io.to(roomId).emit('playerListUpdated', room.getPlayerList());
+    safeEmit(io, roomId, 'playerListUpdated', room.getPlayerList());
     
     // Emit room settings
-    io.to(roomId).emit('roomSettingsUpdated', room.settings);
+    safeEmit(io, roomId, 'roomSettingsUpdated', room.settings);
     
     // Clear game state
     emitGameStateUpdated(room, io, roomId);
@@ -2368,8 +2468,60 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
     }
   };
 
+  const sendChatMessage = ({ roomId, message, playerName }) => {
+    const room = roomService.getRoomById(roomId);
+    if (!room) {
+      socket.emit('error', { message: 'Room not found' });
+      return;
+    }
+
+    // Verify the player is in the room
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player) {
+      socket.emit('error', { message: 'Player not in room' });
+      return;
+    }
+
+    // Verify the player name matches
+    if (player.name !== playerName) {
+      socket.emit('error', { message: 'Player name mismatch' });
+      return;
+    }
+
+    // Broadcast the message to all clients in the room
+    const chatData = {
+      message: message,
+      playerName: playerName,
+      timestamp: Date.now()
+    };
+    
+    safeEmit(io, roomId, 'chatMessage', chatData);
+  };
+
+  const attemptReconnect = ({ roomId, playerName }) => {
+    const room = roomService.handlePlayerReconnect(roomId, playerName, socket.id);
+    
+    if (room) {
+      socket.join(roomId);
+      socket.emit('reconnectSuccess', { room: SafeEmitter.deepClean(room), playerName });
+      safeEmit(io, roomId, 'playerListUpdated', room.getPlayerList());
+      emitGameStateUpdated(room, io, roomId);
+      // Don't log reconnections to reduce game log spam
+    } else {
+      socket.emit('reconnectFailed', { message: 'Room not found, player not found, or reconnection window expired' });
+    }
+  };
+
+  const getAllRooms = () => {
+    const rooms = roomService.getAllRooms();
+    socket.emit('allRooms', rooms);
+  };
+
   socket.on('resetRoom', resetRoom);
   socket.on('updatePlayerCash', updatePlayerCash);
   socket.on('setDevTreasureCard', setDevTreasureCard);
   socket.on('setDevSurpriseCard', setDevSurpriseCard);
+  socket.on('sendChatMessage', sendChatMessage);
+  socket.on('attemptReconnect', attemptReconnect);
+  socket.on('getAllRooms', getAllRooms);
 };

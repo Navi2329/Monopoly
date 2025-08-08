@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -13,7 +13,8 @@ import {
   Settings,
   Close,
   RadioButtonChecked,
-  Palette
+  Palette,
+  SignalWifiOff
 } from '@mui/icons-material';
 import { styled } from '@mui/material/styles';
 
@@ -70,9 +71,51 @@ const PlayerList = ({
   isShuffling = false, 
   syncedPlayerMoney = {}, 
   bankruptedPlayers = [], 
-  votekickedPlayers = []
+  votekickedPlayers = [],
+  playerConnections = {}
 }) => {
   const hasPlayers = players.length > 0;
+  const [currentTime, setCurrentTime] = useState(Date.now());
+
+  // Update timer every second
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const getDisconnectTimeRemaining = (playerId) => {
+    const connection = playerConnections[playerId];
+    if (!connection || connection.status !== 'disconnected') return null;
+    
+    // Use remainingTime if provided by server, otherwise calculate from disconnectTime
+    if (connection.remainingTime !== null && connection.remainingTime !== undefined) {
+      const timeRemaining = connection.remainingTime;
+      if (timeRemaining <= 0) return null;
+      
+      const seconds = Math.floor(timeRemaining / 1000);
+      const minutes = Math.floor(seconds / 60);
+      const remainingSeconds = seconds % 60;
+      
+      return { minutes, seconds: remainingSeconds };
+    }
+    
+    // Fallback to disconnectTime calculation
+    const disconnectTime = connection.disconnectTime || connection.disconnectedAt;
+    if (!disconnectTime) return null;
+    
+    const timeoutDuration = 0.5 * 60 * 1000; // 2 minutes
+    const timeRemaining = Math.max(0, (disconnectTime + timeoutDuration) - currentTime);
+    
+    if (timeRemaining <= 0) return null;
+    
+    const seconds = Math.floor(timeRemaining / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    
+    return { minutes, seconds: remainingSeconds };
+  };
 
   return (
     <Box sx={{ maxHeight: 240, overflow: 'auto' }} className={`custom-scrollbar${isShuffling ? ' shuffling' : ''}`}>
@@ -82,6 +125,10 @@ const PlayerList = ({
           {players.map((player) => {
             const isBankrupt = bankruptedPlayers.includes(player.id);
             const isVoteKicked = votekickedPlayers.includes(player.id);
+            const isTemporarilyDisconnected = playerConnections[player.id]?.status === 'disconnected';
+            const isPermanentlyDisconnected = player.isDisconnected === true;
+            const isDisconnected = isTemporarilyDisconnected || isPermanentlyDisconnected;
+            const disconnectTimer = getDisconnectTimeRemaining(player.id);
             const isInactive = isBankrupt || isVoteKicked;
             
             return (
@@ -91,9 +138,15 @@ const PlayerList = ({
               isshuffling={isShuffling.toString()} 
               className="player-list-item"
               sx={{
-                opacity: isInactive ? 0.5 : 1,
-                filter: isInactive ? 'grayscale(70%)' : 'none',
-                border: isInactive ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(255, 255, 255, 0.1)',
+                opacity: isInactive ? 0.5 : isPermanentlyDisconnected ? 0.6 : isTemporarilyDisconnected ? 0.8 : 1,
+                filter: isInactive ? 'grayscale(70%)' : isPermanentlyDisconnected ? 'grayscale(50%)' : isTemporarilyDisconnected ? 'grayscale(30%)' : 'none',
+                border: isInactive ? '1px solid rgba(239, 68, 68, 0.3)' : 
+                       isPermanentlyDisconnected ? '1px solid rgba(239, 68, 68, 0.7)' :
+                       isTemporarilyDisconnected ? '1px solid rgba(239, 68, 68, 0.5)' : 
+                       '1px solid rgba(255, 255, 255, 0.1)',
+                backgroundColor: isPermanentlyDisconnected ? 'rgba(239, 68, 68, 0.15)' : 
+                               isTemporarilyDisconnected ? 'rgba(239, 68, 68, 0.1)' : 
+                               undefined,
               }}
             >
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -168,10 +221,12 @@ const PlayerList = ({
                         </Box>
                       ) : null;
                     })()}
+
+                    {/* Disconnect indicator - removed from here, moved to beside name */}
                   </Box>
 
                   {/* Player name and icons */}
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1 }}>
                     {/* Turn order indicator when game has started */}
                     {gameStarted && (
                       <Typography
@@ -214,18 +269,40 @@ const PlayerList = ({
                         👑
                       </Typography>
                     )}
-                    {/* Show bot icon next to name during game */}
-                    {player.isBot && gameStarted && (
-                      <Typography
-                        variant="caption"
+                    
+                    {/* Disconnect indicator - show different indicators for temporary vs permanent */}
+                    {isPermanentlyDisconnected && gameStarted && (
+                      <Chip
+                        label="DISCONNECTED"
+                        size="small"
                         sx={{
-                          color: '#a78bfa',
-                          fontSize: '0.8rem',
-                          ml: 0.5
+                          backgroundColor: '#dc2626',
+                          color: 'white',
+                          fontSize: '0.65rem',
+                          height: '18px',
+                          ml: 1,
+                          fontWeight: 600,
+                          '& .MuiChip-label': {
+                            px: 0.5
+                          }
                         }}
-                      >
-                        🤖
-                      </Typography>
+                      />
+                    )}
+                    {isTemporarilyDisconnected && disconnectTimer && gameStarted && (
+                      <Chip
+                        label={`${disconnectTimer.minutes}:${disconnectTimer.seconds.toString().padStart(2, '0')}`}
+                        size="small"
+                        sx={{
+                          backgroundColor: '#ef4444',
+                          color: 'white',
+                          fontSize: '0.7rem',
+                          height: '18px',
+                          ml: 1,
+                          '& .MuiChip-label': {
+                            px: 0.5
+                          }
+                        }}
+                      />
                     )}
                   </Box>
 
@@ -310,14 +387,16 @@ const PlayerList = ({
                 </Box>
               </Box>
               
-              {/* Bankruptcy/Vote-kick status indicators */}
-              {isInactive && (
+              {/* Bankruptcy/Vote-kick/Disconnect status indicators */}
+              {(isInactive || isDisconnected) && (
                 <Box
                   sx={{
                     position: 'absolute',
                     top: 8,
                     right: 8,
-                    backgroundColor: isVoteKicked ? 'rgba(239, 68, 68, 0.8)' : 'rgba(107, 114, 128, 0.8)',
+                    backgroundColor: isVoteKicked ? 'rgba(239, 68, 68, 0.8)' : 
+                                   isDisconnected ? 'rgba(239, 68, 68, 0.9)' : 
+                                   'rgba(107, 114, 128, 0.8)',
                     color: 'white',
                     fontSize: '0.6rem',
                     fontWeight: 700,
@@ -327,7 +406,9 @@ const PlayerList = ({
                     border: '1px solid rgba(255, 255, 255, 0.2)'
                   }}
                 >
-                  {isVoteKicked ? 'KICKED' : 'BANKRUPT'}
+                  {isVoteKicked ? 'KICKED' : 
+                   isDisconnected ? 'OFFLINE' : 
+                   'BANKRUPT'}
                 </Box>
               )}
             </StyledPlayerCard>

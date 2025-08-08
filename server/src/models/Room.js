@@ -2,6 +2,7 @@
 const treasureCards = require('../data/treasureCards');
 const surpriseCards = require('../data/surpriseCards');
 const { getPropertyData } = require('../data/mapConfigurations');
+const SafeEmitter = require('../utils/safeEmitter');
 
 class Room {
   constructor(hostId, hostName, settings = {}) {
@@ -9,6 +10,7 @@ class Room {
     this.hostId = hostId; // socket id of the host
     this.hostName = hostName; // name of the host
     this.players = []; // array of { id, name, isHost, color, money }
+    this.spectators = []; // array of spectators who joined after game started
     this.settings = settings; // room/game settings (editable by host)
     this.gameState = 'waiting'; // 'waiting', 'in-progress', 'finished'
 
@@ -44,6 +46,12 @@ class Room {
     // Developer/Debug features
     this.devTreasureCard = null; // Force next treasure card to be this specific card ID
     this.devSurpriseCard = null; // Force next surprise card to be this specific card ID
+
+    // Connection tracking system
+    this.playerConnections = {}; // { playerId: { isOnline: boolean, disconnectTime: timestamp, timer: timeoutId } }
+    this.disconnectTimers = {}; // { playerId: timeoutId } for 2-minute disconnect timers
+    this.createdAt = Date.now(); // Room creation timestamp
+    this.lastActivity = Date.now(); // Last activity timestamp
 
     // Initialize settings first before loading property data
     this.settings = {
@@ -115,13 +123,530 @@ class Room {
       this.playerJailRounds[player.id] = 0;
       this.playerDoublesCount[player.id] = 0;
       this.collectedMoney[player.id] = 0;
+      
+      // Initialize connection tracking
+      this.playerConnections[player.id] = {
+        isOnline: true,
+        disconnectTime: null,
+        playerName: player.name,
+        isHost: isHost,
+        color: player.color
+      };
+      
+      // Clear any existing disconnect timer
+      if (this.disconnectTimers[player.id]) {
+        clearTimeout(this.disconnectTimers[player.id]);
+        delete this.disconnectTimers[player.id];
+      }
+      
+      this.lastActivity = Date.now();
     }
   }
 
+  addSpectator(spectator) {
+    // spectator: { id, name, isHost: false, color: null, isSpectator: true }
+    if (!this.spectators.find(s => s.id === spectator.id)) {
+      this.spectators.push(spectator);
+      this.lastActivity = Date.now();
+    }
+  }
+
+  // Kick a player from the room (used by host with X button)
+  kickPlayer(playerId, io) {
+    const player = this.players.find(p => p.id === playerId);
+    if (!player) return null;
+    
+    const playerName = player.name;
+    this.removePlayer(playerId);
+    
+    console.log(`[DEBUG] Player ${playerId} (${playerName}) was kicked from room ${this.id}`);
+    
+    if (io) {
+      // Notify the kicked player
+      const kickedSocket = Array.from(io.sockets.sockets.values()).find(s => s.id === playerId);
+      if (kickedSocket) {
+        kickedSocket.emit('kickedFromRoom', { message: 'You were removed from the room by the host.' });
+        kickedSocket.leave(this.id);
+      }
+      
+      // Notify other players
+      SafeEmitter.safeEmit(io, this.id, 'playerKicked', { playerName });
+      SafeEmitter.safeEmit(io, this.id, 'playerListUpdated', this.getPlayerList());
+    }
+    
+    return playerName;
+  }
+
+  // Handle player disconnection (without removing from room)
+  handlePlayerDisconnect(playerId, io) {
+    if (!this.playerConnections[playerId]) return;
+    
+    const player = this.players.find(p => p.id === playerId);
+    
+    // If game hasn't started, remove player immediately
+    if (this.gameState !== 'in-progress') {
+      console.log(`[DEBUG] Game not started, removing player ${playerId} immediately`);
+      
+      // Add disconnect log for pre-game disconnections
+      if (player) {
+        this.addGameLog({
+          type: 'disconnect',
+          playerId: playerId,
+          message: `${player.name} disconnected from the game.`
+        });
+      }
+      
+      this.removePlayer(playerId);
+      
+      if (io) {
+        SafeEmitter.safeEmit(io, this.id, 'playerListUpdated', this.getPlayerList());
+        SafeEmitter.safeEmit(io, this.id, 'gameLogUpdated', this.gameLog);
+        
+        // ALWAYS emit gameStateUpdated for immediate client sync, even in waiting rooms
+        const gameStateData = this.getGameState();
+        SafeEmitter.safeEmit(io, this.id, 'gameStateUpdated', gameStateData);
+        console.log(`[DEBUG SERVER] Emitted gameStateUpdated for waiting room after immediate disconnect`);
+      }
+      return;
+    }
+    
+    // Game has started - set up disconnect timer
+    this.playerConnections[playerId].isOnline = false;
+    this.playerConnections[playerId].status = 'disconnected';
+    this.playerConnections[playerId].disconnectTime = Date.now();
+    this.lastActivity = Date.now();
+    
+    // Clear any existing timer
+    if (this.disconnectTimers[playerId]) {
+      clearTimeout(this.disconnectTimers[playerId]);
+    }
+    
+    // Start 2-minute timer
+    this.disconnectTimers[playerId] = setTimeout(() => {
+      this.removeDisconnectedPlayer(playerId, io);
+    }, 120000*0.25); // 2 minutes
+    
+    console.log(`[DEBUG] Player ${playerId} disconnected during game, starting 2-minute timer`);
+    
+    // Add disconnect log immediately
+    if (player) {
+      this.addGameLog({
+        type: 'disconnect',
+        playerId: playerId,
+        message: `${player.name} was disconnected from the game. They have 2 minutes to reconnect.`
+      });
+      
+      // If the disconnecting player is the current turn player, advance turn immediately
+      const currentPlayer = this.players[this.turnIndex];
+      if (currentPlayer && currentPlayer.id === playerId) {
+        console.log(`[DEBUG] Current turn player ${player.name} disconnected, advancing turn immediately`);
+        this.advanceToNextActiveTurn();
+      }
+    }
+    
+    // Emit immediate gameStateUpdated for in-progress game disconnections
+    if (io) {
+      const gameStateData = this.getGameState();
+      SafeEmitter.safeEmit(io, this.id, 'gameStateUpdated', gameStateData);
+      SafeEmitter.safeEmit(io, this.id, 'gameLogUpdated', this.gameLog);
+      console.log(`[DEBUG SERVER] Emitted gameStateUpdated and gameLogUpdated for in-progress game after immediate disconnect`);
+    }
+  }
+
+  // Handle player reconnection
+  handlePlayerReconnect(oldSocketId, newSocketId, io) {
+    if (!this.playerConnections[oldSocketId]) return false;
+    
+    const connectionData = this.playerConnections[oldSocketId];
+    
+    // Check if player was permanently disconnected
+    if (connectionData.status === 'permanently_disconnected') {
+      console.log(`[DEBUG] Player ${connectionData.playerName} trying to reconnect but was permanently disconnected - adding as spectator`);
+      
+      // Add as spectator only
+      if (!this.spectators) {
+        this.spectators = [];
+      }
+      
+      this.spectators.push({
+        id: newSocketId,
+        name: connectionData.playerName + ' (Spectator)',
+        joinedAt: Date.now()
+      });
+      
+      // Don't allow them to rejoin the active game
+      delete this.playerConnections[oldSocketId];
+      
+      if (io) {
+        SafeEmitter.safeEmit(io, this.id, 'spectatorJoined', {
+          spectatorName: connectionData.playerName + ' (Spectator)',
+          message: `${connectionData.playerName} rejoined as spectator (was disconnected too long)`
+        });
+      }
+      
+      return false; // Don't reconnect as active player
+    }
+    
+    // Normal reconnection for temporarily disconnected players
+    const playerIndex = this.players.findIndex(p => p.name === connectionData.playerName);
+    if (playerIndex !== -1) {
+      // Check if player is marked as disconnected but not permanently
+      if (this.players[playerIndex].isDisconnected) {
+        console.log(`[DEBUG] Player ${connectionData.playerName} reconnecting but was marked as disconnected - adding as spectator`);
+        
+        // Add as spectator
+        if (!this.spectators) {
+          this.spectators = [];
+        }
+        
+        this.spectators.push({
+          id: newSocketId,
+          name: connectionData.playerName + ' (Spectator)',
+          joinedAt: Date.now()
+        });
+        
+        delete this.playerConnections[oldSocketId];
+        
+        if (io) {
+          SafeEmitter.safeEmit(io, this.id, 'spectatorJoined', {
+            spectatorName: connectionData.playerName + ' (Spectator)',
+            message: `${connectionData.playerName} rejoined as spectator (was disconnected)`
+          });
+        }
+        
+        return false;
+      }
+      
+      // Update socket ID for active reconnection
+      this.players[playerIndex].id = newSocketId;
+      
+      // If this was the host, update hostId
+      if (connectionData.isHost) {
+        this.hostId = newSocketId;
+      }
+    }
+    
+    // Update connection tracking for successful reconnection
+    const oldConnectionData = { ...this.playerConnections[oldSocketId] };
+    delete this.playerConnections[oldSocketId];
+    this.playerConnections[newSocketId] = {
+      ...oldConnectionData,
+      isOnline: true,
+      status: 'online',
+      disconnectTime: null
+    };
+    
+    // Update all game state mappings
+    const gameStateKeys = ['playerMoney', 'playerPositions', 'playerStatuses', 'playerJailCards', 'playerJailRounds', 'playerDoublesCount', 'collectedMoney'];
+    gameStateKeys.forEach(key => {
+      if (this[key][oldSocketId]) {
+        this[key][newSocketId] = this[key][oldSocketId];
+        delete this[key][oldSocketId];
+      }
+    });
+    
+    // Update property ownership
+    for (const propertyName in this.propertyOwnership) {
+      if (this.propertyOwnership[propertyName].owner === oldSocketId) {
+        this.propertyOwnership[propertyName].owner = newSocketId;
+      }
+    }
+    
+    // Clear disconnect timer
+    if (this.disconnectTimers[oldSocketId]) {
+      clearTimeout(this.disconnectTimers[oldSocketId]);
+      delete this.disconnectTimers[oldSocketId];
+    }
+    
+    this.lastActivity = Date.now();
+    console.log(`[DEBUG] Player ${oldSocketId} successfully reconnected as ${newSocketId}`);
+    
+    return true;
+  }
+
+  // Mark player as permanently disconnected after timeout
+  removeDisconnectedPlayer(playerId, io) {
+    console.log(`[DEBUG SERVER] Starting removeDisconnectedPlayer for playerId: ${playerId}`);
+    
+    const connectionData = this.playerConnections[playerId];
+    if (!connectionData) {
+      console.log(`[DEBUG SERVER] No connection data found for player ${playerId}`);
+      return;
+    }
+    
+    console.log(`[DEBUG SERVER] Marking player ${playerId} (${connectionData.playerName}) as permanently disconnected after timeout`);
+    console.log(`[DEBUG SERVER] Players before marking as disconnected:`, this.players.map(p => ({id: p.id, name: p.name, isDisconnected: p.isDisconnected})));
+    
+    // Find player by name since ID might have changed
+    const playerIndex = this.players.findIndex(p => p.name === connectionData.playerName);
+    console.log(`[DEBUG SERVER] Found player at index:`, playerIndex);
+    
+    if (playerIndex !== -1) {
+      const player = this.players[playerIndex];
+      const wasCurrentPlayer = (this.gameState === 'in-progress' && this.turnIndex === playerIndex);
+      
+      console.log(`[DEBUG SERVER] Player to mark as disconnected:`, {id: player.id, name: player.name, wasCurrentPlayer});
+      
+      // Mark player as permanently disconnected
+      this.players[playerIndex].isDisconnected = true;
+      this.players[playerIndex].disconnectedAt = Date.now();
+      
+      // Liquidate player's properties - sell everything to bank
+      this.liquidatePlayerProperties(player.id);
+      
+      // Add game log for player disconnect
+      this.addGameLog({
+        type: 'disconnect',
+        playerId: player.id,
+        message: `${connectionData.playerName} was disconnected from the game (timeout). All properties returned to bank.`
+      });
+      
+      // Add clear client notification
+      this.addGameLog({
+        type: 'system',
+        message: `Player ${connectionData.playerName} was disconnected.`
+      });
+      
+      // Update connection status to permanently disconnected
+      this.playerConnections[playerId].status = 'permanently_disconnected';
+      this.playerConnections[playerId].isOnline = false;
+      
+      // Count active (non-disconnected) players
+      const activePlayers = this.players.filter(p => !p.isDisconnected);
+      console.log(`[DEBUG SERVER] Active players after disconnect:`, activePlayers.length);
+      
+      // If current player was disconnected, advance turn to next active player
+      if (wasCurrentPlayer && this.gameState === 'in-progress') {
+        this.advanceToNextActiveTurn();
+        console.log(`[DEBUG SERVER] Advanced turn after disconnect. New turn index: ${this.turnIndex}`);
+      }
+      
+      // Notify other players immediately
+      if (io) {
+        console.log(`[DEBUG SERVER] Emitting events for player disconnect: ${connectionData.playerName}`);
+        console.log(`[DEBUG SERVER] Room ID for events:`, this.id);
+        
+        const playerListData = this.getPlayerList();
+        console.log(`[DEBUG SERVER] Player list data to emit:`, JSON.stringify(playerListData, null, 2));
+        
+        SafeEmitter.safeEmit(io, this.id, 'playerDisconnected', {
+          playerName: connectionData.playerName,
+          playerId: player.id
+        });
+        console.log(`[DEBUG SERVER] Emitted playerDisconnected`);
+        
+        // Emit updated player list immediately
+        SafeEmitter.safeEmit(io, this.id, 'playerListUpdated', playerListData);
+        console.log(`[DEBUG SERVER] Emitted playerListUpdated`);
+        
+        // Emit updated property ownership after liquidation
+        SafeEmitter.safeEmit(io, this.id, 'propertyOwnershipUpdated', this.propertyOwnership);
+        console.log(`[DEBUG SERVER] Emitted propertyOwnershipUpdated`);
+        
+        // Emit updated game log
+        SafeEmitter.safeEmit(io, this.id, 'gameLogUpdated', this.gameLog);
+        console.log(`[DEBUG SERVER] Emitted gameLogUpdated`);
+        
+        // ALWAYS emit gameStateUpdated after player disconnect to update current player info
+        const gameStateData = this.getGameState();
+        if (this.gameState === 'in-progress') {
+          // If turn was advanced in active game, log turn advance details
+          if (wasCurrentPlayer) {
+            console.log(`[DEBUG SERVER] Emitting gameStateUpdated after turn advance:`, {
+              currentTurnSocketId: gameStateData.currentTurnSocketId,
+              turnIndex: this.turnIndex,
+              currentPlayerName: this.players[this.turnIndex]?.name
+            });
+          }
+        } else {
+          console.log(`[DEBUG SERVER] Emitting gameStateUpdated for waiting room after disconnect`);
+        }
+        SafeEmitter.safeEmit(io, this.id, 'gameStateUpdated', gameStateData);
+        console.log(`[DEBUG SERVER] Emitted gameStateUpdated after disconnect`);
+        
+        // Check if only one active player remains (game should end)
+        if (this.gameState === 'in-progress' && activePlayers.length === 1) {
+          const winner = activePlayers[0];
+          console.log(`[DEBUG SERVER] Only one player remains, ending game with winner: ${winner.name}`);
+          
+          this.gameState = 'finished';
+          this.winner = winner;
+          
+          this.addGameLog({
+            type: 'game_end',
+            message: `Game ended! ${winner.name} wins by being the last player remaining.`
+          });
+          
+          const gameEndedData = {
+            winner: winner,
+            reason: 'Last player remaining'
+          };
+          console.log(`[DEBUG SERVER] Emitting gameEnded with data:`, gameEndedData);
+          
+          SafeEmitter.safeEmit(io, this.id, 'gameEnded', gameEndedData);
+          console.log(`[DEBUG SERVER] Emitted gameEnded`);
+          
+          SafeEmitter.safeEmit(io, this.id, 'gameLogUpdated', this.gameLog);
+          console.log(`[DEBUG SERVER] Emitted final gameLogUpdated`);
+          
+          // Emit final game state for ended game
+          SafeEmitter.safeEmit(io, this.id, 'gameStateUpdated', this.getGameState());
+          console.log(`[DEBUG SERVER] Emitted final gameStateUpdated for ended game`);
+        } else if (this.gameState === 'in-progress' && this.players.length === 0) {
+          // No players left, end the room
+          console.log(`[DEBUG SERVER] No players remain, ending game for empty room`);
+          this.gameState = 'finished';
+        } else if (this.gameState === 'in-progress') {
+          // If game continues, emit game state update
+          console.log(`[DEBUG SERVER] Game continues with ${activePlayers.length} active players, emitting final gameStateUpdated`);
+          SafeEmitter.safeEmit(io, this.id, 'gameStateUpdated', this.getGameState());
+          console.log(`[DEBUG SERVER] Emitted final gameStateUpdated for continuing game`);
+        }
+      }
+    } else {
+      console.log(`[DEBUG SERVER] Player not found in players array for removal`);
+    }
+    
+    // Clean up connection tracking
+    delete this.playerConnections[playerId];
+    if (this.disconnectTimers[playerId]) {
+      clearTimeout(this.disconnectTimers[playerId]);
+      delete this.disconnectTimers[playerId];
+    }
+    
+    console.log(`[DEBUG SERVER] Cleanup completed for player ${playerId}`);
+
+    // Check if room is empty and should be cleaned up
+    if (this.players.length === 0) {
+      console.log(`[DEBUG SERVER] Room is empty, requesting cleanup`);
+      const roomService = require('../services/roomService');
+      roomService.checkAndCleanupEmptyRoom(this.id);
+    }
+    
+    console.log(`[DEBUG SERVER] removeDisconnectedPlayer completed`);
+  }
+
+  // Advance turn to next active (non-disconnected) player
+  advanceToNextActiveTurn() {
+    if (this.gameState !== 'in-progress') {
+      console.log(`[DEBUG] advanceToNextActiveTurn - Game not in progress, current state: ${this.gameState}`);
+      return;
+    }
+    
+    const activePlayers = this.players.filter(p => !p.isDisconnected);
+    if (activePlayers.length === 0) {
+      console.log(`[DEBUG] advanceToNextActiveTurn - No active players remaining`);
+      return;
+    }
+    
+    console.log(`[DEBUG] advanceToNextActiveTurn - Current turnIndex: ${this.turnIndex}`);
+    console.log(`[DEBUG] advanceToNextActiveTurn - Current player: ${this.players[this.turnIndex]?.name} (disconnected: ${this.players[this.turnIndex]?.isDisconnected})`);
+    console.log(`[DEBUG] advanceToNextActiveTurn - Active players:`, activePlayers.map(p => p.name));
+    
+    // Find next active player after current turn
+    let nextActivePlayer = null;
+    let startSearchFrom = this.turnIndex + 1;
+    
+    // Search from current position forward
+    for (let i = startSearchFrom; i < this.players.length; i++) {
+      if (!this.players[i].isDisconnected) {
+        nextActivePlayer = this.players[i];
+        this.turnIndex = i;
+        console.log(`[DEBUG] Found next active player forward: ${nextActivePlayer.name} at index ${i}`);
+        break;
+      }
+    }
+    
+    // If no active player found after current position, wrap around to beginning
+    if (!nextActivePlayer) {
+      for (let i = 0; i < startSearchFrom; i++) {
+        if (!this.players[i].isDisconnected) {
+          nextActivePlayer = this.players[i];
+          this.turnIndex = i;
+          console.log(`[DEBUG] Found next active player wrapping around: ${nextActivePlayer.name} at index ${i}`);
+          break;
+        }
+      }
+    }
+    
+    if (nextActivePlayer) {
+      console.log(`[DEBUG] Advanced turn to next active player: ${nextActivePlayer.name} (index: ${this.turnIndex})`);
+    } else {
+      console.log(`[DEBUG] ERROR: Could not find any active player to advance to!`);
+    }
+  }
+
+  // Get player list with connection status
+  getPlayerListWithStatus() {
+    return this.players.map(player => {
+      const connection = this.playerConnections[player.id];
+      return {
+        id: player.id,
+        name: player.name,
+        isHost: player.isHost,
+        color: player.color,
+        money: player.money,
+        isOnline: connection ? connection.isOnline : false,
+        disconnectTime: connection ? connection.disconnectTime : null
+      };
+    });
+  }
+
+  // Check if room should be cleaned up (all players disconnected for too long)
+  shouldCleanup() {
+    const allDisconnected = this.players.every(player => {
+      const connection = this.playerConnections[player.id];
+      return !connection || !connection.isOnline;
+    });
+    
+    if (!allDisconnected) return false;
+    
+    // If all disconnected, check if it's been more than 5 minutes since last activity
+    return (Date.now() - this.lastActivity) > 300000; // 5 minutes
+  }
+
+  // Liquidate all properties owned by a player (sell to bank)
+  liquidatePlayerProperties(playerId) {
+    console.log(`[DEBUG] Liquidating all properties for player ${playerId}`);
+    
+    const propertiesToLiquidate = [];
+    
+    // Find all properties owned by this player
+    for (const propertyName in this.propertyOwnership) {
+      if (this.propertyOwnership[propertyName].owner === playerId) {
+        propertiesToLiquidate.push(propertyName);
+      }
+    }
+    
+    // Remove ownership and return properties to bank (unowned state)
+    propertiesToLiquidate.forEach(propertyName => {
+      console.log(`[DEBUG] Returning property ${propertyName} to bank`);
+      delete this.propertyOwnership[propertyName];
+    });
+    
+    console.log(`[DEBUG] Liquidated ${propertiesToLiquidate.length} properties for player ${playerId}`);
+  }
+
   removePlayer(playerId) {
+    console.log(`[DEBUG SERVER] Starting removePlayer for playerId: ${playerId}`);
+    console.log(`[DEBUG SERVER] Players before removal:`, this.players.map(p => ({id: p.id, name: p.name})));
+    
+    const playerIndex = this.players.findIndex(p => p.id === playerId);
+    if (playerIndex === -1) {
+      console.log(`[DEBUG SERVER] Player ${playerId} not found in players array`);
+      return;
+    }
+    
+    console.log(`[DEBUG SERVER] Found player at index ${playerIndex}`);
+    const wasCurrentPlayer = (this.gameState === 'in-progress' && this.turnIndex === playerIndex);
+    console.log(`[DEBUG SERVER] Was current player:`, wasCurrentPlayer);
+    
     this.players = this.players.filter(p => p.id !== playerId);
+    console.log(`[DEBUG SERVER] Players after filtering:`, this.players.map(p => ({id: p.id, name: p.name})));
+    
     // If host leaves, assign new host if possible
     if (this.hostId === playerId && this.players.length > 0) {
+      console.log(`[DEBUG SERVER] Host ${playerId} left, assigning new host to ${this.players[0].id}`);
       this.hostId = this.players[0].id;
       this.players[0].isHost = true;
     }
@@ -135,12 +660,49 @@ class Room {
     delete this.playerDoublesCount[playerId];
     delete this.collectedMoney[playerId];
 
+    // Clean up connection tracking
+    if (this.playerConnections[playerId]) {
+      delete this.playerConnections[playerId];
+    }
+    if (this.disconnectTimers[playerId]) {
+      clearTimeout(this.disconnectTimers[playerId]);
+      delete this.disconnectTimers[playerId];
+    }
+
     // Remove player from property ownership
+    let propertiesRemoved = 0;
     for (const propertyName in this.propertyOwnership) {
       if (this.propertyOwnership[propertyName].owner === playerId) {
         delete this.propertyOwnership[propertyName];
+        propertiesRemoved++;
       }
     }
+    console.log(`[DEBUG SERVER] Removed ${propertiesRemoved} properties owned by player ${playerId}`);
+    
+    // Handle turn advancement if it was current player's turn
+    if (wasCurrentPlayer && this.gameState === 'in-progress' && this.players.length > 0) {
+      // Adjust turn index if necessary
+      if (this.turnIndex >= this.players.length) {
+        this.turnIndex = 0;
+      }
+      console.log(`[DEBUG SERVER] Removed current player, advancing turn to index ${this.turnIndex}`);
+    } else if (playerIndex < this.turnIndex) {
+      // If removed player was before current turn, adjust turn index
+      this.turnIndex--;
+      console.log(`[DEBUG SERVER] Removed player before current turn, adjusted turn index to ${this.turnIndex}`);
+    }
+
+    console.log(`[DEBUG SERVER] Final players count: ${this.players.length}`);
+    console.log(`[DEBUG SERVER] Final turn index: ${this.turnIndex}`);
+
+    // Check if room is empty and should be cleaned up
+    if (this.players.length === 0) {
+      console.log(`[DEBUG SERVER] Room is empty after player removal, requesting cleanup`);
+      const roomService = require('../services/roomService');
+      roomService.checkAndCleanupEmptyRoom(this.id);
+    }
+    
+    console.log(`[DEBUG SERVER] removePlayer completed`);
   }
 
   setHost(playerId) {
@@ -162,7 +724,44 @@ class Room {
   }
 
   getPlayerList() {
-    return this.players.map(({ id, name, isHost, color, money }) => ({ id, name, isHost, color, money }));
+    console.log(`[DEBUG SERVER] getPlayerList called`);
+    console.log(`[DEBUG SERVER] Current players:`, this.players.map(p => ({id: p.id, name: p.name, color: p.color, isDisconnected: p.isDisconnected})));
+    console.log(`[DEBUG SERVER] Current spectators:`, this.spectators.map(s => ({id: s.id, name: s.name})));
+    
+    // Create clean player connections without circular references (timers)
+    const cleanPlayerConnections = {};
+    for (const playerId in this.playerConnections) {
+      const connection = this.playerConnections[playerId];
+      cleanPlayerConnections[playerId] = {
+        isOnline: connection.isOnline,
+        status: connection.status || 'online',
+        disconnectTime: connection.disconnectTime,
+        playerName: connection.playerName,
+        // Calculate remaining time for disconnected players
+        remainingTime: connection.status === 'disconnected' && connection.disconnectTime ? 
+          Math.max(0, 120000 - (Date.now() - connection.disconnectTime)) : null
+        // Exclude timer object to prevent circular references
+      };
+    }
+    
+    console.log(`[DEBUG SERVER] Clean player connections:`, cleanPlayerConnections);
+
+    const playerListData = {
+      players: this.players.map(player => ({ 
+        id: player.id, 
+        name: player.name, 
+        isHost: player.isHost, 
+        color: player.color, 
+        money: player.money,
+        isDisconnected: player.isDisconnected || false,
+        disconnectedAt: player.disconnectedAt || null
+      })),
+      spectators: this.spectators.map(({ id, name, isSpectator }) => ({ id, name, isSpectator })),
+      playerConnections: cleanPlayerConnections
+    };
+    
+    console.log(`[DEBUG SERVER] Returning player list data:`, JSON.stringify(playerListData, null, 2));
+    return playerListData;
   }
 
   startGame() {
@@ -980,6 +1579,26 @@ class Room {
 
   // Add this method to the Room class
   getGameState() {
+    // Safely serialize activeVoteKick to avoid circular references
+    let cleanActiveVoteKick = null;
+    if (this.activeVoteKick) {
+      cleanActiveVoteKick = {
+        targetPlayerId: this.activeVoteKick.targetPlayerId,
+        targetPlayerName: this.activeVoteKick.targetPlayerName,
+        votes: Array.from(this.activeVoteKick.votes), // Convert Set to Array
+        startTime: this.activeVoteKick.startTime,
+        endTime: this.activeVoteKick.endTime,
+        initiatorName: this.activeVoteKick.initiatorName
+      };
+    }
+
+    // Get current active (non-disconnected) player
+    const currentPlayer = this.players[this.turnIndex];
+    const isCurrentPlayerActive = currentPlayer && this.canPlayerPlay(currentPlayer.id);
+    const currentTurnSocketId = isCurrentPlayerActive ? currentPlayer.id : null;
+    
+    console.log(`[DEBUG] getGameState - turnIndex: ${this.turnIndex}, currentPlayer: ${currentPlayer?.name}, isActive: ${isCurrentPlayerActive}, currentTurnSocketId: ${currentTurnSocketId}`);
+
     const gameState = {
       playerPositions: this.playerPositions,
       lastDiceRoll: this.lastDiceRoll,
@@ -988,7 +1607,7 @@ class Room {
       roundNumber: this.roundNumber,
       specialAction: this.pendingSpecialAction?.type || null,
       playerMoney: this.playerMoney,
-      currentTurnSocketId: this.players[this.turnIndex]?.id || null,
+      currentTurnSocketId,
       propertyOwnership: this.propertyOwnership,
       playerJailCards: this.playerJailCards,
       playerJailRounds: this.playerJailRounds,
@@ -996,10 +1615,10 @@ class Room {
       gameLog: this.gameLog,
       playersOrdered: this.players.map(p => ({ id: p.id, name: p.name, color: p.color, isBot: p.isBot, isOnline: p.isOnline })),
       trades: Object.values(this.trades),
-      // Bankruptcy and vote-kick states
+      // Bankruptcy and vote-kick states - cleaned to avoid circular references
       bankruptedPlayers: Array.from(this.bankruptedPlayers),
       votekickedPlayers: Array.from(this.votekickedPlayers),
-      activeVoteKick: this.activeVoteKick,
+      activeVoteKick: cleanActiveVoteKick, // Use cleaned version
       playerNegativeBalance: this.playerNegativeBalance,
       // Debt tracking
       playerDebts: this.playerDebts,
@@ -1628,9 +2247,17 @@ class Room {
     return true;
   }
 
-  // Check if player can play (not bankrupt or kicked)
+  // Check if player can play (not bankrupt, kicked, or disconnected)
   canPlayerPlay(playerId) {
-    return !this.bankruptedPlayers.has(playerId) && !this.votekickedPlayers.has(playerId);
+    const player = this.players.find(p => p.id === playerId);
+    const isDisconnected = player && player.isDisconnected; // Permanently disconnected
+    const connectionStatus = this.playerConnections[playerId];
+    const isTemporarilyDisconnected = connectionStatus && connectionStatus.status === 'disconnected';
+    
+    return !this.bankruptedPlayers.has(playerId) && 
+           !this.votekickedPlayers.has(playerId) && 
+           !isDisconnected && 
+           !isTemporarilyDisconnected;
   }
 
   // Get active playing players only

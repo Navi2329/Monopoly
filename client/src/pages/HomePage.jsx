@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useUser } from '../contexts/UserContext';
 import Header from '../components/layout/Header';
 import Footer from '../components/layout/Footer';
-import Lobby from '../components/lobby/Lobby';
+import Lobby from '../components/Lobby/Lobby';
 import Modal from '../components/common/Modal';
 import { FaTimes } from 'react-icons/fa';
 

@@ -15,14 +15,36 @@ const getRoomById = (roomId) => gameRooms[roomId];
 const addPlayerToRoom = (roomId, socketId, playerName, color) => {
   const room = gameRooms[roomId];
   if (!room) return null;
+  
   // Prevent duplicate players with the same socketId
   if (room.players.some(p => p.id === socketId)) {
     return room;
   }
-  // Enforce color uniqueness
+  
+  // Check if player with this name already exists in the game (reconnection scenario)
+  const existingPlayer = room.players.find(p => p.name === playerName);
+  
+  if (existingPlayer) {
+    // Check if they're currently disconnected or this is a different socket ID
+    const connectionData = room.playerConnections[existingPlayer.id];
+    if (!connectionData || connectionData.status === 'disconnected' || existingPlayer.id !== socketId) {
+      // This is a reconnection - don't add a new player, handle reconnection
+      return 'reconnection_required';
+    }
+  }
+  
+  // Enforce color uniqueness (only if color is provided)
   if (color && room.players.some(p => p.color === color)) {
     return 'color_taken';
   }
+  
+  // Check if game has started - if so, add as spectator
+  if (room.gameState === 'in-progress') {
+    const spectator = { id: socketId, name: playerName, isHost: false, color: null, isSpectator: true };
+    room.addSpectator(spectator);
+    return { room, isSpectator: true };
+  }
+  
   // First player to join is the host
   const isHost = room.players.length === 0;
   const player = { id: socketId, name: playerName, isHost, color };
@@ -35,10 +57,6 @@ const addPlayerToRoom = (roomId, socketId, playerName, color) => {
     player.isHost = true;
   }
   
-  // Print player list after
-  const joinedPlayer = room.players.find(p => p.name === playerName);
-  if (joinedPlayer) {
-  }
   return room;
 };
 
@@ -52,6 +70,73 @@ const removePlayerFromRoom = (socketId) => {
       if (room.players.length === 0) {
         delete gameRooms[roomId];
       }
+      return room;
+    }
+  }
+  return null;
+};
+
+const handlePlayerDisconnect = (socketId) => {
+  for (const roomId in gameRooms) {
+    const room = gameRooms[roomId];
+    const player = room.players.find(p => p.id === socketId);
+    if (player) {
+      room.handlePlayerDisconnect(socketId);
+      return room;
+    }
+  }
+  return null;
+};
+
+const handlePlayerReconnect = (roomId, playerName, newSocketId) => {
+  const room = gameRooms[roomId];
+  if (!room) return null;
+  
+  // Find the disconnected player by name
+  const disconnectedPlayer = room.players.find(p => 
+    p.name === playerName && 
+    room.playerConnections[p.id]?.status === 'disconnected'
+  );
+  
+  if (disconnectedPlayer) {
+    const oldSocketId = disconnectedPlayer.id;
+    const reconnected = room.handlePlayerReconnect(oldSocketId, newSocketId);
+    return reconnected ? room : null;
+  }
+  
+  return null;
+};
+
+const getAllRooms = () => {
+  const roomList = [];
+  for (const roomId in gameRooms) {
+    const room = gameRooms[roomId];
+    // Only show rooms that are not in game or have space for players
+    if (room.gameState !== 'in_game' || room.players.length < room.settings.maxPlayers) {
+      // Create a clean room object without circular references
+      const cleanRoomData = {
+        id: room.id,
+        name: room.name || `Room ${room.id}`,
+        hostName: room.hostName,
+        playerCount: room.players.length,
+        maxPlayers: room.settings.maxPlayers,
+        gameState: room.gameState,
+        settings: {
+          mapType: room.settings.mapType,
+          startingMoney: room.settings.startingMoney,
+          turnTimeLimit: room.settings.turnTimeLimit
+        }
+      };
+      roomList.push(cleanRoomData);
+    }
+  }
+  return roomList;
+};
+
+const getRoomByPlayerId = (socketId) => {
+  for (const roomId in gameRooms) {
+    const room = gameRooms[roomId];
+    if (room.players.find(p => p.id === socketId) || room.playerConnections[socketId]) {
       return room;
     }
   }
@@ -72,11 +157,39 @@ const startGame = (roomId) => {
   return room;
 };
 
+const deleteRoom = (roomId) => {
+  if (gameRooms[roomId]) {
+    console.log(`[DEBUG] Deleting empty room: ${roomId}`);
+    delete gameRooms[roomId];
+    return true;
+  }
+  return false;
+};
+
+const checkAndCleanupEmptyRoom = (roomId) => {
+  const room = gameRooms[roomId];
+  if (room && room.players.length === 0) {
+    console.log(`[DEBUG] Room ${roomId} is empty, scheduling cleanup`);
+    // Delete the room after a short delay to ensure all socket operations complete
+    setTimeout(() => {
+      if (gameRooms[roomId] && gameRooms[roomId].players.length === 0) {
+        deleteRoom(roomId);
+      }
+    }, 1000);
+  }
+};
+
 module.exports = {
   createRoom,
   getRoomById,
   addPlayerToRoom,
   removePlayerFromRoom,
+  handlePlayerDisconnect,
+  handlePlayerReconnect,
+  getAllRooms,
+  getRoomByPlayerId,
   updateRoomSettings,
   startGame,
+  deleteRoom,
+  checkAndCleanupEmptyRoom,
 };

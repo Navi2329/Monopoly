@@ -151,24 +151,39 @@ const GamePage = () => {
 
   // --- DEBUG: Log socket id and roomId on mount and on every reconnect ---
   useEffect(() => {
+    let reconnectTimeout;
+    
     const handleConnect = () => {
       if (window.currentRoomId && window.currentPlayerName) {
-        socket.emit('joinRoom', {
-          roomId: window.currentRoomId,
-          playerName: window.currentPlayerName,
-        });
+        // Debounce reconnection attempts to prevent multiple rapid calls
+        if (reconnectTimeout) {
+          clearTimeout(reconnectTimeout);
+        }
+        
+        reconnectTimeout = setTimeout(() => {
+          socket.emit('joinRoom', {
+            roomId: window.currentRoomId,
+            playerName: window.currentPlayerName,
+          });
+        }, 500); // Wait 500ms before attempting to join
       }
     };
+    
     socket.on('connect', handleConnect);
     return () => {
       socket.off('connect', handleConnect);
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+      }
     };
   }, [roomId]);
 
   // Multiplayer state
   const [players, setPlayers] = useState([]);
+  const [playerConnections, setPlayerConnections] = useState({});
   const [currentPlayer, setCurrentPlayer] = useState(null);
   const [isHost, setIsHost] = useState(false);
+  const [isSpectator, setIsSpectator] = useState(false);
   const [gameStarted, setGameStarted] = useState(false);
   const [playerJoined, setPlayerJoined] = useState(false);
   const [gameLog, setGameLog] = useState([]);
@@ -287,14 +302,30 @@ const GamePage = () => {
       socket.emit('requestPlayerList', { roomId });
     }
     // Listen for player list updates
-    socket.on('playerListUpdated', (playerList) => {
-      setPlayers(playerList);
+    socket.on('playerListUpdated', (playerListData) => {
+      console.log('[DEBUG CLIENT] Received playerListUpdated event');
+      console.log('[DEBUG CLIENT] Player list data:', JSON.stringify(playerListData, null, 2));
+      
+      if (typeof playerListData === 'object' && playerListData.players) {
+        // New format with connection data
+        console.log('[DEBUG CLIENT] Using new format, setting players:', playerListData.players);
+        setPlayers(playerListData.players);
+        setPlayerConnections(playerListData.playerConnections || {});
+      } else {
+        // Legacy format - just player array
+        console.log('[DEBUG CLIENT] Using legacy format, setting players:', playerListData);
+        setPlayers(playerListData);
+        setPlayerConnections({});
+      }
+      
       // Set current player by matching socket id
       const mySocketId = socket.id;
+      const playerList = (typeof playerListData === 'object' && playerListData.players) ? 
+        playerListData.players : playerListData;
+      
       const me = playerList.find(p => p.id === mySocketId);
-      // console.log('[PLAYER DEBUG] Current player found:', me);
-      // console.log('[PLAYER DEBUG] Current player money:', me?.money);
-      // console.log('[PLAYER DEBUG] Full player list:', playerList);
+      console.log('[DEBUG CLIENT] My socket ID:', mySocketId);
+      console.log('[DEBUG CLIENT] Current player found:', me);
       setCurrentPlayer(me);
       setIsHost(me?.isHost || false);
       // Only set playerJoined to true if the player is in the player list
@@ -302,10 +333,90 @@ const GamePage = () => {
       // Request the current game log from the server when player list updates (e.g., on join)
       socket.emit('requestGameLog', { roomId });
     });
-    // Listen for direct playerList response (before joining)
-    socket.on('playerList', (playerList) => {
-      setPlayers(playerList);
+
+    // Listen for player removed due to timeout
+    socket.on('playerRemovedTimeout', (data) => {
+      console.log(`[DEBUG CLIENT] Received playerRemovedTimeout event for ${data.playerName}`);
+      // The playerListUpdated event should handle the UI update, but we can show a notification
     });
+    
+    // Listen for player disconnected (marked as disconnected instead of removed)
+    socket.on('playerDisconnected', (data) => {
+      console.log(`Player ${data.playerName} was disconnected`);
+      // The playerListUpdated event should handle the UI update, but we can show a notification
+    });
+    
+    // Listen for direct playerList response (before joining)
+    socket.on('playerList', (playerListData) => {
+      if (typeof playerListData === 'object' && playerListData.players) {
+        // New format with connection data
+        setPlayers(playerListData.players);
+        setPlayerConnections(playerListData.playerConnections || {});
+      } else {
+        // Legacy format - just player array
+        setPlayers(playerListData);
+        setPlayerConnections({});
+      }
+    });
+
+    // Listen for successful reconnection
+    socket.on('reconnectSuccess', ({ room, playerName }) => {
+      console.log(`[DEBUG] Reconnection successful for ${playerName}`);
+      // This is handled by roomJoined now, but keep as backup
+      if (!playerJoined) {
+        setPlayerJoined(true);
+        setGameStarted(room.gameState === 'in-progress');
+        if (room.gameState === 'in-progress') {
+          setGamePhase('rolling');
+        } else {
+          setGamePhase('lobby');
+        }
+        
+        // Find the reconnected player and set current player
+        const reconnectedPlayer = room.players.find(p => p.name === playerName);
+        if (reconnectedPlayer) {
+          setCurrentPlayer(reconnectedPlayer);
+          setIsHost(reconnectedPlayer.isHost || false);
+        }
+      }
+    });
+
+    // Listen for successful room joining
+    socket.on('roomJoined', (room) => {
+      console.log(`[DEBUG] Successfully joined room`);
+      setGameStarted(room.gameState === 'in-progress');
+      
+      // Check if this player is already in the game (reconnection scenario)
+      const existingPlayer = room.players.find(p => p.name === window.currentPlayerName);
+      
+      if (existingPlayer) {
+        // This is a reconnection - player is already in the game
+        console.log(`[DEBUG] Detected reconnection for ${window.currentPlayerName}`);
+        setPlayerJoined(true);
+        setCurrentPlayer(existingPlayer);
+        setIsHost(existingPlayer.isHost || false);
+        
+        if (room.gameState === 'in-progress') {
+          setGamePhase('rolling');
+        } else {
+          setGamePhase('lobby');
+        }
+      } else if (room.gameState === 'in-progress') {
+        // New player joining an in-progress game becomes spectator
+        setIsSpectator(true);
+        setPlayerJoined(true); // Skip appearance selection for spectators
+      }
+      // If game hasn't started and player isn't in game, keep playerJoined false to show appearance selection
+    });
+
+    // Listen for joining as spectator
+    socket.on('joinedAsSpectator', ({ room, playerName }) => {
+      console.log(`[DEBUG] Joined as spectator: ${playerName}`);
+      setIsSpectator(true);
+      setGameStarted(room.gameState === 'in-progress');
+      setPlayerJoined(true);
+    });
+    
     // Listen for room settings updates
     socket.on('roomSettingsUpdated', (settings) => {
       setGameSettings(settings);
@@ -322,6 +433,24 @@ const GamePage = () => {
         setGameStarted(true);
         setGamePhase('rolling');
       }
+    });
+
+    // Listen for game ended
+    socket.on('gameEnded', ({ winner, reason }) => {
+      console.log(`[DEBUG CLIENT] Received gameEnded event: ${winner.name} wins - ${reason}`);
+      console.log(`[DEBUG CLIENT] Setting game state to ended and showing modal`);
+      setGameStarted(false);
+      setGamePhase('lobby');
+      // Show game over modal
+      setWinner(winner);
+      setGameOverModalOpen(true);
+      console.log(`[DEBUG CLIENT] Game over modal should now be open`);
+    });
+
+    // Listen for property ownership updates (when player properties are liquidated)
+    socket.on('propertyOwnershipUpdated', (updatedOwnership) => {
+      console.log(`[DEBUG CLIENT] Received propertyOwnershipUpdated event:`, updatedOwnership);
+      setSyncedPropertyOwnership(updatedOwnership);
     });
     // Listen for game state updates from server
     // Listen for game log updates from backend
@@ -413,6 +542,17 @@ const GamePage = () => {
       setGameOverModalOpen(true);
     });
 
+    // Chat message handler
+    socket.on('chatMessage', ({ message, playerName, timestamp }) => {
+      const newMessage = {
+        id: `${timestamp}-${playerName}-${Math.random()}`,
+        text: message,
+        sender: playerName,
+        time: new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+      setMessages(prev => [...prev, newMessage]);
+    });
+
     // Optionally: fetch initial state if needed
     return () => {
       socket.off('playerListUpdated');
@@ -429,6 +569,7 @@ const GamePage = () => {
       socket.off('voteKickTimer');
       socket.off('voteKickError');
       socket.off('gameOver');
+      socket.off('chatMessage');
     };
   }, [roomId, onGameStateUpdated, players]);
 
@@ -1115,18 +1256,17 @@ const GamePage = () => {
     setPropertyLandingState(null);
   };
 
-  const gameUrl = `https://monopoly-fu9p.onrender.com/game/${roomId}`;
-  // const gameUrl = `http://localhost:4000/game/${roomId}`;
+  // const gameUrl = `https://monopoly-fu9p.onrender.com/game/${roomId}`;
+  const gameUrl = `http://localhost:4000/game/${roomId}`;
   const handleSendMessage = (messageText) => {
-    if (!playerJoined) return; // Don't allow messages until joined
+    if (!playerJoined || !socket.connected) return; // Don't allow messages until joined and connected
 
-    const newMessage = {
-      id: generateLogId(),
-      text: messageText,
-      sender: currentPlayer?.name || 'You',
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
-    setMessages([...messages, newMessage]);
+    // Emit to server instead of handling locally
+    socket.emit('sendChatMessage', {
+      roomId,
+      message: messageText,
+      playerName: currentPlayer?.name || 'You'
+    });
   };
 
   // Add shuffling state
@@ -1711,15 +1851,17 @@ const GamePage = () => {
   };
 
   const handleKickPlayer = (playerId) => {
-
     // Check if it's a bot or human player
     const isBot = playerId.startsWith('bot-');
 
     if (isBot) {
-      // Remove bot
+      // Remove bot locally
       setBots(prev => prev.filter(bot => bot.id !== playerId));
     } else {
-      // Remove human player
+      // Emit socket event to kick human player from server
+      socket.emit('kickPlayer', { playerId, roomId });
+      
+      // Remove human player locally (server will also broadcast removal)
       setPlayers(prev => prev.filter(p => p.id !== playerId));
     }
   };
@@ -2745,7 +2887,23 @@ const GamePage = () => {
   // Update syncedPropertyOwnership in the multiplayer sync useEffect
   useEffect(() => {
     const handleGameStateUpdated = (state) => {
-      // console.log('[gameStateUpdated]', state);
+      console.log('[DEBUG CLIENT] Received gameStateUpdated event');
+      console.log('[DEBUG CLIENT] Game state data:', JSON.stringify(state, null, 2));
+      
+      // Only log current player when game is in progress (has turn system)
+      // Check if game is active by looking for game indicators rather than just gameStarted flag
+      const gameIsActive = state.currentTurnSocketId || state.turnIndex !== undefined || 
+                          (state.gameLog && state.gameLog.some(log => log.message === 'Game started.'));
+      
+      if (gameIsActive && state.currentTurnSocketId) {
+        const currentPlayer = players.find(p => p.id === state.currentTurnSocketId);
+        console.log(`Current player: ${currentPlayer?.name || 'Unknown'}`);
+      } else if (gameIsActive) {
+        console.log(`Current player: None (turn not started or player disconnected)`);
+      } else {
+        console.log(`Game in waiting room - no current player concept`);
+      }
+      
       setSyncedPositions(state.playerPositions || {});
       setSyncedStatuses(state.playerStatuses || {});
       setSyncedTurnIndex(state.turnIndex || 0);
@@ -3137,8 +3295,9 @@ const GamePage = () => {
           <Chat
             messages={messages}
             onSendMessage={handleSendMessage}
-            disabled={!playerJoined}
+            disabled={!playerJoined || isSpectator}
             currentPlayer={currentPlayer}
+            isSpectator={isSpectator}
           />
         </Box>
       </StyledSidebar>
@@ -3150,9 +3309,9 @@ const GamePage = () => {
           position: 'absolute',
           inset: 0,
           transition: 'all 0.5s ease',
-          filter: !playerJoined ? 'blur(2px)' : 'none',
-          transform: !playerJoined ? 'scale(1.02)' : 'scale(1)',
-          opacity: !playerJoined ? 0.6 : 1,
+          filter: (!playerJoined && !isSpectator) ? 'blur(2px)' : 'none',
+          transform: (!playerJoined && !isSpectator) ? 'scale(1.02)' : 'scale(1)',
+          opacity: (!playerJoined && !isSpectator) ? 0.6 : 1,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -3288,8 +3447,8 @@ const GamePage = () => {
           />
         )}
 
-        {/* Only show PlayerSelection if the current socket id is not in the players list */}
-        {!playerJoined && (
+        {/* Only show PlayerSelection if game hasn't started and player hasn't joined */}
+        {!playerJoined && !isSpectator && !gameStarted && (
           <Box sx={{
             position: 'absolute',
             inset: 0,
@@ -3372,7 +3531,7 @@ const GamePage = () => {
             players={displayPlayers}
             currentPlayerId={currentPlayer?.id}
             gameStarted={gameStarted}
-            isHost={true}
+            isHost={isHost}
             onKickPlayer={handleKickPlayer}
             onChangeAppearance={handleChangeAppearance}
             playerJoined={playerJoined}
@@ -3381,6 +3540,7 @@ const GamePage = () => {
             syncedPlayerMoney={syncedPlayerMoney}
             bankruptedPlayers={bankruptedPlayers}
             votekickedPlayers={votekickedPlayers}
+            playerConnections={playerConnections}
           />
         </Box>
 
