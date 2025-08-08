@@ -94,6 +94,11 @@ class Room {
     return (this.mapType === 'Worldwide' || this.mapType === 'Mr. Worldwide') ? 24 : 20;
   }
 
+  // Get luxury tax position based on map type
+  getLuxuryTaxPosition() {
+    return (this.mapType === 'Worldwide' || this.mapType === 'Mr. Worldwide') ? 46 : 38;
+  }
+
   addPlayer(player) {
     // player: { id, name, isHost, color }
     if (!this.players.find(p => p.id === player.id)) {
@@ -335,7 +340,7 @@ class Room {
         this.collectedMoney[playerId] += taxAmount;
       }
       action = 'income-tax';
-    } else if (newPos === 38) { // Luxury Tax
+    } else if (newPos === this.getLuxuryTaxPosition()) { // Luxury Tax - dynamic based on map
       // Handle luxury tax ($75 or add to vacation cash)
       const taxAmount = 75;
 

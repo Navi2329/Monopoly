@@ -69,10 +69,6 @@ const StyledSidebar = styled(Paper)(({ theme }) => ({
     flex: '0 0 300px',
   },
   [theme.breakpoints.down('md')]: {
-    width: '250px',
-    flex: '0 0 250px',
-  },
-  [theme.breakpoints.down('sm')]: {
     position: 'fixed',
     zIndex: 1300,
     width: '280px',
@@ -814,6 +810,12 @@ const GamePage = () => {
     }
   };
 
+  // Helper function to get luxury tax position based on map
+  const getLuxuryTaxPosition = () => {
+    const mapName = gameSettings?.boardMap || 'Classic';
+    return mapName === 'Mr. Worldwide' ? 46 : 38;
+  };
+
   // Handle property landing
   const handlePropertyLanding = (playerIndex, spaceIndex) => {
     // console.log('[DEBUG] handlePropertyLanding called with playerIndex:', playerIndex, 'spaceIndex:', spaceIndex);
@@ -886,7 +888,7 @@ const GamePage = () => {
       return;
     }
 
-    if (spaceIndex === 38) { // Luxury Tax
+    if (spaceIndex === getLuxuryTaxPosition()) { // Luxury Tax - dynamic based on map
       const taxAmount = 75; // Fixed $75
 
       // Deduct money from player
@@ -1114,7 +1116,7 @@ const GamePage = () => {
   };
 
   const gameUrl = `https://monopoly-fu9p.onrender.com/game/${roomId}`;
-
+  // const gameUrl = `http://localhost:4000/game/${roomId}`;
   const handleSendMessage = (messageText) => {
     if (!playerJoined) return; // Don't allow messages until joined
 
@@ -2985,7 +2987,7 @@ const GamePage = () => {
       {/* Mobile backdrop */}
       <Box
         sx={{
-          display: { xs: 'block', sm: 'none' },
+          display: { xs: 'block', md: 'none' }, // Show on mobile and tablet
           position: 'fixed',
           top: 0,
           left: 0,
@@ -3006,7 +3008,7 @@ const GamePage = () => {
       {/* Mobile control buttons */}
       <Box
         sx={{
-          display: { xs: 'flex', sm: 'none' },
+          display: { xs: 'flex', md: 'none' }, // Show on mobile and tablet, hide only on desktop
           position: 'fixed',
           top: 16,
           left: 16,
@@ -3060,7 +3062,7 @@ const GamePage = () => {
           {/* Mobile close button */}
           <Box
             sx={{
-              display: { xs: 'block', sm: 'none' },
+              display: { xs: 'block', md: 'none' }, // Show on mobile and tablet
               position: 'absolute',
               right: 8,
               top: 8,
@@ -3350,7 +3352,7 @@ const GamePage = () => {
           {/* Mobile close button */}
           <Box
             sx={{
-              display: { xs: 'block', sm: 'none' },
+              display: { xs: 'block', md: 'none' }, // Show on mobile and tablet
               position: 'absolute',
               right: 8,
               top: 8,

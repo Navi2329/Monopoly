@@ -4,4 +4,9 @@ const socket = io('https://monopoly-fu9p.onrender.com/', {
     transports: ['websocket', 'polling'],
     withCredentials: true
 });
+
+// const socket = io('http://localhost:4000', {
+//     transports: ['websocket', 'polling'],
+//     withCredentials: true
+// });
 export default socket; 

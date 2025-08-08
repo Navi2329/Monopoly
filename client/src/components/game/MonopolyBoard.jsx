@@ -228,6 +228,24 @@ const MonopolyBoard = (props) => {
   
   const [showModal, setShowModal] = useState(false);
   const [modalContent, setModalContent] = useState('');
+
+  // Helper functions
+  const getLuxuryTaxPosition = (mapName) => {
+    return mapName === 'Mr. Worldwide' ? 46 : 38;
+  };
+
+  const getSpecialSpaces = (mapName) => {
+    return mapName === 'Mr. Worldwide' 
+      ? [0, 2, 4, 9, 12, 20, 24, 26, 28, 36, 39, 44, getLuxuryTaxPosition(mapName)] // Worldwide special spaces
+      : [0, 2, 4, 7, 10, 17, 20, 22, 30, 33, 36, getLuxuryTaxPosition(mapName)]; // Classic special spaces
+  };
+
+  const getTurnEndingSpecialSpaces = (mapName) => {
+    return mapName === 'Mr. Worldwide' 
+      ? [2, 4, 9, 20, 24, 26, 28, 36, 39, 44, getLuxuryTaxPosition(mapName)] // Worldwide: Treasure, Tax, Surprise, Vacation, Go to prison
+      : [2, 4, 7, 17, 20, 22, 30, 33, 36, getLuxuryTaxPosition(mapName)]; // Classic: Treasure, Tax, Surprise, Vacation, Go to prison
+  };
+
   const [spaceArrivalOrder, setSpaceArrivalOrder] = useState({}); // Track arrival order for each space
   const [playersInJail, setPlayersInJail] = useState(new Set()); // Track players in jail
   const [canRollAgain, setCanRollAgain] = useState(false);
@@ -1795,7 +1813,7 @@ const MonopolyBoard = (props) => {
 
       // Check for doubles
       if (syncedLastDiceRoll.dice1 === syncedLastDiceRoll.dice2) {
-        const isSpecialSpace = [0, 2, 4, 7, 10, 17, 20, 22, 30, 33, 36, 38].includes(currentPosition);
+        const isSpecialSpace = getSpecialSpaces(currentMapName).includes(currentPosition);
         if (isSpecialSpace) {
           lastLoggedState.current = 'end-turn-doubles';
         } else {
@@ -2592,9 +2610,7 @@ const MonopolyBoard = (props) => {
                         return null;
                       }
 
-                      const isSpecialSpace = currentMapName === 'Mr. Worldwide'
-                        ? [0, 2, 4, 9, 12, 20, 24, 26, 28, 36, 39, 44, 46].includes(currentPosition) // Worldwide special spaces
-                        : [0, 2, 4, 7, 10, 17, 20, 22, 30, 33, 36, 38].includes(currentPosition); // Classic special spaces
+                      const isSpecialSpace = getSpecialSpaces(currentMapName).includes(currentPosition);
 
                       if (isSpecialSpace) {
                         // Show end turn for special spaces even when rolling doubles
@@ -2642,9 +2658,7 @@ const MonopolyBoard = (props) => {
                       const currentPosition = syncedPositions[currentPlayer.id];
                       
                       // Define special spaces that should always show End Turn button
-                      const specialSpaces = currentMapName === 'Mr. Worldwide' 
-                        ? [2, 4, 9, 20, 24, 26, 28, 36, 39, 44, 46] // Worldwide: Treasure, Tax, Surprise, Vacation, Go to prison
-                        : [2, 4, 7, 17, 20, 22, 30, 33, 36, 38]; // Classic: Treasure, Tax, Surprise, Vacation, Go to prison
+                      const specialSpaces = getTurnEndingSpecialSpaces(currentMapName);
                       
                       // Check if this is a property space - if so, don't show End Turn button yet
                       const propertyName = getPropertyNameByPosition(currentPosition);
