@@ -159,7 +159,7 @@ class Room {
     const playerName = player.name;
     this.removePlayer(playerId);
     
-    console.log(`[DEBUG] Player ${playerId} (${playerName}) was kicked from room ${this.id}`);
+  // console.log(`[DEBUG] Player ${playerId} (${playerName}) was kicked from room ${this.id}`);
     
     if (io) {
       // Notify the kicked player
@@ -185,7 +185,7 @@ class Room {
     
     // If game hasn't started, remove player immediately
     if (this.gameState !== 'in-progress') {
-      console.log(`[DEBUG] Game not started, removing player ${playerId} immediately`);
+  // console.log(`[DEBUG] Game not started, removing player ${playerId} immediately`);
       
       // Add disconnect log for pre-game disconnections
       if (player) {
@@ -205,7 +205,7 @@ class Room {
         // ALWAYS emit gameStateUpdated for immediate client sync, even in waiting rooms
         const gameStateData = this.getGameState();
         SafeEmitter.safeEmit(io, this.id, 'gameStateUpdated', gameStateData);
-        console.log(`[DEBUG SERVER] Emitted gameStateUpdated for waiting room after immediate disconnect`);
+  // console.log(`[DEBUG SERVER] Emitted gameStateUpdated for waiting room after immediate disconnect`);
       }
       return;
     }
@@ -226,7 +226,7 @@ class Room {
       this.removeDisconnectedPlayer(playerId, io);
     }, 120000*0.25); // 2 minutes
     
-    console.log(`[DEBUG] Player ${playerId} disconnected during game, starting 2-minute timer`);
+  // console.log(`[DEBUG] Player ${playerId} disconnected during game, starting 2-minute timer`);
     
     // Add disconnect log immediately
     if (player) {
@@ -239,7 +239,7 @@ class Room {
       // If the disconnecting player is the current turn player, advance turn immediately
       const currentPlayer = this.players[this.turnIndex];
       if (currentPlayer && currentPlayer.id === playerId) {
-        console.log(`[DEBUG] Current turn player ${player.name} disconnected, advancing turn immediately`);
+  // console.log(`[DEBUG] Current turn player ${player.name} disconnected, advancing turn immediately`);
         this.advanceToNextActiveTurn();
       }
     }
@@ -249,7 +249,7 @@ class Room {
       const gameStateData = this.getGameState();
       SafeEmitter.safeEmit(io, this.id, 'gameStateUpdated', gameStateData);
       SafeEmitter.safeEmit(io, this.id, 'gameLogUpdated', this.gameLog);
-      console.log(`[DEBUG SERVER] Emitted gameStateUpdated and gameLogUpdated for in-progress game after immediate disconnect`);
+  // console.log(`[DEBUG SERVER] Emitted gameStateUpdated and gameLogUpdated for in-progress game after immediate disconnect`);
     }
   }
 
@@ -261,7 +261,7 @@ class Room {
     
     // Check if player was permanently disconnected
     if (connectionData.status === 'permanently_disconnected') {
-      console.log(`[DEBUG] Player ${connectionData.playerName} trying to reconnect but was permanently disconnected - adding as spectator`);
+  // console.log(`[DEBUG] Player ${connectionData.playerName} trying to reconnect but was permanently disconnected - adding as spectator`);
       
       // Add as spectator only
       if (!this.spectators) {
@@ -292,7 +292,7 @@ class Room {
     if (playerIndex !== -1) {
       // Check if player is marked as disconnected but not permanently
       if (this.players[playerIndex].isDisconnected) {
-        console.log(`[DEBUG] Player ${connectionData.playerName} reconnecting but was marked as disconnected - adding as spectator`);
+  // console.log(`[DEBUG] Player ${connectionData.playerName} reconnecting but was marked as disconnected - adding as spectator`);
         
         // Add as spectator
         if (!this.spectators) {
@@ -359,33 +359,33 @@ class Room {
     }
     
     this.lastActivity = Date.now();
-    console.log(`[DEBUG] Player ${oldSocketId} successfully reconnected as ${newSocketId}`);
+  // console.log(`[DEBUG] Player ${oldSocketId} successfully reconnected as ${newSocketId}`);
     
     return true;
   }
 
   // Mark player as permanently disconnected after timeout
   removeDisconnectedPlayer(playerId, io) {
-    console.log(`[DEBUG SERVER] Starting removeDisconnectedPlayer for playerId: ${playerId}`);
+  // console.log(`[DEBUG SERVER] Starting removeDisconnectedPlayer for playerId: ${playerId}`);
     
     const connectionData = this.playerConnections[playerId];
     if (!connectionData) {
-      console.log(`[DEBUG SERVER] No connection data found for player ${playerId}`);
+  // console.log(`[DEBUG SERVER] No connection data found for player ${playerId}`);
       return;
     }
     
-    console.log(`[DEBUG SERVER] Marking player ${playerId} (${connectionData.playerName}) as permanently disconnected after timeout`);
-    console.log(`[DEBUG SERVER] Players before marking as disconnected:`, this.players.map(p => ({id: p.id, name: p.name, isDisconnected: p.isDisconnected})));
+  // console.log(`[DEBUG SERVER] Marking player ${playerId} (${connectionData.playerName}) as permanently disconnected after timeout`);
+  // console.log(`[DEBUG SERVER] Players before marking as disconnected:`, this.players.map(p => ({id: p.id, name: p.name, isDisconnected: p.isDisconnected})));
     
     // Find player by name since ID might have changed
     const playerIndex = this.players.findIndex(p => p.name === connectionData.playerName);
-    console.log(`[DEBUG SERVER] Found player at index:`, playerIndex);
+  // console.log(`[DEBUG SERVER] Found player at index:`, playerIndex);
     
     if (playerIndex !== -1) {
       const player = this.players[playerIndex];
       const wasCurrentPlayer = (this.gameState === 'in-progress' && this.turnIndex === playerIndex);
       
-      console.log(`[DEBUG SERVER] Player to mark as disconnected:`, {id: player.id, name: player.name, wasCurrentPlayer});
+  // console.log(`[DEBUG SERVER] Player to mark as disconnected:`, {id: player.id, name: player.name, wasCurrentPlayer});
       
       // Mark player as permanently disconnected
       this.players[playerIndex].isDisconnected = true;
@@ -413,61 +413,48 @@ class Room {
       
       // Count active (non-disconnected) players
       const activePlayers = this.players.filter(p => !p.isDisconnected);
-      console.log(`[DEBUG SERVER] Active players after disconnect:`, activePlayers.length);
+  // console.log(`[DEBUG SERVER] Active players after disconnect:`, activePlayers.length);
       
       // If current player was disconnected, advance turn to next active player
       if (wasCurrentPlayer && this.gameState === 'in-progress') {
-        this.advanceToNextActiveTurn();
-        console.log(`[DEBUG SERVER] Advanced turn after disconnect. New turn index: ${this.turnIndex}`);
+  this.advanceToNextActiveTurn();
+  // console.log(`[DEBUG SERVER] Advanced turn after disconnect. New turn index: ${this.turnIndex}`);
       }
       
       // Notify other players immediately
       if (io) {
-        console.log(`[DEBUG SERVER] Emitting events for player disconnect: ${connectionData.playerName}`);
-        console.log(`[DEBUG SERVER] Room ID for events:`, this.id);
+  // console.log(`[DEBUG SERVER] Emitting events for player disconnect: ${connectionData.playerName}`);
+  // console.log(`[DEBUG SERVER] Room ID for events:`, this.id);
         
-        const playerListData = this.getPlayerList();
-        console.log(`[DEBUG SERVER] Player list data to emit:`, JSON.stringify(playerListData, null, 2));
+  const playerListData = this.getPlayerList();
+  // console.log(`[DEBUG SERVER] Player list data to emit:`, JSON.stringify(playerListData, null, 2));
         
         SafeEmitter.safeEmit(io, this.id, 'playerDisconnected', {
           playerName: connectionData.playerName,
           playerId: player.id
         });
-        console.log(`[DEBUG SERVER] Emitted playerDisconnected`);
+  // console.log(`[DEBUG SERVER] Emitted playerDisconnected`);
         
         // Emit updated player list immediately
         SafeEmitter.safeEmit(io, this.id, 'playerListUpdated', playerListData);
-        console.log(`[DEBUG SERVER] Emitted playerListUpdated`);
+  // console.log(`[DEBUG SERVER] Emitted playerListUpdated`);
         
         // Emit updated property ownership after liquidation
         SafeEmitter.safeEmit(io, this.id, 'propertyOwnershipUpdated', this.propertyOwnership);
-        console.log(`[DEBUG SERVER] Emitted propertyOwnershipUpdated`);
+  // console.log(`[DEBUG SERVER] Emitted propertyOwnershipUpdated`);
         
         // Emit updated game log
         SafeEmitter.safeEmit(io, this.id, 'gameLogUpdated', this.gameLog);
-        console.log(`[DEBUG SERVER] Emitted gameLogUpdated`);
+  // console.log(`[DEBUG SERVER] Emitted gameLogUpdated`);
         
-        // ALWAYS emit gameStateUpdated after player disconnect to update current player info
-        const gameStateData = this.getGameState();
-        if (this.gameState === 'in-progress') {
-          // If turn was advanced in active game, log turn advance details
-          if (wasCurrentPlayer) {
-            console.log(`[DEBUG SERVER] Emitting gameStateUpdated after turn advance:`, {
-              currentTurnSocketId: gameStateData.currentTurnSocketId,
-              turnIndex: this.turnIndex,
-              currentPlayerName: this.players[this.turnIndex]?.name
-            });
-          }
-        } else {
-          console.log(`[DEBUG SERVER] Emitting gameStateUpdated for waiting room after disconnect`);
-        }
-        SafeEmitter.safeEmit(io, this.id, 'gameStateUpdated', gameStateData);
-        console.log(`[DEBUG SERVER] Emitted gameStateUpdated after disconnect`);
+  // ALWAYS emit gameStateUpdated after player disconnect to update current player info
+  const gameStateData = this.getGameState();
+  SafeEmitter.safeEmit(io, this.id, 'gameStateUpdated', gameStateData);
         
         // Check if only one active player remains (game should end)
         if (this.gameState === 'in-progress' && activePlayers.length === 1) {
           const winner = activePlayers[0];
-          console.log(`[DEBUG SERVER] Only one player remains, ending game with winner: ${winner.name}`);
+          // console.log(`[DEBUG SERVER] Only one player remains, ending game with winner: ${winner.name}`);
           
           this.gameState = 'finished';
           this.winner = winner;
@@ -481,30 +468,28 @@ class Room {
             winner: winner,
             reason: 'Last player remaining'
           };
-          console.log(`[DEBUG SERVER] Emitting gameEnded with data:`, gameEndedData);
+          // console.log(`[DEBUG SERVER] Emitting gameEnded with data:`, gameEndedData);
           
           SafeEmitter.safeEmit(io, this.id, 'gameEnded', gameEndedData);
-          console.log(`[DEBUG SERVER] Emitted gameEnded`);
+          // console.log(`[DEBUG SERVER] Emitted gameEnded`);
           
           SafeEmitter.safeEmit(io, this.id, 'gameLogUpdated', this.gameLog);
-          console.log(`[DEBUG SERVER] Emitted final gameLogUpdated`);
+          // console.log(`[DEBUG SERVER] Emitted final gameLogUpdated`);
           
           // Emit final game state for ended game
           SafeEmitter.safeEmit(io, this.id, 'gameStateUpdated', this.getGameState());
-          console.log(`[DEBUG SERVER] Emitted final gameStateUpdated for ended game`);
+          // console.log(`[DEBUG SERVER] Emitted final gameStateUpdated for ended game`);
         } else if (this.gameState === 'in-progress' && this.players.length === 0) {
           // No players left, end the room
-          console.log(`[DEBUG SERVER] No players remain, ending game for empty room`);
+          // console.log(`[DEBUG SERVER] No players remain, ending game for empty room`);
           this.gameState = 'finished';
         } else if (this.gameState === 'in-progress') {
           // If game continues, emit game state update
-          console.log(`[DEBUG SERVER] Game continues with ${activePlayers.length} active players, emitting final gameStateUpdated`);
           SafeEmitter.safeEmit(io, this.id, 'gameStateUpdated', this.getGameState());
-          console.log(`[DEBUG SERVER] Emitted final gameStateUpdated for continuing game`);
         }
       }
     } else {
-      console.log(`[DEBUG SERVER] Player not found in players array for removal`);
+  // console.log(`[DEBUG SERVER] Player not found in players array for removal`);
     }
     
     // Clean up connection tracking
@@ -514,34 +499,34 @@ class Room {
       delete this.disconnectTimers[playerId];
     }
     
-    console.log(`[DEBUG SERVER] Cleanup completed for player ${playerId}`);
+  // console.log(`[DEBUG SERVER] Cleanup completed for player ${playerId}`);
 
     // Check if room is empty and should be cleaned up
     if (this.players.length === 0) {
-      console.log(`[DEBUG SERVER] Room is empty, requesting cleanup`);
+  // console.log(`[DEBUG SERVER] Room is empty, requesting cleanup`);
       const roomService = require('../services/roomService');
       roomService.checkAndCleanupEmptyRoom(this.id);
     }
     
-    console.log(`[DEBUG SERVER] removeDisconnectedPlayer completed`);
+  // console.log(`[DEBUG SERVER] removeDisconnectedPlayer completed`);
   }
 
   // Advance turn to next active (non-disconnected) player
   advanceToNextActiveTurn() {
     if (this.gameState !== 'in-progress') {
-      console.log(`[DEBUG] advanceToNextActiveTurn - Game not in progress, current state: ${this.gameState}`);
+      // console.log(`[DEBUG] advanceToNextActiveTurn - Game not in progress, current state: ${this.gameState}`);
       return;
     }
     
     const activePlayers = this.players.filter(p => !p.isDisconnected);
     if (activePlayers.length === 0) {
-      console.log(`[DEBUG] advanceToNextActiveTurn - No active players remaining`);
+      // console.log(`[DEBUG] advanceToNextActiveTurn - No active players remaining`);
       return;
     }
     
-    console.log(`[DEBUG] advanceToNextActiveTurn - Current turnIndex: ${this.turnIndex}`);
-    console.log(`[DEBUG] advanceToNextActiveTurn - Current player: ${this.players[this.turnIndex]?.name} (disconnected: ${this.players[this.turnIndex]?.isDisconnected})`);
-    console.log(`[DEBUG] advanceToNextActiveTurn - Active players:`, activePlayers.map(p => p.name));
+    // console.log(`[DEBUG] advanceToNextActiveTurn - Current turnIndex: ${this.turnIndex}`);
+    // console.log(`[DEBUG] advanceToNextActiveTurn - Current player: ${this.players[this.turnIndex]?.name} (disconnected: ${this.players[this.turnIndex]?.isDisconnected})`);
+    // console.log(`[DEBUG] advanceToNextActiveTurn - Active players:`, activePlayers.map(p => p.name));
     
     // Find next active player after current turn
     let nextActivePlayer = null;
@@ -552,7 +537,7 @@ class Room {
       if (!this.players[i].isDisconnected) {
         nextActivePlayer = this.players[i];
         this.turnIndex = i;
-        console.log(`[DEBUG] Found next active player forward: ${nextActivePlayer.name} at index ${i}`);
+        // console.log(`[DEBUG] Found next active player forward: ${nextActivePlayer.name} at index ${i}`);
         break;
       }
     }
@@ -563,16 +548,16 @@ class Room {
         if (!this.players[i].isDisconnected) {
           nextActivePlayer = this.players[i];
           this.turnIndex = i;
-          console.log(`[DEBUG] Found next active player wrapping around: ${nextActivePlayer.name} at index ${i}`);
+          // console.log(`[DEBUG] Found next active player wrapping around: ${nextActivePlayer.name} at index ${i}`);
           break;
         }
       }
     }
     
     if (nextActivePlayer) {
-      console.log(`[DEBUG] Advanced turn to next active player: ${nextActivePlayer.name} (index: ${this.turnIndex})`);
+      // console.log(`[DEBUG] Advanced turn to next active player: ${nextActivePlayer.name} (index: ${this.turnIndex})`);
     } else {
-      console.log(`[DEBUG] ERROR: Could not find any active player to advance to!`);
+      // console.log(`[DEBUG] ERROR: Could not find any active player to advance to!`);
     }
   }
 
@@ -607,7 +592,7 @@ class Room {
 
   // Liquidate all properties owned by a player (sell to bank)
   liquidatePlayerProperties(playerId) {
-    console.log(`[DEBUG] Liquidating all properties for player ${playerId}`);
+  // console.log(`[DEBUG] Liquidating all properties for player ${playerId}`);
     
     const propertiesToLiquidate = [];
     
@@ -620,33 +605,33 @@ class Room {
     
     // Remove ownership and return properties to bank (unowned state)
     propertiesToLiquidate.forEach(propertyName => {
-      console.log(`[DEBUG] Returning property ${propertyName} to bank`);
+  // console.log(`[DEBUG] Returning property ${propertyName} to bank`);
       delete this.propertyOwnership[propertyName];
     });
     
-    console.log(`[DEBUG] Liquidated ${propertiesToLiquidate.length} properties for player ${playerId}`);
+  // console.log(`[DEBUG] Liquidated ${propertiesToLiquidate.length} properties for player ${playerId}`);
   }
 
   removePlayer(playerId) {
-    console.log(`[DEBUG SERVER] Starting removePlayer for playerId: ${playerId}`);
-    console.log(`[DEBUG SERVER] Players before removal:`, this.players.map(p => ({id: p.id, name: p.name})));
+  // console.log(`[DEBUG SERVER] Starting removePlayer for playerId: ${playerId}`);
+  // console.log(`[DEBUG SERVER] Players before removal:`, this.players.map(p => ({id: p.id, name: p.name})));
     
     const playerIndex = this.players.findIndex(p => p.id === playerId);
     if (playerIndex === -1) {
-      console.log(`[DEBUG SERVER] Player ${playerId} not found in players array`);
+    // console.log(`[DEBUG SERVER] Player ${playerId} not found in players array`);
       return;
     }
     
-    console.log(`[DEBUG SERVER] Found player at index ${playerIndex}`);
+  // console.log(`[DEBUG SERVER] Found player at index ${playerIndex}`);
     const wasCurrentPlayer = (this.gameState === 'in-progress' && this.turnIndex === playerIndex);
-    console.log(`[DEBUG SERVER] Was current player:`, wasCurrentPlayer);
+  // console.log(`[DEBUG SERVER] Was current player:`, wasCurrentPlayer);
     
     this.players = this.players.filter(p => p.id !== playerId);
-    console.log(`[DEBUG SERVER] Players after filtering:`, this.players.map(p => ({id: p.id, name: p.name})));
+  // console.log(`[DEBUG SERVER] Players after filtering:`, this.players.map(p => ({id: p.id, name: p.name})));
     
     // If host leaves, assign new host if possible
     if (this.hostId === playerId && this.players.length > 0) {
-      console.log(`[DEBUG SERVER] Host ${playerId} left, assigning new host to ${this.players[0].id}`);
+  // console.log(`[DEBUG SERVER] Host ${playerId} left, assigning new host to ${this.players[0].id}`);
       this.hostId = this.players[0].id;
       this.players[0].isHost = true;
     }
@@ -677,7 +662,7 @@ class Room {
         propertiesRemoved++;
       }
     }
-    console.log(`[DEBUG SERVER] Removed ${propertiesRemoved} properties owned by player ${playerId}`);
+  // console.log(`[DEBUG SERVER] Removed ${propertiesRemoved} properties owned by player ${playerId}`);
     
     // Handle turn advancement if it was current player's turn
     if (wasCurrentPlayer && this.gameState === 'in-progress' && this.players.length > 0) {
@@ -685,24 +670,24 @@ class Room {
       if (this.turnIndex >= this.players.length) {
         this.turnIndex = 0;
       }
-      console.log(`[DEBUG SERVER] Removed current player, advancing turn to index ${this.turnIndex}`);
+  // console.log(`[DEBUG SERVER] Removed current player, advancing turn to index ${this.turnIndex}`);
     } else if (playerIndex < this.turnIndex) {
       // If removed player was before current turn, adjust turn index
       this.turnIndex--;
-      console.log(`[DEBUG SERVER] Removed player before current turn, adjusted turn index to ${this.turnIndex}`);
+  // console.log(`[DEBUG SERVER] Removed player before current turn, adjusted turn index to ${this.turnIndex}`);
     }
 
-    console.log(`[DEBUG SERVER] Final players count: ${this.players.length}`);
-    console.log(`[DEBUG SERVER] Final turn index: ${this.turnIndex}`);
+  // console.log(`[DEBUG SERVER] Final players count: ${this.players.length}`);
+  // console.log(`[DEBUG SERVER] Final turn index: ${this.turnIndex}`);
 
     // Check if room is empty and should be cleaned up
     if (this.players.length === 0) {
-      console.log(`[DEBUG SERVER] Room is empty after player removal, requesting cleanup`);
+  // console.log(`[DEBUG SERVER] Room is empty after player removal, requesting cleanup`);
       const roomService = require('../services/roomService');
       roomService.checkAndCleanupEmptyRoom(this.id);
     }
     
-    console.log(`[DEBUG SERVER] removePlayer completed`);
+    // console.log(`[DEBUG SERVER] removePlayer completed`);
   }
 
   setHost(playerId) {
@@ -724,9 +709,9 @@ class Room {
   }
 
   getPlayerList() {
-    console.log(`[DEBUG SERVER] getPlayerList called`);
-    console.log(`[DEBUG SERVER] Current players:`, this.players.map(p => ({id: p.id, name: p.name, color: p.color, isDisconnected: p.isDisconnected})));
-    console.log(`[DEBUG SERVER] Current spectators:`, this.spectators.map(s => ({id: s.id, name: s.name})));
+    // console.log(`[DEBUG SERVER] getPlayerList called`);
+    // console.log(`[DEBUG SERVER] Current players:`, this.players.map(p => ({id: p.id, name: p.name, color: p.color, isDisconnected: p.isDisconnected})));
+    // console.log(`[DEBUG SERVER] Current spectators:`, this.spectators.map(s => ({id: s.id, name: s.name})));
     
     // Create clean player connections without circular references (timers)
     const cleanPlayerConnections = {};
@@ -744,7 +729,7 @@ class Room {
       };
     }
     
-    console.log(`[DEBUG SERVER] Clean player connections:`, cleanPlayerConnections);
+    // console.log(`[DEBUG SERVER] Clean player connections:`, cleanPlayerConnections);
 
     const playerListData = {
       players: this.players.map(player => ({ 
@@ -760,7 +745,7 @@ class Room {
       playerConnections: cleanPlayerConnections
     };
     
-    console.log(`[DEBUG SERVER] Returning player list data:`, JSON.stringify(playerListData, null, 2));
+    // console.log(`[DEBUG SERVER] Returning player list data:`, JSON.stringify(playerListData, null, 2));
     return playerListData;
   }
 
@@ -1597,7 +1582,7 @@ class Room {
     const isCurrentPlayerActive = currentPlayer && this.canPlayerPlay(currentPlayer.id);
     const currentTurnSocketId = isCurrentPlayerActive ? currentPlayer.id : null;
     
-    console.log(`[DEBUG] getGameState - turnIndex: ${this.turnIndex}, currentPlayer: ${currentPlayer?.name}, isActive: ${isCurrentPlayerActive}, currentTurnSocketId: ${currentTurnSocketId}`);
+    // console.log(`[DEBUG] getGameState - turnIndex: ${this.turnIndex}, currentPlayer: ${currentPlayer?.name}, isActive: ${isCurrentPlayerActive}, currentTurnSocketId: ${currentTurnSocketId}`);
 
     const gameState = {
       playerPositions: this.playerPositions,

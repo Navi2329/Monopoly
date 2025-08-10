@@ -159,7 +159,7 @@ const startGame = (roomId) => {
 
 const deleteRoom = (roomId) => {
   if (gameRooms[roomId]) {
-    console.log(`[DEBUG] Deleting empty room: ${roomId}`);
+    // console.log(`[DEBUG] Deleting empty room: ${roomId}`);
     delete gameRooms[roomId];
     return true;
   }
@@ -169,7 +169,7 @@ const deleteRoom = (roomId) => {
 const checkAndCleanupEmptyRoom = (roomId) => {
   const room = gameRooms[roomId];
   if (room && room.players.length === 0) {
-    console.log(`[DEBUG] Room ${roomId} is empty, scheduling cleanup`);
+    // console.log(`[DEBUG] Room ${roomId} is empty, scheduling cleanup`);
     // Delete the room after a short delay to ensure all socket operations complete
     setTimeout(() => {
       if (gameRooms[roomId] && gameRooms[roomId].players.length === 0) {

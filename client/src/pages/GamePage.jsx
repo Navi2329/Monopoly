@@ -303,17 +303,17 @@ const GamePage = () => {
     }
     // Listen for player list updates
     socket.on('playerListUpdated', (playerListData) => {
-      console.log('[DEBUG CLIENT] Received playerListUpdated event');
-      console.log('[DEBUG CLIENT] Player list data:', JSON.stringify(playerListData, null, 2));
+      // console.log('[DEBUG CLIENT] Received playerListUpdated event');
+      // console.log('[DEBUG CLIENT] Player list data:', JSON.stringify(playerListData, null, 2));
       
       if (typeof playerListData === 'object' && playerListData.players) {
         // New format with connection data
-        console.log('[DEBUG CLIENT] Using new format, setting players:', playerListData.players);
+        // console.log('[DEBUG CLIENT] Using new format, setting players:', playerListData.players);
         setPlayers(playerListData.players);
         setPlayerConnections(playerListData.playerConnections || {});
       } else {
         // Legacy format - just player array
-        console.log('[DEBUG CLIENT] Using legacy format, setting players:', playerListData);
+        // console.log('[DEBUG CLIENT] Using legacy format, setting players:', playerListData);
         setPlayers(playerListData);
         setPlayerConnections({});
       }
@@ -324,8 +324,8 @@ const GamePage = () => {
         playerListData.players : playerListData;
       
       const me = playerList.find(p => p.id === mySocketId);
-      console.log('[DEBUG CLIENT] My socket ID:', mySocketId);
-      console.log('[DEBUG CLIENT] Current player found:', me);
+      // console.log('[DEBUG CLIENT] My socket ID:', mySocketId);
+      // console.log('[DEBUG CLIENT] Current player found:', me);
       setCurrentPlayer(me);
       setIsHost(me?.isHost || false);
       // Only set playerJoined to true if the player is in the player list
@@ -336,13 +336,13 @@ const GamePage = () => {
 
     // Listen for player removed due to timeout
     socket.on('playerRemovedTimeout', (data) => {
-      console.log(`[DEBUG CLIENT] Received playerRemovedTimeout event for ${data.playerName}`);
+      // console.log(`[DEBUG CLIENT] Received playerRemovedTimeout event for ${data.playerName}`);
       // The playerListUpdated event should handle the UI update, but we can show a notification
     });
     
     // Listen for player disconnected (marked as disconnected instead of removed)
     socket.on('playerDisconnected', (data) => {
-      console.log(`Player ${data.playerName} was disconnected`);
+      // console.log(`Player ${data.playerName} was disconnected`);
       // The playerListUpdated event should handle the UI update, but we can show a notification
     });
     
@@ -361,7 +361,7 @@ const GamePage = () => {
 
     // Listen for successful reconnection
     socket.on('reconnectSuccess', ({ room, playerName }) => {
-      console.log(`[DEBUG] Reconnection successful for ${playerName}`);
+      // console.log(`[DEBUG] Reconnection successful for ${playerName}`);
       // This is handled by roomJoined now, but keep as backup
       if (!playerJoined) {
         setPlayerJoined(true);
@@ -383,7 +383,7 @@ const GamePage = () => {
 
     // Listen for successful room joining
     socket.on('roomJoined', (room) => {
-      console.log(`[DEBUG] Successfully joined room`);
+      // console.log(`[DEBUG] Successfully joined room`);
       setGameStarted(room.gameState === 'in-progress');
       
       // Check if this player is already in the game (reconnection scenario)
@@ -391,7 +391,7 @@ const GamePage = () => {
       
       if (existingPlayer) {
         // This is a reconnection - player is already in the game
-        console.log(`[DEBUG] Detected reconnection for ${window.currentPlayerName}`);
+        // console.log(`[DEBUG] Detected reconnection for ${window.currentPlayerName}`);
         setPlayerJoined(true);
         setCurrentPlayer(existingPlayer);
         setIsHost(existingPlayer.isHost || false);
@@ -411,7 +411,7 @@ const GamePage = () => {
 
     // Listen for joining as spectator
     socket.on('joinedAsSpectator', ({ room, playerName }) => {
-      console.log(`[DEBUG] Joined as spectator: ${playerName}`);
+      // console.log(`[DEBUG] Joined as spectator: ${playerName}`);
       setIsSpectator(true);
       setGameStarted(room.gameState === 'in-progress');
       setPlayerJoined(true);
@@ -437,19 +437,19 @@ const GamePage = () => {
 
     // Listen for game ended
     socket.on('gameEnded', ({ winner, reason }) => {
-      console.log(`[DEBUG CLIENT] Received gameEnded event: ${winner.name} wins - ${reason}`);
-      console.log(`[DEBUG CLIENT] Setting game state to ended and showing modal`);
+      // console.log(`[DEBUG CLIENT] Received gameEnded event: ${winner.name} wins - ${reason}`);
+      // console.log(`[DEBUG CLIENT] Setting game state to ended and showing modal`);
       setGameStarted(false);
       setGamePhase('lobby');
       // Show game over modal
       setWinner(winner);
       setGameOverModalOpen(true);
-      console.log(`[DEBUG CLIENT] Game over modal should now be open`);
+      // console.log(`[DEBUG CLIENT] Game over modal should now be open`);
     });
 
     // Listen for property ownership updates (when player properties are liquidated)
     socket.on('propertyOwnershipUpdated', (updatedOwnership) => {
-      console.log(`[DEBUG CLIENT] Received propertyOwnershipUpdated event:`, updatedOwnership);
+      // console.log(`[DEBUG CLIENT] Received propertyOwnershipUpdated event:`, updatedOwnership);
       setSyncedPropertyOwnership(updatedOwnership);
     });
     // Listen for game state updates from server
@@ -2887,9 +2887,8 @@ const GamePage = () => {
   // Update syncedPropertyOwnership in the multiplayer sync useEffect
   useEffect(() => {
     const handleGameStateUpdated = (state) => {
-      console.log('[DEBUG CLIENT] Received gameStateUpdated event');
-      console.log('[DEBUG CLIENT] Game state data:', JSON.stringify(state, null, 2));
-      
+      // console.log('[DEBUG CLIENT] Received gameStateUpdated event');
+      // console.log('[DEBUG CLIENT] Game state data:', JSON.stringify(state, null, 2));
       // Only log current player when game is in progress (has turn system)
       // Check if game is active by looking for game indicators rather than just gameStarted flag
       const gameIsActive = state.currentTurnSocketId || state.turnIndex !== undefined || 
@@ -2897,11 +2896,11 @@ const GamePage = () => {
       
       if (gameIsActive && state.currentTurnSocketId) {
         const currentPlayer = players.find(p => p.id === state.currentTurnSocketId);
-        console.log(`Current player: ${currentPlayer?.name || 'Unknown'}`);
+        // console.log(`Current player: ${currentPlayer?.name || 'Unknown'}`);
       } else if (gameIsActive) {
-        console.log(`Current player: None (turn not started or player disconnected)`);
+        // console.log(`Current player: None (turn not started or player disconnected)`);
       } else {
-        console.log(`Game in waiting room - no current player concept`);
+        // console.log(`Game in waiting room - no current player concept`);
       }
       
       setSyncedPositions(state.playerPositions || {});

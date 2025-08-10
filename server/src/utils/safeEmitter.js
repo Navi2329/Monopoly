@@ -50,18 +50,18 @@ class SafeEmitter {
   }
 
   static safeEmit(io, roomId, event, data) {
-    console.log(`[DEBUG SAFEEMITTER] Attempting to emit event '${event}' to room '${roomId}'`);
-    console.log(`[DEBUG SAFEEMITTER] Data type:`, typeof data);
-    console.log(`[DEBUG SAFEEMITTER] Data preview:`, JSON.stringify(data, null, 2).substring(0, 500));
+    // console.log(`[DEBUG SAFEEMITTER] Attempting to emit event '${event}' to room '${roomId}'`);
+    // console.log(`[DEBUG SAFEEMITTER] Data type:`, typeof data);
+    // console.log(`[DEBUG SAFEEMITTER] Data preview:`, JSON.stringify(data, null, 2).substring(0, 500));
     
     try {
       const cleanData = SafeEmitter.deepClean(data);
-      console.log(`[DEBUG SAFEEMITTER] Data cleaned successfully, emitting to room...`);
+      // console.log(`[DEBUG SAFEEMITTER] Data cleaned successfully, emitting to room...`);
       io.to(roomId).emit(event, cleanData);
-      console.log(`[DEBUG SAFEEMITTER] Event '${event}' emitted successfully to room '${roomId}'`);
+      // console.log(`[DEBUG SAFEEMITTER] Event '${event}' emitted successfully to room '${roomId}'`);
     } catch (error) {
-      console.error(`[EMIT ERROR] Failed to emit event '${event}' to room '${roomId}':`, error.message);
-      console.error(`[EMIT ERROR] Stack trace:`, error.stack);
+      // console.error(`[EMIT ERROR] Failed to emit event '${event}' to room '${roomId}':`, error.message);
+      // console.error(`[EMIT ERROR] Stack trace:`, error.stack);
       // Emit a simple fallback
       try {
         io.to(roomId).emit(event, { 
@@ -70,7 +70,7 @@ class SafeEmitter {
           originalEvent: event
         });
       } catch (fallbackError) {
-        console.error(`[CRITICAL] Even fallback emit failed for room '${roomId}':`, fallbackError.message);
+        // console.error(`[CRITICAL] Even fallback emit failed for room '${roomId}':`, fallbackError.message);
       }
     }
   }

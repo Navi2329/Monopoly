@@ -233,7 +233,7 @@ module.exports = (io, socket) => {
   };
 
   const handleDisconnect = () => {
-    console.log(`[DEBUG] Socket ${socket.id} disconnected`);
+    // console.log(`[DEBUG] Socket ${socket.id} disconnected`);
     
     // Handle graceful disconnect with timeout
     const room = roomService.handlePlayerDisconnect(socket.id);
@@ -1824,27 +1824,27 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
   
   // Manual turn advancement for testing/fixing disconnection issues
   socket.on('forceAdvanceTurn', ({ roomId }) => {
-    console.log(`[DEBUG] Force advance turn requested by ${socket.id} for room ${roomId}`);
+    // console.log(`[DEBUG] Force advance turn requested by ${socket.id} for room ${roomId}`);
     const room = roomService.getRoomById(roomId);
     if (!room || room.gameState !== 'in-progress') {
-      console.log(`[DEBUG] Room not found or game not in progress`);
+      // console.log(`[DEBUG] Room not found or game not in progress`);
       return;
     }
     
     const player = room.players.find(p => p.id === socket.id);
     if (!player || !player.isHost) {
-      console.log(`[DEBUG] Player not found or not host`);
+      // console.log(`[DEBUG] Player not found or not host`);
       return;
     }
     
-    console.log(`[DEBUG] Forcing turn advancement...`);
+    // console.log(`[DEBUG] Forcing turn advancement...`);
     room.advanceToNextActiveTurn();
     
     const gameStateData = room.getGameState();
-    console.log(`[DEBUG] New turn state - turnIndex: ${room.turnIndex}, currentTurnSocketId: ${gameStateData.currentTurnSocketId}`);
+    // console.log(`[DEBUG] New turn state - turnIndex: ${room.turnIndex}, currentTurnSocketId: ${gameStateData.currentTurnSocketId}`);
     
     safeEmit(io, room.id, 'gameStateUpdated', gameStateData);
-    console.log(`[DEBUG] Emitted gameStateUpdated after force advance turn`);
+    // console.log(`[DEBUG] Emitted gameStateUpdated after force advance turn`);
   });
   
   // ===== TRADE SYSTEM HANDLERS =====
