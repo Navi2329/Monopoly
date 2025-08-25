@@ -1356,8 +1356,8 @@ const GamePage = () => {
     setPropertyLandingState(null);
   };
 
-  // const gameUrl = `https://monopoly-fu9p.onrender.com/game/${roomId}`;
-  const gameUrl = `http://localhost:4000/game/${roomId}`;
+  const gameUrl = `https://monopoly-fu9p.onrender.com/game/${roomId}`;
+  // const gameUrl = `http://localhost:4000/game/${roomId}`;
   const handleSendMessage = (messageText) => {
     if (!playerJoined || !socket.connected) return; // Don't allow messages until joined and connected
 
