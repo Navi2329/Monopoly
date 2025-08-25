@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Modal from '../common/Modal';
-import classicMap from '../../data/maps/classic';
 
 // Helper for formatting currency
 const formatMoney = (amount) => `$${amount}`;

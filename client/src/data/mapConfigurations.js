@@ -1,6 +1,6 @@
 import { classicMap } from './maps/classic.js';
 import { worldwideMap } from './maps/worldwide.js';
-import { deathValleyMap } from './maps/deathvalley.js';
+import { indiaMap } from './maps/india.js';
 
 // Map configurations with layout information
 export const mapConfigurations = {
@@ -22,11 +22,11 @@ export const mapConfigurations = {
     totalSpaces: 48,
     boardType: 'worldwide'
   },
-  'Death Valley': {
-    name: 'Death Valley',
-    description: 'Extreme desert map with challenging properties',
+  'India': {
+    name: 'India',
+    description: 'Explore the cities and culture of India',
     size: '11x11',
-    properties: deathValleyMap,
+    properties: indiaMap,
     layout: 'classic', // 11x11 grid
     totalSpaces: 40,
     boardType: 'classic'

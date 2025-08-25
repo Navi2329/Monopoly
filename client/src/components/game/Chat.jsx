@@ -19,6 +19,7 @@ import {
   ArrowBack
 } from '@mui/icons-material';
 import { styled } from '@mui/material/styles';
+import { useSound } from '../../hooks/useSound';
 
 const StyledChatContainer = styled(Paper)(({ theme }) => ({
   height: '100%',
@@ -112,6 +113,7 @@ const Chat = ({ messages, onSendMessage, disabled = false, currentPlayer, isSpec
   const [message, setMessage] = useState('');
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
+  const { playSound } = useSound();
 
   const scrollToBottom = () => {
     if (messagesContainerRef.current) {
@@ -124,9 +126,21 @@ const Chat = ({ messages, onSendMessage, disabled = false, currentPlayer, isSpec
     scrollToBottom();
   }, [messages]);
 
+  // Play sound for new messages from other players
+  useEffect(() => {
+    if (messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage && !isOwnMessage(lastMessage.sender)) {
+        playSound('chatMessage');
+      }
+    }
+  }, [messages.length]);
+
   const handleSubmit = (e) => {
     e.preventDefault();
     if (message.trim() && !disabled) {
+      // Play chat message sound
+      playSound('chatMessage');
       onSendMessage(message);
       setMessage('');
     }

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -78,7 +78,9 @@ const MapPreview = styled(Box)(({ theme }) => ({
   padding: theme.spacing(1)
 }));
 
-const MiniBoard = styled(Box)(({ theme, gridSize = 11 }) => ({
+const MiniBoard = styled(Box, {
+  shouldForwardProp: (prop) => prop !== 'gridSize',
+})(({ theme, gridSize = 11 }) => ({
   width: '80px',
   height: '80px',
   display: 'grid',
@@ -110,9 +112,14 @@ const MapPreviewModal = ({
 }) => {
   const [localSelectedMap, setLocalSelectedMap] = useState(selectedMap);
 
+  // Sync local state with prop changes
+  useEffect(() => {
+    setLocalSelectedMap(selectedMap);
+  }, [selectedMap]);
+
   // Helper function to get property name by position
-  const getPropertyNameByPosition = (position, isWorldwide) => {
-    if (isWorldwide) {
+  const getPropertyNameByPosition = (position, mapName) => {
+    if (mapName === 'Mr. Worldwide') {
       // Worldwide map positions (48 spaces) - 13x13 grid layout
       const worldwidePositionMap = {
         // Top row (0-12): Start → top right corner
@@ -132,6 +139,26 @@ const MapPreviewModal = ({
         42: 'JFK Airport', 43: 'Los Angeles', 44: 'Surprise', 45: 'California', 46: 'Luxury Tax', 47: 'New York'
       };
       return worldwidePositionMap[position] || null;
+    } else if (mapName === 'India') {
+      // India map positions (40 spaces) - 11x11 grid layout
+      const indiaPositionMap = {
+        // Top row (0-10): Start → In Prison/Just Visiting
+        0: 'START', 1: 'Pune', 2: 'Treasure', 3: 'Nashik', 4: 'Income Tax', 5: 'Mumbai Airport',
+        6: 'Surat', 7: 'Surprise', 8: 'Ahmedabad', 9: 'Rajkot', 10: 'In Prison/Just Visiting',
+
+        // Right column (11-19): In Prison/Just Visiting → Vacation
+        11: 'Jaipur', 12: 'Electric Company', 13: 'Jodhpur', 14: 'Udaipur', 15: 'Delhi Airport',
+        16: 'Kochi', 17: 'Treasure', 18: 'Kottayam', 19: 'Kozhikode',
+
+        // Bottom row (20-29): Vacation → Go to Jail (reversed)
+        20: 'Vacation', 21: 'Lucknow', 22: 'Surprise', 23: 'Agra', 24: 'Varanasi',
+        25: 'Chennai Airport', 26: 'Bangalore', 27: 'Mysore', 28: 'Water Company', 29: 'Mangalore',
+
+        // Left column (30-39): Go to Jail → Start (reversed)
+        30: 'Go to Jail', 31: 'Chennai', 32: 'Coimbatore', 33: 'Treasure', 34: 'Madurai',
+        35: 'Kolkata Airport', 36: 'Surprise', 37: 'Hyderabad', 38: 'Luxury Tax', 39: 'Warangal'
+      };
+      return indiaPositionMap[position] || null;
     } else {
       // Classic map positions (40 spaces) - based on corrected classic.js properties
       const classicPositionMap = {
@@ -173,21 +200,13 @@ const MapPreviewModal = ({
       colors: ['#06b6d4', '#0891b2', '#0e7490', '#155e75', '#164e63', '#1e40af', '#1d4ed8', '#2563eb'],
       actualData: mapConfigurations['Mr. Worldwide']
     },
-    'Death Valley': {
-      name: 'Death Valley',
-      description: mapConfigurations['Death Valley']?.description || 'A dangerous desert adventure with high stakes',
+    'India': {
+      name: 'India',
+      description: mapConfigurations['India']?.description || 'Explore the cities and culture of India',
       status: 'Premium',
-      icon: '💀',
-      colors: ['#dc2626', '#b91c1c', '#991b1b', '#7f1d1d', '#f97316', '#ea580c', '#c2410c', '#9a3412'],
-      actualData: mapConfigurations['Death Valley']
-    },
-    'Lucky Wheel': {
-      name: 'Lucky Wheel',
-      description: 'Test your luck with special wheel mechanics (Coming Soon)',
-      status: 'Premium',
-      icon: '🍀',
-      colors: ['#16a34a', '#15803d', '#166534', '#14532d', '#65a30d', '#4d7c0f', '#365314', '#1a2e05'],
-      actualData: null // Not implemented yet
+      icon: '🇮🇳',
+      colors: ['#ff6b35', '#f7931e', '#ffcc02', '#228b22', '#1e90ff', '#9932cc', '#ff1493', '#8b4513'],
+      actualData: mapConfigurations['India']
     }
   };
 
@@ -238,10 +257,10 @@ const MapPreviewModal = ({
         
         // If we have actual map data, try to get property color based on set
         if (isSpace && actualMapData && position >= 0) {
-          const propertyName = getPropertyNameByPosition(position, isWorldwide);
-          if (propertyName && actualMapData.properties && actualMapData.properties[propertyName]) {
-            const property = actualMapData.properties[propertyName];
-            if (property.set) {
+          const propertyName = getPropertyNameByPosition(position, mapName);
+          if (propertyName && actualMapData.properties) {
+            const property = actualMapData.properties.find(prop => prop.name === propertyName);
+            if (property && property.set) {
               // Use different colors for different property sets
               const setColors = {
                 'Brazil': '#8B4513',
@@ -255,14 +274,23 @@ const MapPreviewModal = ({
                 'UK': '#006400',
                 'USA': '#0000FF',
                 'Airport': '#708090',
-                'Company': '#FFFFFF'
+                'Company': '#FFFFFF',
+                // India map sets
+                'Maharashtra': '#800000',
+                'Gujarat': '#FF8C00', 
+                'Rajasthan': '#FF69B4',
+                'Kerala': '#FFD700',
+                'Uttar Pradesh': '#32CD32',
+                'Karnataka': '#000080',
+                'Tamil Nadu': '#87CEEB',
+                'Telangana': '#9932CC'
               };
               color = setColors[property.set] || color;
-            } else if (property.type === 'start' || property.type === 'jail' || 
-                      property.type === 'free-parking' || property.type === 'go-to-jail') {
+            } else if (property && (property.type === 'start' || property.type === 'jail' || 
+                      property.type === 'free-parking' || property.type === 'go-to-jail')) {
               isCorner = true;
-            } else if (property.type === 'tax' || property.type === 'chance' || 
-                      property.type === 'community-chest') {
+            } else if (property && (property.type === 'tax' || property.type === 'chance' || 
+                      property.type === 'community-chest')) {
               color = '#4B0082'; // Special spaces
             }
           }
@@ -308,10 +336,8 @@ const MapPreviewModal = ({
       onClose={onClose}
       maxWidth={false}
     >
-      <StyledDialogTitle>
-        <Typography variant="h5" sx={{ fontWeight: 600 }}>
-          Choose Board Map
-        </Typography>
+      <StyledDialogTitle sx={{ fontWeight: 600 }}>
+        Choose Board Map
         <IconButton 
           onClick={onClose}
           sx={{ 

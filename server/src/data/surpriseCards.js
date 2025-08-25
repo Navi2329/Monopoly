@@ -7,7 +7,7 @@ const surpriseCards = [
   },
   {
     id: 'surprise-2',
-    message: 'Have a redesign for your properties. Pay $25 for each house and $100 for each hotel.',
+    message: 'Monsoon repairs needed for your properties. Pay $25 for each house and $100 for each hotel.',
     action: 'payForBuildings',
     houseCost: 25,
     hotelCost: 100
@@ -26,21 +26,21 @@ const surpriseCards = [
   },
   {
     id: 'surprise-5',
-    message: 'Have an adventure to New York.',
+    message: 'Have an adventure to Chennai.',
     action: 'moveToProperty',
-    propertyName: 'New York'
+    propertyName: 'Chennai'
   },
   {
     id: 'surprise-6',
-    message: 'Advance to Shanghai.',
+    message: 'Advance to Hyderabad.',
     action: 'moveToProperty',
-    propertyName: 'Shanghai'
+    propertyName: 'Hyderabad'
   },
   {
     id: 'surprise-7',
-    message: 'Advance to Venice.',
+    message: 'Advance to Bangalore.',
     action: 'moveToProperty',
-    propertyName: 'Venice'
+    propertyName: 'Bangalore'
   },
   {
     id: 'surprise-8',
@@ -56,7 +56,7 @@ const surpriseCards = [
   },
   {
     id: 'surprise-10',
-    message: 'From a scholarship you get $100.',
+    message: 'From a government scholarship you get $100.',
     action: 'receiveMoney',
     amount: 100
   },

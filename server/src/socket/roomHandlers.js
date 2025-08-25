@@ -1,5 +1,6 @@
 // server/src/socket/roomHandlers.js
 const roomService = require('../services/roomService');
+const botService = require('../services/botService');
 const { v4: uuidv4 } = require('uuid');
 const SafeEmitter = require('../utils/safeEmitter');
 
@@ -63,6 +64,53 @@ function emitGameStateUpdated(room, io, roomId, extra = {}) {
 // function autoAdvanceVacationSkips(room, io, roomId) { ... }
 // function autoAdvanceStep(room, io, roomId, skipsProcessed, returnsProcessed, mode, sessionId) { ... }
 // REMOVE all calls to autoAdvanceVacationSkips(room, io, roomId)
+
+// Bot turn handling
+async function handleBotTurn(room, io) {
+  if (!room || room.gameState !== 'in-progress') {
+    return;
+  }
+
+  const currentPlayer = room.getCurrentPlayer();
+  if (!currentPlayer || !currentPlayer.isBot) {
+    return; // Not a bot's turn
+  }
+
+  try {
+    // Check if bot is on vacation
+    const botStatus = room.playerStatuses[currentPlayer.id];
+    if (botStatus && typeof botStatus === 'object' && botStatus.status === 'vacation') {
+      // Bot should skip turn
+      setTimeout(async () => {
+        const turnResult = room.advanceTurn('bot-action');
+        pushGameLog(room, {
+          type: 'info',
+          player: currentPlayer.name,
+          message: `(bot) skipped turn while on vacation`
+        }, io);
+        emitAdvanceTurnLogs(room, turnResult, io);
+        emitGameStateUpdated(room, io, room.id);
+        
+        // Check if next player is also a bot
+        setTimeout(() => {
+          handleBotTurn(room, io);
+        }, 1000);
+      }, 2000); // 2 second delay for vacation skip
+      return;
+    }
+
+    // Use bot service to play the turn
+    await botService.playBotTurn(room, currentPlayer.id, io);
+    
+    // Check if next player is also a bot after this bot's turn
+    setTimeout(() => {
+      handleBotTurn(room, io);
+    }, 1000);
+    
+  } catch (error) {
+    console.error(`Error handling bot turn for ${currentPlayer.name}:`, error);
+  }
+}
 
 
 module.exports = (io, socket) => {
@@ -209,6 +257,11 @@ module.exports = (io, socket) => {
       emitGameStateUpdated(room, io, roomId);
       pushGameLog(room, { type: 'info', message: 'Game started.' }, io);
       pushGameLog(room, { type: 'system', message: 'Round 1 started.' }, io);
+      
+      // Start bot turn if first player is a bot
+      setTimeout(() => {
+        handleBotTurn(room, io);
+      }, 2000); // Give clients time to process game start
     }
   };
 
@@ -470,7 +523,8 @@ module.exports = (io, socket) => {
       // Check if it's a property space and handle rent
       const propertyName = room.getPropertyNameByPosition(position);
       
-      if (propertyName) {
+      // Skip property handling for corner spaces
+      if (propertyName && !room.isCornerSpace(position)) {
         if (room.propertyOwnership[propertyName] && room.propertyOwnership[propertyName].owner !== player.id) {
           const rent = room.calculateRent(propertyName);
           
@@ -990,6 +1044,11 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
   
   emitAdvanceTurnLogs(room, turnResult, io);
   emitGameStateUpdated(room, io, roomId);
+  
+  // Auto-play bot turns
+  setTimeout(() => {
+    handleBotTurn(room, io);
+  }, 1000); // Small delay to ensure client updates first
 };
 
   // New handler for property landing
@@ -2517,6 +2576,88 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
     socket.emit('allRooms', rooms);
   };
 
+  // Bot management handlers
+  const addBot = ({ roomId, difficulty = 'medium' }) => {
+    const room = roomService.getRoomById(roomId);
+    if (!room) {
+      socket.emit('addBotError', { message: 'Room not found' });
+      return;
+    }
+
+    // Check if the player is the host
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player || !player.isHost) {
+      socket.emit('addBotError', { message: 'Only the host can add bots' });
+      return;
+    }
+
+    const result = roomService.addBotToRoom(roomId, difficulty);
+    
+    if (typeof result === 'string') {
+      // Error occurred
+      const errorMessages = {
+        'bots_not_allowed': 'Bots are not enabled for this room',
+        'room_full': 'Room is full',
+        'game_started': 'Cannot add bots after game has started',
+        'no_colors_available': 'No colors available for bots',
+        'no_bot_names_available': 'No bot names available'
+      };
+      socket.emit('addBotError', { message: errorMessages[result] || 'Failed to add bot' });
+      return;
+    }
+
+    // Success
+    const bot = room.players[room.players.length - 1]; // Get the last added player (bot)
+    safeEmit(io, roomId, 'playerListUpdated', room.getPlayerList());
+    pushGameLog(room, { 
+      type: 'join', 
+      player: bot.name, 
+      message: `(bot) has joined the room.` 
+    }, io);
+    socket.emit('botAdded', { bot: SafeEmitter.deepClean(bot) });
+  };
+
+  const removeBot = ({ roomId, botId }) => {
+    const room = roomService.getRoomById(roomId);
+    if (!room) {
+      socket.emit('removeBotError', { message: 'Room not found' });
+      return;
+    }
+
+    // Check if the player is the host
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player || !player.isHost) {
+      socket.emit('removeBotError', { message: 'Only the host can remove bots' });
+      return;
+    }
+
+    // Check if game has started
+    if (room.gameState === 'in-progress') {
+      socket.emit('removeBotError', { message: 'Cannot remove bots after game has started' });
+      return;
+    }
+
+    const bot = room.players.find(p => p.id === botId && p.isBot);
+    if (!bot) {
+      socket.emit('removeBotError', { message: 'Bot not found' });
+      return;
+    }
+
+    const result = roomService.removeBotFromRoom(roomId, botId);
+    
+    if (result) {
+      safeEmit(io, roomId, 'playerListUpdated', room.getPlayerList());
+      pushGameLog(room, { 
+        type: 'disconnect', 
+        player: bot.name, 
+        message: `(bot) has left the room.` 
+      }, io);
+      socket.emit('botRemoved', { botId });
+    } else {
+      socket.emit('removeBotError', { message: 'Failed to remove bot' });
+    }
+  };
+
   socket.on('resetRoom', resetRoom);
   socket.on('updatePlayerCash', updatePlayerCash);
   socket.on('setDevTreasureCard', setDevTreasureCard);
@@ -2524,4 +2665,6 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
   socket.on('sendChatMessage', sendChatMessage);
   socket.on('attemptReconnect', attemptReconnect);
   socket.on('getAllRooms', getAllRooms);
+  socket.on('addBot', addBot);
+  socket.on('removeBot', removeBot);
 };

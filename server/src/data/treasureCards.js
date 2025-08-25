@@ -8,7 +8,7 @@ const treasureCards = [
   },
   {
     id: 'treasure-2',
-    message: 'Happy holidays! Receive $20',
+    message: 'Happy Diwali! Receive $20',
     action: 'receiveMoney',
     amount: 20
   },
@@ -26,7 +26,7 @@ const treasureCards = [
   },
   {
     id: 'treasure-5',
-    message: 'Your car has ran out of gas. Pay $50.',
+    message: 'Your rickshaw broke down. Pay $50 for repairs.',
     action: 'payMoney',
     amount: 50
   },
@@ -38,7 +38,7 @@ const treasureCards = [
   },
   {
     id: 'treasure-7',
-    message: 'From trading stocks you earned $50.',
+    message: 'From trading in the stock market you earned $50.',
     action: 'receiveMoney',
     amount: 50
   },
@@ -77,6 +77,12 @@ const treasureCards = [
     action: 'moveToPosition',
     position: 0,
     collectStart: true
+  },
+  {
+    id: 'treasure-14',
+    message: 'Take a trip to Jaipur. If you pass Start, collect $200.',
+    action: 'moveToProperty',
+    propertyName: 'Jaipur'
   }
 ];
 

@@ -1,6 +1,7 @@
 // server/src/services/roomService.js
 const Player = require('../models/Player');
 const Room = require('../models/Room');
+const botService = require('./botService');
 
 const gameRooms = {}; // This object will store the state of all active games
 
@@ -170,6 +171,8 @@ const checkAndCleanupEmptyRoom = (roomId) => {
   const room = gameRooms[roomId];
   if (room && room.players.length === 0) {
     // console.log(`[DEBUG] Room ${roomId} is empty, scheduling cleanup`);
+    // Clean up bots when room is deleted
+    botService.removeAllBots(roomId);
     // Delete the room after a short delay to ensure all socket operations complete
     setTimeout(() => {
       if (gameRooms[roomId] && gameRooms[roomId].players.length === 0) {
@@ -177,6 +180,59 @@ const checkAndCleanupEmptyRoom = (roomId) => {
       }
     }, 1000);
   }
+};
+
+const addBotToRoom = (roomId, difficulty = 'medium') => {
+  const room = gameRooms[roomId];
+  if (!room) return null;
+  
+  // Check if bots are allowed
+  if (!room.areBotsAllowed()) {
+    return 'bots_not_allowed';
+  }
+  
+  // Check if room is full
+  if (room.players.length >= (room.settings.maxPlayers || 8)) {
+    return 'room_full';
+  }
+  
+  // Check if game has started
+  if (room.gameState === 'in-progress') {
+    return 'game_started';
+  }
+  
+  // Get available colors
+  const availableColors = room.getAvailableBotColors();
+  if (availableColors.length === 0) {
+    return 'no_colors_available';
+  }
+  
+  // Create bot
+  const bot = botService.createBot(roomId, difficulty);
+  if (!bot) {
+    return 'no_bot_names_available';
+  }
+  
+  // Assign color
+  bot.color = availableColors[0];
+  
+  // Add bot to room
+  room.addBot(bot);
+  
+  return room;
+};
+
+const removeBotFromRoom = (roomId, botId) => {
+  const room = gameRooms[roomId];
+  if (!room) return null;
+  
+  // Remove from bot service
+  botService.removeBot(roomId, botId);
+  
+  // Remove from room
+  const removedBot = room.removeBot(botId);
+  
+  return removedBot ? room : null;
 };
 
 module.exports = {
@@ -192,4 +248,6 @@ module.exports = {
   startGame,
   deleteRoom,
   checkAndCleanupEmptyRoom,
+  addBotToRoom,
+  removeBotFromRoom,
 };

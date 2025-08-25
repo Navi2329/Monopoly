@@ -89,6 +89,10 @@ const StyledSelect = styled(Select)(({ theme }) => ({
   },
   '& .MuiSelect-icon': {
     color: 'white',
+  },
+  '& .MuiPaper-root': {
+    backgroundColor: 'rgba(30, 41, 59, 0.95)',
+    backdropFilter: 'blur(10px)',
   }
 }));
 
@@ -198,16 +202,36 @@ const GameSettings = ({
           disabled={isDisabled}
           size="small"
           sx={{ minWidth: 80 }}
+          MenuProps={{
+            PaperProps: {
+              sx: {
+                backgroundColor: 'rgba(30, 41, 59, 0.95)',
+                backdropFilter: 'blur(10px)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                '& .MuiMenuItem-root': {
+                  color: 'white',
+                  '&:hover': {
+                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                  },
+                  '&.Mui-selected': {
+                    backgroundColor: 'rgba(96, 165, 250, 0.2)',
+                    '&:hover': {
+                      backgroundColor: 'rgba(96, 165, 250, 0.3)',
+                    },
+                  },
+                  '&.Mui-disabled': {
+                    color: 'rgba(255, 255, 255, 0.4)',
+                  },
+                },
+              },
+            },
+          }}
         >
           {[2, 3, 4, 5, 6, 7, 8].map(num => (
             <MenuItem
               key={num}
               value={num}
               disabled={num < totalPlayers}
-              sx={{
-                color: num < totalPlayers ? 'rgba(255, 255, 255, 0.4)' : 'white',
-                backgroundColor: 'rgba(30, 41, 59, 0.9)'
-              }}
             >
               {num}
             </MenuItem>
@@ -489,16 +513,46 @@ const GameSettings = ({
             </Typography>
           </Box>
         </StyledSettingInfo>
-        <select
+        <StyledSelect
           value={localSettings.startingMoney}
           onChange={e => handleChange('startingMoney', parseInt(e.target.value, 10))}
           disabled={isDisabled}
-          style={{ minWidth: 80, borderRadius: 6, padding: '4px 8px', fontWeight: 600 }}
+          size="small"
+          sx={{ minWidth: 100 }}
+          MenuProps={{
+            PaperProps: {
+              sx: {
+                backgroundColor: 'rgba(30, 41, 59, 0.95)',
+                backdropFilter: 'blur(10px)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                '& .MuiMenuItem-root': {
+                  color: 'white',
+                  '&:hover': {
+                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                  },
+                  '&.Mui-selected': {
+                    backgroundColor: 'rgba(96, 165, 250, 0.2)',
+                    '&:hover': {
+                      backgroundColor: 'rgba(96, 165, 250, 0.3)',
+                    },
+                  },
+                  '&.Mui-disabled': {
+                    color: 'rgba(255, 255, 255, 0.4)',
+                  },
+                },
+              },
+            },
+          }}
         >
           {[500, 750, 1000, 1200, 1500, 2000, 2500, 3000, 3500, 4000].map(val => (
-            <option key={val} value={val}>${val}</option>
+            <MenuItem
+              key={val}
+              value={val}
+            >
+              ${val}
+            </MenuItem>
           ))}
-        </select>
+        </StyledSelect>
       </StyledSettingRow>
 
       {/* Randomize player order */}

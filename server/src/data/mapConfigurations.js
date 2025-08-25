@@ -1,6 +1,7 @@
 // server/src/data/mapConfigurations.js
 const classicMap = require('./maps/classic');
 const worldwideMap = require('./maps/worldwide');
+const indiaMap = require('./maps/india');
 
 const mapConfigurations = {
   classic: {
@@ -30,6 +31,20 @@ const mapConfigurations = {
     boardType: 'worldwide', 
     layout: worldwideMap.layout,
     properties: worldwideMap.properties
+  },
+  india: {
+    name: 'India',
+    description: 'Explore the cities of India',
+    boardType: 'classic',
+    layout: indiaMap.layout,
+    properties: indiaMap.properties
+  },
+  'India': {
+    name: 'India',
+    description: 'Explore the cities of India',
+    boardType: 'classic',
+    layout: indiaMap.layout,
+    properties: indiaMap.properties
   }
 };
 

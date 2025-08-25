@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import classicMap from '../../data/maps/classic';
 import { worldwideMap } from '../../data/maps/worldwide';
+import { indiaMap } from '../../data/maps/india';
 import { Avatar, Tooltip } from '@mui/material';
 import { Home, Hotel, MonetizationOn, Gavel, Delete } from '@mui/icons-material';
 
@@ -144,7 +145,14 @@ const PropertyPopup = ({
 
     // Get the current map based on game settings
     const currentMapName = gameSettings?.boardMap || 'Classic';
-    const currentMapData = currentMapName === 'Mr. Worldwide' ? worldwideMap : classicMap;
+    let currentMapData;
+    if (currentMapName === 'Mr. Worldwide') {
+        currentMapData = worldwideMap;
+    } else if (currentMapName === 'India') {
+        currentMapData = indiaMap;
+    } else {
+        currentMapData = classicMap;
+    }
     
     const property = currentMapData.find(p => p.name === propertyName);
     if (!property) return null;

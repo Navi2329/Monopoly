@@ -17,6 +17,7 @@ import {
   SignalWifiOff
 } from '@mui/icons-material';
 import { styled } from '@mui/material/styles';
+import BotManagement from './BotManagement';
 
 
 
@@ -72,7 +73,9 @@ const PlayerList = ({
   syncedPlayerMoney = {}, 
   bankruptedPlayers = [], 
   votekickedPlayers = [],
-  playerConnections = {}
+  playerConnections = {},
+  room = null,
+  socket = null
 }) => {
   const hasPlayers = players.length > 0;
   const [currentTime, setCurrentTime] = useState(Date.now());
@@ -269,6 +272,20 @@ const PlayerList = ({
                         👑
                       </Typography>
                     )}
+                    {player.isBot && (
+                      <Tooltip title={`Bot (${player.difficulty || 'medium'} difficulty)`}>
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            color: '#667eea',
+                            fontSize: '0.7rem',
+                            ml: 0.5
+                          }}
+                        >
+                          🤖
+                        </Typography>
+                      </Tooltip>
+                    )}
                     
                     {/* Disconnect indicator - show different indicators for temporary vs permanent */}
                     {isPermanentlyDisconnected && gameStarted && (
@@ -416,6 +433,15 @@ const PlayerList = ({
           })}
         </Box>
       )}
+      
+      {/* Bot Management */}
+      <BotManagement
+        room={room}
+        isHost={isHost}
+        gameStarted={gameStarted}
+        playerJoined={playerJoined}
+        socket={socket}
+      />
     </Box>
   );
 };

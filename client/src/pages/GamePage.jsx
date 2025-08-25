@@ -42,11 +42,13 @@ import MapPreviewModal from '../components/game/MapPreviewModal';
 import MapFullPreview from '../components/game/MapFullPreview';
 import { classicMap } from '../data/maps/classic';
 import { worldwideMap } from '../data/maps/worldwide';
+import { indiaMap } from '../data/maps/india';
 import AuctionModal from '../components/game/AuctionModal';
 import { PlayerSelectionModal, CreateTradeModal, ViewTradeModal } from '../components/game/TradeModals';
 import { useUser } from '../contexts/UserContext';
 import socket from '../socket';
 import PropertyPopup from '../components/game/PropertyPopup';
+import { useSound } from '../hooks/useSound';
 import GameOverModal from '../components/game/GameOverModal';
 
 const StyledSidebar = styled(Paper)(({ theme }) => ({
@@ -213,6 +215,9 @@ const GamePage = () => {
   const [isInDoublesSequence, setIsInDoublesSequence] = useState(false);
   const [canRollAgain, setCanRollAgain] = useState(false);
 
+  // Sound management
+  const { playSound } = useSound();
+
   // Helper function to wait for dice animation to complete before ending turn
   const waitForDiceAnimationAndEndTurn = (endTurnCallback) => {
     const checkDiceAnimation = () => {
@@ -260,7 +265,13 @@ const GamePage = () => {
   // Helper function to get current map data
   const getCurrentMapData = () => {
     const mapName = gameSettings?.boardMap || 'Classic';
-    return mapName === 'Mr. Worldwide' ? worldwideMap : classicMap;
+    if (mapName === 'Mr. Worldwide') {
+      return worldwideMap;
+    } else if (mapName === 'India') {
+      return indiaMap;
+    } else {
+      return classicMap;
+    }
   };
 
   // Game over state
@@ -419,10 +430,14 @@ const GamePage = () => {
     
     // Listen for room settings updates
     socket.on('roomSettingsUpdated', (settings) => {
+      console.log('[DEBUG] GamePage - Received roomSettingsUpdated:', settings);
       setGameSettings(settings);
     });
     // Listen for game started
     socket.on('gameStarted', () => {
+      // Play game start sound
+      playSound('gameStart');
+      
       if (isShufflingPlayers) {
         // Wait for shuffling animation to finish before starting the game
         setTimeout(() => {
@@ -437,6 +452,9 @@ const GamePage = () => {
 
     // Listen for game ended
     socket.on('gameEnded', ({ winner, reason }) => {
+      // Play game end sound
+      playSound('gameEnd');
+      
       // console.log(`[DEBUG CLIENT] Received gameEnded event: ${winner.name} wins - ${reason}`);
       // console.log(`[DEBUG CLIENT] Setting game state to ended and showing modal`);
       setGameStarted(false);
@@ -456,6 +474,40 @@ const GamePage = () => {
     // Listen for game log updates from backend
     socket.on('gameLogUpdated', (logEntry) => {
       // console.log('[CLIENT] Received gameLogUpdated:', logEntry);
+      
+      // Play sounds based on game actions
+      if (logEntry && logEntry.message) {
+        const message = logEntry.message.toLowerCase();
+        
+        if (message.includes('bought') || message.includes('purchased')) {
+          playSound('buyProperty');
+        } else if (message.includes('built') && message.includes('house')) {
+          playSound('buildHouse');
+        } else if (message.includes('built') && message.includes('hotel')) {
+          playSound('buildHotel');
+        } else if (message.includes('destroyed') || message.includes('sold house') || message.includes('sold hotel')) {
+          playSound('destroyBuilding');
+        } else if (message.includes('paid rent') || message.includes('rent to')) {
+          playSound('payMoney');
+        } else if (message.includes('received') && message.includes('$')) {
+          playSound('receiveMoney');
+        } else if (message.includes('paid tax') || message.includes('paid') && message.includes('tax')) {
+          playSound('payTax');
+        } else if (message.includes('treasure card') || message.includes('got a treasure')) {
+          playSound('treasureCard');
+        } else if (message.includes('surprise card') || message.includes('got a surprise')) {
+          playSound('surpriseCard');
+        } else if (message.includes('jail') && (message.includes('sent to') || message.includes('went to'))) {
+          playSound('goToJail');
+        } else if (message.includes('passed start') || message.includes('collected $200')) {
+          playSound('passStart');
+        } else if (message.includes('joined') || message.includes('player joined')) {
+          playSound('playerJoin');
+        } else if (message.includes('left') || message.includes('disconnected')) {
+          playSound('playerLeave');
+        }
+      }
+      
       setGameLog(prev => [{ id: Date.now(), ...logEntry }, ...prev]);
     });
     // Listen for full game log from backend
@@ -464,6 +516,7 @@ const GamePage = () => {
     });
     // Listen for color taken error from backend
     socket.on('colorTakenError', ({ message }) => {
+      playSound('error');
       alert(message || 'Color already taken. Please choose another color.');
       setPlayerJoined(false); // Re-open the PlayerSelection overlay
     });
@@ -495,6 +548,7 @@ const GamePage = () => {
     });
     // Listen for purchase errors
     socket.on('purchaseError', ({ message }) => {
+      playSound('error');
       alert(message || 'Purchase failed');
     });
 
@@ -534,6 +588,25 @@ const GamePage = () => {
 
     socket.on('voteKickError', ({ message }) => {
       alert(message);
+    });
+
+    // Bot management handlers
+    socket.on('botAdded', ({ bot }) => {
+      // Bot was successfully added, playerListUpdated will handle the UI update
+      console.log('Bot added:', bot);
+    });
+
+    socket.on('addBotError', ({ message }) => {
+      alert(`Failed to add bot: ${message}`);
+    });
+
+    socket.on('botRemoved', ({ botId }) => {
+      // Bot was successfully removed, playerListUpdated will handle the UI update
+      console.log('Bot removed:', botId);
+    });
+
+    socket.on('removeBotError', ({ message }) => {
+      alert(`Failed to remove bot: ${message}`);
     });
 
     // Game over handler
@@ -924,10 +997,31 @@ const GamePage = () => {
       };
 
       const worldwideCornerMap = {
-        0: 'GO', 12: 'Prison', 24: 'Vacation', 36: 'Go to Prison'
+        0: 'START', 12: 'Prison', 24: 'Vacation', 36: 'Go to Prison'
       };
       
       const propertyName = worldwideCornerMap[spaceIndex] || worldwidePropertyMap[spaceIndex];
+      return currentMap.find(prop => prop.name === propertyName);
+    } else if (mapName === 'India') {
+      // India map (40 spaces) - 11x11 grid
+      const indiaPropertyMap = {
+        // Top row (positions 1-9)
+        1: 'Pune', 3: 'Nashik', 5: 'Mumbai Airport', 6: 'Surat', 8: 'Ahmedabad', 9: 'Rajkot',
+        // Right row (positions 11-19)
+        11: 'Jaipur', 12: 'Electric Company', 13: 'Jodhpur', 14: 'Udaipur', 15: 'Delhi Airport', 
+        16: 'Kochi', 18: 'Kottayam', 19: 'Kozhikode',
+        // Bottom row (positions 21-29)
+        21: 'Lucknow', 23: 'Agra', 24: 'Varanasi', 25: 'Chennai Airport', 26: 'Bangalore', 
+        27: 'Mysore', 28: 'Water Company', 29: 'Mangalore',
+        // Left row (positions 31-39)
+        31: 'Chennai', 32: 'Coimbatore', 34: 'Madurai', 35: 'Kolkata Airport', 37: 'Hyderabad', 39: 'Warangal'
+      };
+
+      const indiaCornerMap = {
+        0: 'START', 10: 'In Prison/Just Visiting', 20: 'Vacation', 30: 'Go to Prison'
+      };
+      
+      const propertyName = indiaCornerMap[spaceIndex] || indiaPropertyMap[spaceIndex];
       return currentMap.find(prop => prop.name === propertyName);
     } else {
       // Classic map (40 spaces) - 11x11 grid
@@ -954,7 +1048,13 @@ const GamePage = () => {
   // Helper function to get luxury tax position based on map
   const getLuxuryTaxPosition = () => {
     const mapName = gameSettings?.boardMap || 'Classic';
-    return mapName === 'Mr. Worldwide' ? 46 : 38;
+    if (mapName === 'Mr. Worldwide') {
+      return 46;
+    } else if (mapName === 'India') {
+      return 38;
+    } else {
+      return 38;
+    }
   };
 
   // Handle property landing
@@ -1256,8 +1356,8 @@ const GamePage = () => {
     setPropertyLandingState(null);
   };
 
-  const gameUrl = `https://monopoly-fu9p.onrender.com/game/${roomId}`;
-  // const gameUrl = `http://localhost:4000/game/${roomId}`;
+  // const gameUrl = `https://monopoly-fu9p.onrender.com/game/${roomId}`;
+  const gameUrl = `http://localhost:4000/game/${roomId}`;
   const handleSendMessage = (messageText) => {
     if (!playerJoined || !socket.connected) return; // Don't allow messages until joined and connected
 
@@ -1689,12 +1789,15 @@ const GamePage = () => {
   }, [propertyLandingState]);
 
   const handleSettingsChange = (newSettings) => {
+    console.log('[DEBUG] GamePage - Settings changing:', newSettings);
+    console.log('[DEBUG] GamePage - Previous settings:', gameSettings);
     setGameSettings(prev => ({
       ...prev,
       ...newSettings,
       allowAuction: newSettings.auction !== undefined ? newSettings.auction : prev.allowAuction
     }));
     if (isHost && roomId) {
+      console.log('[DEBUG] GamePage - Emitting updateRoomSettings to server');
       socket.emit('updateRoomSettings', { roomId, newSettings });
     }
   };
@@ -1926,6 +2029,9 @@ const GamePage = () => {
   // Handle property purchase from horizontal buttons
   const handleBuyProperty = () => {
     if (propertyLandingState && propertyLandingState.isActive) {
+      // Play buy property sound
+      playSound('buyProperty');
+      
       // console.log(`[DEBUG] Emitting buyProperty for room: ${roomId}, socket connected: ${socket.connected}, socket.id: ${socket.id}`);
       // console.log('[SOCKET INSTANCE BEFORE BUY]', socket, 'socket.id =', socket.id);
       socket.emit('buyProperty', {
@@ -1963,6 +2069,9 @@ const GamePage = () => {
   const handleBuildHouse = (propertyName) => {
     // Multiplayer: emit socket event
     if (gameStarted) {
+      // Play building sound
+      playSound('buildHouse');
+      
       // console.log('[DEBUG] Emitting buildHouse', propertyName, roomId);
       socket.emit('buildHouse', { roomId, propertyName });
       return;
@@ -2148,6 +2257,9 @@ const GamePage = () => {
   const handleDestroyHouse = (propertyName) => {
     // Multiplayer: emit socket event
     if (gameStarted) {
+      // Play destroy building sound
+      playSound('destroyBuilding');
+      
       socket.emit('destroyHouse', { roomId, propertyName });
       return;
     }
@@ -2694,6 +2806,7 @@ const GamePage = () => {
   useEffect(() => {
     function handleAuctionStarted(auctionData) {
       // console.log('[CLIENT] Received auctionStarted event:', auctionData);
+      playSound('auctionStart');
       setAuctionActive(true);
       setAuctionProperty(auctionData.property);
       setAuctionBids(auctionData.bidHistory || []);
@@ -2711,6 +2824,7 @@ const GamePage = () => {
 
     function handleAuctionUpdate(auctionData) {
       // console.log('[CLIENT] Received auctionUpdate event:', auctionData);
+      playSound('bid');
       setAuctionBids(auctionData.bidHistory || []);
       setAuctionCurrentBid(auctionData.currentBid);
       setAuctionCurrentBidder(auctionData.currentBidder);
@@ -2720,6 +2834,7 @@ const GamePage = () => {
     }
 
     function handleAuctionEnded(auctionData) {
+      playSound('auctionEnd');
       setAuctionEnded(true);
       setAuctionActive(false);
       setAuctionWinner(auctionData.winner);
@@ -2757,21 +2872,25 @@ const GamePage = () => {
 
     // Trade event handlers
     const handleTradeCreated = (trade) => {
+      playSound('tradeProposal');
       setTrades(prev => [...prev, trade]);
       setAllTrades(prev => [...prev, trade]); // Also update allTrades for clickable log
     };
 
     const handleTradeAccepted = ({ tradeId, trade }) => {
+      playSound('tradeAccepted');
       setTrades(prev => prev.map(t => t.id === tradeId ? { ...t, status: 'accepted' } : t));
       setAllTrades(prev => prev.map(t => t.id === tradeId ? { ...t, status: 'accepted' } : t));
     };
 
     const handleTradeDeclined = ({ tradeId }) => {
+      playSound('tradeDeclined');
       setTrades(prev => prev.map(t => t.id === tradeId ? { ...t, status: 'declined' } : t));
       setAllTrades(prev => prev.map(t => t.id === tradeId ? { ...t, status: 'declined' } : t));
     };
 
     const handleTradeCancelled = ({ tradeId }) => {
+      playSound('tradeCancelled');
       setTrades(prev => prev.filter(t => t.id !== tradeId)); // Remove from active trades only
       // Keep the trade in allTrades for clickable log history - just mark it as cancelled
       setAllTrades(prev => prev.map(t => t.id === tradeId ? { ...t, status: 'cancelled' } : t));
@@ -2831,6 +2950,7 @@ const GamePage = () => {
   // Handle auction bid
   const handleAuctionBid = (inc) => {
     // console.log('[CLIENT] Sending auction bid:', inc);
+    playSound('bid');
     socket.emit('auctionBid', { roomId, amount: inc });
   };
 
@@ -3442,7 +3562,7 @@ const GamePage = () => {
             selectedMap={gameSettings.boardMap || 'Classic'}
             onMapSelect={handleMapSelect}
             onMapPreview={handleMapFullPreview}
-            availableMaps={['Classic', 'Mr. Worldwide', 'Death Valley', 'Lucky Wheel']}
+            availableMaps={['Classic', 'Mr. Worldwide', 'India']}
           />
         )}
 
@@ -3540,6 +3660,13 @@ const GamePage = () => {
             bankruptedPlayers={bankruptedPlayers}
             votekickedPlayers={votekickedPlayers}
             playerConnections={playerConnections}
+            room={{
+              id: roomId,
+              players: players,
+              settings: gameSettings,
+              gameState: gameStarted ? 'in-progress' : 'waiting'
+            }}
+            socket={socket}
           />
         </Box>
 
@@ -3872,6 +3999,7 @@ const GamePage = () => {
                           secondary={
                             <React.Fragment>
                               <Typography
+                                component="span"
                                 variant="caption"
                                 sx={{
                                   color: 'rgba(255, 255, 255, 0.7)',
@@ -3907,6 +4035,7 @@ const GamePage = () => {
                               </Typography>
                               {prop.type === 'property' && (
                                 <Typography
+                                  component="span"
                                   variant="caption"
                                   sx={{
                                     color: 'rgba(255, 255, 255, 0.6)',
@@ -3997,6 +4126,7 @@ const GamePage = () => {
                           }
                           secondary={
                             <Typography
+                              component="span"
                               variant="caption"
                               sx={{
                                 color: 'rgba(255, 255, 255, 0.7)',

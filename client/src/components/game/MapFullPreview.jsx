@@ -63,13 +63,9 @@ const MapFullPreview = ({
       name: 'Mr. Worldwide', 
       description: 'Travel around the world with international properties'
     },
-    'Death Valley': {
-      name: 'Death Valley',
-      description: 'A dangerous desert adventure with high stakes'
-    },
-    'Lucky Wheel': {
-      name: 'Lucky Wheel',
-      description: 'Test your luck with special wheel mechanics'
+    'India': {
+      name: 'India',
+      description: 'Explore the cities and culture of India'
     }
   };
 

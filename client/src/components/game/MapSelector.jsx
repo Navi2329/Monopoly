@@ -293,7 +293,7 @@ const MapSelector = ({ selectedMap, onMapChange, disabled = false, showBrowseBut
         selectedMap={selectedMap || 'Classic'}
         onMapSelect={handleMapSelect}
         onMapPreview={handleMapPreview}
-        availableMaps={['Classic', 'Mr. Worldwide', 'Death Valley', 'Lucky Wheel']}
+        availableMaps={['Classic', 'Mr. Worldwide', 'India']}
       />
     </>
   );

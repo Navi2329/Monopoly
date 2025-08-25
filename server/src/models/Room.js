@@ -94,17 +94,35 @@ class Room {
 
   // Get jail position based on map type
   getJailPosition() {
-    return (this.mapType === 'Worldwide' || this.mapType === 'Mr. Worldwide') ? 12 : 10;
+    if (this.mapType === 'Worldwide' || this.mapType === 'Mr. Worldwide') {
+      return 12;
+    } else if (this.mapType === 'India' || this.mapType === 'india') {
+      return 10;
+    } else {
+      return 10;
+    }
   }
 
   // Get vacation position based on map type
   getVacationPosition() {
-    return (this.mapType === 'Worldwide' || this.mapType === 'Mr. Worldwide') ? 24 : 20;
+    if (this.mapType === 'Worldwide' || this.mapType === 'Mr. Worldwide') {
+      return 24;
+    } else if (this.mapType === 'India' || this.mapType === 'india') {
+      return 20;
+    } else {
+      return 20;
+    }
   }
 
   // Get luxury tax position based on map type
   getLuxuryTaxPosition() {
-    return (this.mapType === 'Worldwide' || this.mapType === 'Mr. Worldwide') ? 46 : 38;
+    if (this.mapType === 'Worldwide' || this.mapType === 'Mr. Worldwide') {
+      return 46;
+    } else if (this.mapType === 'India' || this.mapType === 'india') {
+      return 38;
+    } else {
+      return 38;
+    }
   }
 
   addPlayer(player) {
@@ -149,6 +167,76 @@ class Room {
       this.spectators.push(spectator);
       this.lastActivity = Date.now();
     }
+  }
+
+  // Add a bot to the room
+  addBot(bot) {
+    // bot: { id, name, isHost: false, color, isBot: true }
+    if (!this.players.find(p => p.id === bot.id)) {
+      const newBot = { 
+        ...bot, 
+        isHost: false, 
+        money: this.settings.startingMoney,
+        isBot: true 
+      };
+      this.players.push(newBot);
+
+      // Initialize bot state (same as regular player)
+      this.playerPositions[bot.id] = 0;
+      this.playerMoney[bot.id] = this.settings.startingMoney;
+      this.playerStatuses[bot.id] = null;
+      this.playerJailCards[bot.id] = 0;
+      this.playerJailRounds[bot.id] = 0;
+      this.playerDoublesCount[bot.id] = 0;
+      this.collectedMoney[bot.id] = 0;
+      
+      // Bots are always "connected"
+      this.playerConnections[bot.id] = {
+        isOnline: true,
+        disconnectTime: null,
+        playerName: bot.name,
+        isHost: false,
+        color: bot.color,
+        isBot: true
+      };
+      
+      this.lastActivity = Date.now();
+    }
+  }
+
+  // Remove a bot from the room
+  removeBot(botId) {
+    const botIndex = this.players.findIndex(p => p.id === botId && p.isBot);
+    if (botIndex !== -1) {
+      const bot = this.players[botIndex];
+      this.players.splice(botIndex, 1);
+      
+      // Clean up bot data
+      delete this.playerPositions[botId];
+      delete this.playerMoney[botId];
+      delete this.playerStatuses[botId];
+      delete this.playerJailCards[botId];
+      delete this.playerJailRounds[botId];
+      delete this.playerDoublesCount[botId];
+      delete this.collectedMoney[botId];
+      delete this.playerConnections[botId];
+      
+      this.lastActivity = Date.now();
+      return bot;
+    }
+    return null;
+  }
+
+  // Check if bots are allowed in this room
+  areBotsAllowed() {
+    return this.settings.allowBots === true;
+  }
+
+  // Get available bot colors
+  getAvailableBotColors() {
+    const allColors = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899'];
+    const usedColors = this.players.map(p => p.color).filter(Boolean);
+    return allColors.filter(color => !usedColors.includes(color));
   }
 
   // Kick a player from the room (used by host with X button)
@@ -708,6 +796,23 @@ class Room {
     }
   }
 
+  // Get the current player whose turn it is
+  getCurrentPlayer() {
+    if (this.players.length === 0) return null;
+    return this.players[this.turnIndex] || null;
+  }
+
+  // Check if current player is a bot
+  isCurrentPlayerBot() {
+    const currentPlayer = this.getCurrentPlayer();
+    return currentPlayer && currentPlayer.isBot === true;
+  }
+
+  // Get all bot players in the room
+  getBotPlayers() {
+    return this.players.filter(player => player.isBot === true);
+  }
+
   getPlayerList() {
     // console.log(`[DEBUG SERVER] getPlayerList called`);
     // console.log(`[DEBUG SERVER] Current players:`, this.players.map(p => ({id: p.id, name: p.name, color: p.color, isDisconnected: p.isDisconnected})));
@@ -965,6 +1070,22 @@ class Room {
         'Liverpool': 37, 'Manchester': 38, 'Birmingham': 40, 'London': 41, 'JFK Airport': 42, 'Los Angeles': 43, 'California': 45, 'New York': 47
       };
       return worldwidePropertyMap[propertyName] || null;
+    } else if (this.mapType === 'India' || this.mapType === 'india') {
+      // India map positions (40 spaces) - 11x11 grid layout
+      const indiaPropertyMap = {
+        // Top row (0-10): Start → In Prison/Just Visiting
+        'Pune': 1, 'Nashik': 3, 'Mumbai Airport': 5, 'Surat': 6, 'Ahmedabad': 8, 'Rajkot': 9,
+        
+        // Right column (11-19): In Prison/Just Visiting → Vacation
+        'Jaipur': 11, 'Electric Company': 12, 'Jodhpur': 13, 'Udaipur': 14, 'Delhi Airport': 15, 'Kochi': 16, 'Kottayam': 18, 'Kozhikode': 19,
+        
+        // Bottom row (20-29): Vacation → Go to Jail (reversed)
+        'Lucknow': 21, 'Agra': 23, 'Varanasi': 24, 'Chennai Airport': 25, 'Bangalore': 26, 'Mysore': 27, 'Water Company': 28, 'Mangalore': 29,
+        
+        // Left column (30-39): Go to Jail → Start (reversed)
+        'Chennai': 31, 'Coimbatore': 32, 'Madurai': 34, 'Kolkata Airport': 35, 'Hyderabad': 37, 'Warangal': 39
+      };
+      return indiaPropertyMap[propertyName] || null;
     } else {
       // Classic map positions (40 spaces) - 11x11 grid layout
       const classicPropertyMap = {
@@ -983,6 +1104,9 @@ class Room {
     if (this.mapType === 'Mr. Worldwide' || this.mapType === 'worldwide') {
       // Worldwide map treasure positions
       return [2, 20, 28, 39].includes(position);
+    } else if (this.mapType === 'India' || this.mapType === 'india') {
+      // India map treasure positions
+      return [2, 17, 33].includes(position);
     } else {
       // Classic map treasure positions
       return [2, 17, 33].includes(position);
@@ -994,6 +1118,9 @@ class Room {
     if (this.mapType === 'Mr. Worldwide' || this.mapType === 'worldwide') {
       // Worldwide map surprise positions
       return [9, 26, 44].includes(position);
+    } else if (this.mapType === 'India' || this.mapType === 'india') {
+      // India map surprise (Chance) positions
+      return [7, 22, 36].includes(position);
     } else {
       // Classic map surprise positions
       return [7, 22, 36].includes(position);
@@ -1025,6 +1152,26 @@ class Room {
       };
       const propertyName = worldwidePositionMap[position] || null;
       return propertyName;
+    } else if (this.mapType === 'India' || this.mapType === 'india') {
+      // India map positions (40 spaces) - 11x11 grid layout
+      const indiaPositionMap = {
+        // Top row (0-10): Start → In Prison/Just Visiting
+        0: 'START', 1: 'Pune', 2: 'Treasure', 3: 'Nashik', 4: 'Income Tax', 5: 'Mumbai Airport',
+        6: 'Surat', 7: 'Surprise', 8: 'Ahmedabad', 9: 'Rajkot', 10: 'In Prison/Just Visiting',
+
+        // Right column (11-19): In Prison/Just Visiting → Vacation
+        11: 'Jaipur', 12: 'Electric Company', 13: 'Jodhpur', 14: 'Udaipur', 15: 'Delhi Airport',
+        16: 'Kochi', 17: 'Treasure', 18: 'Kottayam', 19: 'Kozhikode',
+
+        // Bottom row (20-29): Vacation → Go to Jail (reversed)
+        20: 'Vacation', 21: 'Lucknow', 22: 'Surprise', 23: 'Agra', 24: 'Varanasi',
+        25: 'Chennai Airport', 26: 'Bangalore', 27: 'Mysore', 28: 'Water Company', 29: 'Mangalore',
+
+        // Left column (30-39): Go to Jail → Start (reversed)
+        30: 'Go to Jail', 31: 'Chennai', 32: 'Coimbatore', 33: 'Treasure', 34: 'Madurai',
+        35: 'Kolkata Airport', 36: 'Surprise', 37: 'Hyderabad', 38: 'Luxury Tax', 39: 'Warangal'
+      };
+      return indiaPositionMap[position] || null;
     } else {
       // Classic map positions (40 spaces) - based on corrected classic.js properties
       const classicPositionMap = {
@@ -1551,6 +1698,15 @@ class Room {
     if (!data && propertyName) {
     }
     return data;
+  }
+
+  isCornerSpace(position) {
+    // Corner positions for different map types
+    if (this.mapType === 'Mr. Worldwide' || this.mapType === 'worldwide') {
+      return [0, 12, 24, 36].includes(position); // START, Prison, Vacation, Go to Prison
+    } else {
+      return [0, 10, 20, 30].includes(position); // START, In Prison/Just Visiting, Vacation, Go to Jail
+    }
   }
 
   isPropertyAvailable(propertyName) {

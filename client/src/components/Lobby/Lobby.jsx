@@ -581,9 +581,10 @@ const Lobby = ({ onCreatePrivateGame, onJoinGame }) => {
           pb: 3,
           display: 'flex',
           justifyContent: 'space-between',
-          alignItems: 'center'
+          alignItems: 'center',
+          fontWeight: 600
         }}>
-          <Typography variant="h5">Available Rooms</Typography>
+          Available Rooms
           <IconButton
             onClick={handleRefreshRooms}
             sx={{
@@ -646,11 +647,11 @@ const Lobby = ({ onCreatePrivateGame, onJoinGame }) => {
                       </Box>
                     }
                     secondary={
-                      <Box>
-                        <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
+                      <Box component="span" sx={{ display: 'block' }}>
+                        <Typography variant="body2" component="span" sx={{ color: 'rgba(255, 255, 255, 0.7)', display: 'block' }}>
                           Host: {room.hostName} • Players: {room.playerCount}/{room.maxPlayers}
                         </Typography>
-                        <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.5)' }}>
+                        <Typography variant="caption" component="span" sx={{ color: 'rgba(255, 255, 255, 0.5)', display: 'block' }}>
                           Map: {room.settings?.mapType || 'Classic'} • Money: ${(room.settings?.startingMoney || 1500).toLocaleString()}
                         </Typography>
                       </Box>

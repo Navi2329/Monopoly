@@ -31,6 +31,7 @@ import ReactCountryFlag from 'react-country-flag';
 import classicMap from '../../data/maps/classic';
 import { mapConfigurations, getMapProperties, getMapLayout } from '../../data/mapConfigurations.js';
 import socket from '../../socket';
+import { useSound } from '../../hooks/useSound';
 
 const StyledDice = styled(Paper, {
   shouldForwardProp: (prop) => prop !== 'isRolling'
@@ -267,6 +268,9 @@ const MonopolyBoard = (props) => {
   const [justPurchasedProperty, setJustPurchasedProperty] = React.useState(false);
   const [awaitingVacationEndTurn, setAwaitingVacationEndTurn] = React.useState(false);
   const [endTurnClicked, setEndTurnClicked] = React.useState(false);
+  
+  // Sound management
+  const { playSound } = useSound();
   const [hasRolledSinceLastEndTurn, setHasRolledSinceLastEndTurn] = React.useState(true);
   const [awaitingRollAfterDoubles, setAwaitingRollAfterDoubles] = React.useState(false);
   React.useEffect(() => { setBuying(false); }, [propertyLandingState]);
@@ -751,6 +755,9 @@ const MonopolyBoard = (props) => {
   const rollDice = () => {
     if (gamePhase !== 'rolling') return;
     if (globalDiceRolling || localDiceRolling) return;
+
+    // Play dice rolling sound
+    playSound('diceRoll');
 
     setLocalDiceRolling(false);
     localRollTriggered.current = false;
@@ -1242,7 +1249,8 @@ const MonopolyBoard = (props) => {
 
   // Get property data for current map (currentMapName defined earlier)
   const getCurrentMapProperties = () => {
-    return getMapProperties(currentMapName);
+    const properties = getMapProperties(currentMapName);
+    return properties;
   };
 
   // Get map layout info
@@ -1258,15 +1266,76 @@ const MonopolyBoard = (props) => {
   const generateBoardLayout = () => {
     if (currentMapName === 'Mr. Worldwide') {
       return generateWorldwideLayout();
+    } else if (currentMapName === 'India') {
+      return generateIndiaLayout();
     } else {
       return generateClassicLayout();
     }
   };
 
+  // India board layout (11x11)
+  const generateIndiaLayout = () => {
+    const topRow = [
+      { name: 'Pune', type: 'property', price: getPropertyData('Pune')?.price || 60, color: getPropertyData('Pune')?.color || '#800000' },
+      { name: 'Treasure', type: 'treasure', color: 'orange' },
+      { name: 'Nashik', type: 'property', price: getPropertyData('Nashik')?.price || 60, color: getPropertyData('Nashik')?.color || '#800000' },
+      { name: 'Income Tax', type: 'tax', color: 'white' },
+      { name: 'Mumbai Airport', type: 'airport', color: 'gray', price: getPropertyData('Mumbai Airport')?.price || 200 },
+      { name: 'Surat', type: 'property', price: getPropertyData('Surat')?.price || 100, color: getPropertyData('Surat')?.color || '#FF8C00' },
+      { name: 'Surprise', type: 'surprise', color: 'pink' },
+      { name: 'Ahmedabad', type: 'property', price: getPropertyData('Ahmedabad')?.price || 100, color: getPropertyData('Ahmedabad')?.color || '#FF8C00' },
+      { name: 'Rajkot', type: 'property', price: getPropertyData('Rajkot')?.price || 120, color: getPropertyData('Rajkot')?.color || '#FF8C00' }
+    ];
+
+    const rightRow = [
+      { name: 'Jaipur', type: 'property', price: getPropertyData('Jaipur')?.price || 140, color: getPropertyData('Jaipur')?.color || '#FF69B4' },
+      { name: 'Electric Company', type: 'utility', utilityType: 'electric', color: 'lightblue', price: getPropertyData('Electric Company')?.price || 150 },
+      { name: 'Jodhpur', type: 'property', price: getPropertyData('Jodhpur')?.price || 140, color: getPropertyData('Jodhpur')?.color || '#FF69B4' },
+      { name: 'Udaipur', type: 'property', price: getPropertyData('Udaipur')?.price || 160, color: getPropertyData('Udaipur')?.color || '#FF69B4' },
+      { name: 'Delhi Airport', type: 'airport', color: 'gray', price: getPropertyData('Delhi Airport')?.price || 200 },
+      { name: 'Kochi', type: 'property', price: getPropertyData('Kochi')?.price || 180, color: getPropertyData('Kochi')?.color || '#FFD700' },
+      { name: 'Treasure', type: 'treasure', color: 'orange' },
+      { name: 'Kottayam', type: 'property', price: getPropertyData('Kottayam')?.price || 180, color: getPropertyData('Kottayam')?.color || '#FFD700' },
+      { name: 'Kozhikode', type: 'property', price: getPropertyData('Kozhikode')?.price || 200, color: getPropertyData('Kozhikode')?.color || '#FFD700' }
+    ];
+
+    const bottomRow = [
+      { name: 'Lucknow', type: 'property', price: getPropertyData('Lucknow')?.price || 220, color: getPropertyData('Lucknow')?.color || '#32CD32' },
+      { name: 'Surprise', type: 'surprise', color: 'pink' },
+      { name: 'Agra', type: 'property', price: getPropertyData('Agra')?.price || 220, color: getPropertyData('Agra')?.color || '#32CD32' },
+      { name: 'Varanasi', type: 'property', price: getPropertyData('Varanasi')?.price || 240, color: getPropertyData('Varanasi')?.color || '#32CD32' },
+      { name: 'Chennai Airport', type: 'airport', color: 'gray', price: getPropertyData('Chennai Airport')?.price || 200 },
+      { name: 'Bangalore', type: 'property', price: getPropertyData('Bangalore')?.price || 260, color: getPropertyData('Bangalore')?.color || '#000080' },
+      { name: 'Mysore', type: 'property', price: getPropertyData('Mysore')?.price || 260, color: getPropertyData('Mysore')?.color || '#000080' },
+      { name: 'Water Company', type: 'utility', color: 'lightblue', price: getPropertyData('Water Company')?.price || 150 },
+      { name: 'Mangalore', type: 'property', price: getPropertyData('Mangalore')?.price || 280, color: getPropertyData('Mangalore')?.color || '#000080' }
+    ];
+
+    const leftRow = [
+      { name: 'Chennai', type: 'property', price: getPropertyData('Chennai')?.price || 300, color: getPropertyData('Chennai')?.color || '#FF1493' },
+      { name: 'Coimbatore', type: 'property', price: getPropertyData('Coimbatore')?.price || 300, color: getPropertyData('Coimbatore')?.color || '#FF1493' },
+      { name: 'Treasure', type: 'treasure', color: 'orange' },
+      { name: 'Madurai', type: 'property', price: getPropertyData('Madurai')?.price || 320, color: getPropertyData('Madurai')?.color || '#FF1493' },
+      { name: 'Kolkata Airport', type: 'airport', color: 'gray', price: getPropertyData('Kolkata Airport')?.price || 200 },
+      { name: 'Surprise', type: 'surprise', color: 'pink' },
+      { name: 'Hyderabad', type: 'property', price: getPropertyData('Hyderabad')?.price || 350, color: getPropertyData('Hyderabad')?.color || '#9932CC' },
+      { name: 'Luxury Tax', type: 'tax', color: 'white' },
+      { name: 'Warangal', type: 'property', price: getPropertyData('Warangal')?.price || 400, color: getPropertyData('Warangal')?.color || '#9932CC' }
+    ];
+
+    const corners = [
+      { name: 'START', type: 'corner', color: 'green', className: 'start' },
+      { name: 'In Prison/Just Visiting', type: 'corner', color: 'orange', className: 'prison' },
+      { name: 'Vacation', type: 'corner', color: 'red', className: 'vacation' },
+      { name: 'Go to Prison', type: 'corner', color: 'red', className: 'go-to-jail' }
+    ];
+
+    return { topRow, rightRow, bottomRow, leftRow, corners };
+  };
+
   // Classic board layout (11x11)
   const generateClassicLayout = () => {
     const topRow = [
-      { name: 'START', type: 'corner', color: 'green', className: 'start' },
       { name: 'Salvador', type: 'property', flag: propertyFlags['Salvador'], price: getPropertyData('Salvador')?.price || 60 },
       { name: 'Treasure', type: 'treasure', color: 'orange' },
       { name: 'Rio', type: 'property', flag: propertyFlags['Rio'], price: getPropertyData('Rio')?.price || 60 },
@@ -1275,8 +1344,7 @@ const MonopolyBoard = (props) => {
       { name: 'Tel Aviv', type: 'property', flag: propertyFlags['Tel Aviv'], price: getPropertyData('Tel Aviv')?.price || 100 },
       { name: 'Surprise', type: 'surprise', color: 'pink' },
       { name: 'Haifa', type: 'property', flag: propertyFlags['Haifa'], price: getPropertyData('Haifa')?.price || 100 },
-      { name: 'Jerusalem', type: 'property', flag: propertyFlags['Jerusalem'], price: getPropertyData('Jerusalem')?.price || 120 },
-      { name: 'In Prison / Just Visiting', type: 'corner', color: 'orange', className: 'prison' }
+      { name: 'Jerusalem', type: 'property', flag: propertyFlags['Jerusalem'], price: getPropertyData('Jerusalem')?.price || 120 }
     ];
 
     const rightRow = [
@@ -1316,8 +1384,10 @@ const MonopolyBoard = (props) => {
     ];
 
     const corners = [
-      { name: 'Vacation', type: 'corner', color: 'green', className: 'free-parking' },
-      { name: 'Go to prison', type: 'corner', color: 'red', className: 'go-to-jail' }
+      { name: 'START', type: 'corner', color: 'green', className: 'start' },
+      { name: 'In Prison / Just Visiting', type: 'corner', color: 'orange', className: 'prison' },
+      { name: 'Vacation', type: 'corner', color: 'red', className: 'free-parking' },
+      { name: 'Go to Jail', type: 'corner', color: 'red', className: 'go-to-jail' }
     ];
 
     return { topRow, rightRow, bottomRow, leftRow, corners };
@@ -1419,15 +1489,22 @@ const MonopolyBoard = (props) => {
       }
     } else {
       // Classic map (11x11): Total 40 spaces
+      // Corners: 0=START, 10=Prison, 20=Vacation, 30=Go to Prison
       if (position === 'top') {
-        globalSpaceIndex = index; // 0-10
+        if (isCorner) {
+          // Handle corners in top row
+          globalSpaceIndex = (space.className === 'start') ? 0 : 10;
+        } else {
+          // Top row properties: index 0-8 should map to positions 1-9
+          globalSpaceIndex = 1 + index;
+        }
       } else if (position === 'right') {
-        globalSpaceIndex = 11 + index; // 11-19
+        // Right row properties: index 0-8 should map to positions 11-19
+        globalSpaceIndex = 11 + index;
       } else if (position === 'bottom') {
-        if (space.name === 'Vacation') {
-          globalSpaceIndex = 20;
-        } else if (space.name === 'Go to prison') {
-          globalSpaceIndex = 30;
+        if (isCorner) {
+          // Handle corners in bottom row
+          globalSpaceIndex = (space.className === 'vacation') ? 20 : 30;
         } else {
           // Bottom row properties: index 0-8 should map to positions 21-29
           globalSpaceIndex = 21 + index;
@@ -1450,7 +1527,22 @@ const MonopolyBoard = (props) => {
           {space.type === 'property' && (
             <>
               <div className="property-flag">
-                {propertyFlags[space.name] && (
+                {currentMapName === 'India' && space.color ? (
+                  <div
+                    style={{
+                      width: (position === 'top' || position === 'bottom') ? '100%' : '22px',
+                      height: (position === 'top' || position === 'bottom') ? '22px' : '100%',
+                      backgroundColor: space.color,
+                      border: '1px solid #333',
+                      borderRadius: '2px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transform: position === 'left' ? 'rotate(90deg)' : position === 'right' ? 'rotate(-90deg)' : 'none'
+                    }}
+                    title={space.name}
+                  />
+                ) : propertyFlags[space.name] && (
                   <ReactCountryFlag
                     countryCode={propertyFlags[space.name]}
                     svg
@@ -1589,7 +1681,7 @@ const MonopolyBoard = (props) => {
               borderRadius: '4px',
               fontSize: '10px',
               fontWeight: 'bold',
-              zIndex: 130,
+              zIndex: 50,
               whiteSpace: 'nowrap'
             }}>
               Cash: ${vacationCash}
@@ -1916,7 +2008,17 @@ const MonopolyBoard = (props) => {
     <div className={`monopoly-board ${mapLayout.boardType}`}>
       {/* Top Row - Dynamic based on map */}
       <div className="board-row top-row">
-        {topRow.map((space, index) => renderSpace(space, index, 'top'))}
+        {mapLayout.boardType === 'worldwide' ? (
+          // For worldwide, corners are included in the row arrays
+          topRow.map((space, index) => renderSpace(space, index, 'top'))
+        ) : (
+          // For classic, corners are separate - START (0) and In Prison (10)
+          <>
+            {renderSpace(corners[0], 0, 'top')}
+            {topRow.map((space, index) => renderSpace(space, index, 'top'))}
+            {renderSpace(corners[1], 10, 'top')}
+          </>
+        )}
       </div>
 
       {/* Right Column - Dynamic based on map (excluding corners) */}
@@ -1930,11 +2032,11 @@ const MonopolyBoard = (props) => {
           // For worldwide, corners are included in the row arrays
           bottomRow.map((space, index) => renderSpace(space, index, 'bottom'))
         ) : (
-          // For classic, corners are separate
+          // For classic, corners are separate - Vacation (20) and Go to Prison (30)
           <>
-            {renderSpace(corners[0], 0, 'bottom')}
+            {renderSpace(corners[2], 20, 'bottom')}
             {bottomRow.map((space, index) => renderSpace(space, index, 'bottom'))}
-            {renderSpace(corners[1], 1, 'bottom')}
+            {renderSpace(corners[3], 30, 'bottom')}
           </>
         )}
       </div>
