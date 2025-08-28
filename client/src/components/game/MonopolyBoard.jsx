@@ -1278,7 +1278,7 @@ const MonopolyBoard = (props) => {
     const topRow = [
       { name: 'Pune', type: 'property', price: getPropertyData('Pune')?.price || 60, color: getPropertyData('Pune')?.color || '#800000' },
       { name: 'Treasure', type: 'treasure', color: 'orange' },
-      { name: 'Nashik', type: 'property', price: getPropertyData('Nashik')?.price || 60, color: getPropertyData('Nashik')?.color || '#800000' },
+      { name: 'Mumbai', type: 'property', price: getPropertyData('Mumbai')?.price || 60, color: getPropertyData('Mumbai')?.color || '#800000' },
       { name: 'Income Tax', type: 'tax', color: 'white' },
       { name: 'Mumbai Airport', type: 'airport', color: 'gray', price: getPropertyData('Mumbai Airport')?.price || 200 },
       { name: 'Surat', type: 'property', price: getPropertyData('Surat')?.price || 100, color: getPropertyData('Surat')?.color || '#FF8C00' },

@@ -1006,7 +1006,7 @@ const GamePage = () => {
       // India map (40 spaces) - 11x11 grid
       const indiaPropertyMap = {
         // Top row (positions 1-9)
-        1: 'Pune', 3: 'Nashik', 5: 'Mumbai Airport', 6: 'Surat', 8: 'Ahmedabad', 9: 'Rajkot',
+        1: 'Pune', 3: 'Mumbai', 5: 'Mumbai Airport', 6: 'Surat', 8: 'Ahmedabad', 9: 'Rajkot',
         // Right row (positions 11-19)
         11: 'Jaipur', 12: 'Electric Company', 13: 'Jodhpur', 14: 'Udaipur', 15: 'Delhi Airport', 
         16: 'Kochi', 18: 'Kottayam', 19: 'Kozhikode',
@@ -1356,8 +1356,8 @@ const GamePage = () => {
     setPropertyLandingState(null);
   };
 
-  const gameUrl = `https://monopoly-fu9p.onrender.com/game/${roomId}`;
-  // const gameUrl = `http://localhost:4000/game/${roomId}`;
+  // const gameUrl = `https://monopoly-fu9p.onrender.com/game/${roomId}`;
+  const gameUrl = `http://localhost:4000/game/${roomId}`;
   const handleSendMessage = (messageText) => {
     if (!playerJoined || !socket.connected) return; // Don't allow messages until joined and connected
 

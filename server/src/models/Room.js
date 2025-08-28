@@ -1074,7 +1074,7 @@ class Room {
       // India map positions (40 spaces) - 11x11 grid layout
       const indiaPropertyMap = {
         // Top row (0-10): Start → In Prison/Just Visiting
-        'Pune': 1, 'Nashik': 3, 'Mumbai Airport': 5, 'Surat': 6, 'Ahmedabad': 8, 'Rajkot': 9,
+        'Pune': 1, 'Mumbai': 3, 'Mumbai Airport': 5, 'Surat': 6, 'Ahmedabad': 8, 'Rajkot': 9,
         
         // Right column (11-19): In Prison/Just Visiting → Vacation
         'Jaipur': 11, 'Electric Company': 12, 'Jodhpur': 13, 'Udaipur': 14, 'Delhi Airport': 15, 'Kochi': 16, 'Kottayam': 18, 'Kozhikode': 19,
@@ -1156,7 +1156,7 @@ class Room {
       // India map positions (40 spaces) - 11x11 grid layout
       const indiaPositionMap = {
         // Top row (0-10): Start → In Prison/Just Visiting
-        0: 'START', 1: 'Pune', 2: 'Treasure', 3: 'Nashik', 4: 'Income Tax', 5: 'Mumbai Airport',
+        0: 'START', 1: 'Pune', 2: 'Treasure', 3: 'Mumbai', 4: 'Income Tax', 5: 'Mumbai Airport',
         6: 'Surat', 7: 'Surprise', 8: 'Ahmedabad', 9: 'Rajkot', 10: 'In Prison/Just Visiting',
 
         // Right column (11-19): In Prison/Just Visiting → Vacation

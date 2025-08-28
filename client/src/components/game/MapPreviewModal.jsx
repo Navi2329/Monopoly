@@ -143,7 +143,7 @@ const MapPreviewModal = ({
       // India map positions (40 spaces) - 11x11 grid layout
       const indiaPositionMap = {
         // Top row (0-10): Start → In Prison/Just Visiting
-        0: 'START', 1: 'Pune', 2: 'Treasure', 3: 'Nashik', 4: 'Income Tax', 5: 'Mumbai Airport',
+        0: 'START', 1: 'Pune', 2: 'Treasure', 3: 'Mumbai', 4: 'Income Tax', 5: 'Mumbai Airport',
         6: 'Surat', 7: 'Surprise', 8: 'Ahmedabad', 9: 'Rajkot', 10: 'In Prison/Just Visiting',
 
         // Right column (11-19): In Prison/Just Visiting → Vacation

@@ -1236,6 +1236,16 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
     }, 1000);
     
     safeEmit(io, roomId, 'auctionStarted', room.auction);
+    
+    // Trigger bot auction participation
+    setTimeout(() => {
+      const bots = participants.filter(p => p.isBot);
+      bots.forEach(bot => {
+        setTimeout(() => {
+          botService.handleBotAuction(room, bot.id, io);
+        }, Math.random() * 2000 + 1000); // Random delay between 1-3 seconds
+      });
+    }, 1000);
   };
 
   // Helper function to end auction
@@ -1343,6 +1353,16 @@ const endTurn = async ({ roomId, vacationEndTurnPlayerId }) => {
     
     // console.log('[SERVER] Auction bid:', player.name, 'bid', newBid);
     safeEmit(io, roomId, 'auctionUpdate', room.auction);
+    
+    // Trigger bot responses to new bid
+    setTimeout(() => {
+      const bots = room.auction.participants.filter(p => p.isBot && !room.auction.passedPlayers.includes(p.id) && p.id !== player.id);
+      bots.forEach(bot => {
+        setTimeout(() => {
+          botService.handleBotAuction(room, bot.id, io);
+        }, Math.random() * 1500 + 500); // Random delay between 0.5-2 seconds
+      });
+    }, 500);
   };
 
   // Handle auction pass
